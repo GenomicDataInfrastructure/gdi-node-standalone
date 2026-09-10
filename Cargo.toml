@@ -157,7 +157,7 @@ noodles-vcf = "=0.93.0"
 noodles-bgzf = "=0.51.0"
 parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "zstd"] }
 arrow-array = { version = "=59.2.0", default-features = false }
-arrow-schema = { version = "=59.2.0", default-features = false }
+arrow-schema = { version = "=59.3.0", default-features = false }
 arrow-buffer = { version = "=59.2.0", default-features = false }
 arrow-data = { version = "=59.2.0", default-features = false }
 arrow-select = { version = "=59.2.0", default-features = false }
