@@ -143,7 +143,7 @@ services:
   # --- Log store (single-binary dev mode) -----------------------------------
   # Alloy ships container logs here; Grafana queries it as the Loki datasource.
   loki:
-    image: grafana/loki:3.7.6@sha256:efd47c67f9bac88ca29bcf8cb997d9ab29d1848bd0aff579282295542a745952
+    image: grafana/loki:3.7.7@sha256:d70e4659623f3e109af669cae76fe2a5dd5be54e2298fe8aed380d982fbc2500
     logging: *obs-logging
     command: -config.file=/etc/loki/local-config.yaml
     volumes:
@@ -176,7 +176,7 @@ services:
   # forwarded to Tempo) plus a Docker-log collector (discovers container logs via
   # the docker socket and ships them to Loki). Its config is River/HCL.
   alloy:
-    image: grafana/alloy:v1.18.1@sha256:0f4434c92b3e6cdac38bb129b344e1790c246f7b6e2eaffcc16a5fa363240e33
+    image: grafana/alloy:v1.19.2@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
     logging: *obs-logging
     # docker.sock access (even :ro) is equivalent to host root, so privilege escalation
     # inside the agent is blocked. Run this overlay only on a local development host,
@@ -208,7 +208,7 @@ services:
   # gdi-node-standalone dashboard. Anonymous Admin access, for local development only —
   # never expose this overlay publicly.
   grafana:
-    image: grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b
+    image: grafana/grafana:13.2.1@sha256:f772d434e8fab0049deb2b1b30abd43342bcfca1537614aa8d36080232cf4283
     logging: *obs-logging
     environment:
       # Development only: no login, everyone is Admin. Do not use outside local dev.
