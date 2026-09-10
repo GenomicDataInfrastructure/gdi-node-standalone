@@ -161,7 +161,7 @@ arrow-schema = { version = "=59.3.0", default-features = false }
 arrow-buffer = { version = "=59.3.0", default-features = false }
 arrow-data = { version = "=59.3.0", default-features = false }
 arrow-select = { version = "=59.2.0", default-features = false }
-sha2 = "=0.10.9"
+sha2 = "=0.11.0"
 # crypt4gh codec: the pure-Rust RustCrypto stack, so nothing here needs `unsafe` or C.
 x25519-dalek = { version = "=2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
