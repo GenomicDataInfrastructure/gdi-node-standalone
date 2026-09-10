@@ -186,7 +186,7 @@ wiremock = "=0.6.5"
 # framework JSON Schemas. Default features off drops the `resolve-http` and `resolve-file`
 # retrievers — the test serves the vendored schema tree through its own blocking retriever
 # — so it pulls no TLS stack and keeps the ring-only, no-aws-lc-rs invariant.
-jsonschema = { version = "=0.51.0", default-features = false }
+jsonschema = { version = "=0.55.0", default-features = false }
 
 # cargo-machete (unused-dependency gate) ignores. `time` is optional and feature-gated
 # behind `s3`, and machete's default scan does not enable features, so it flags a
