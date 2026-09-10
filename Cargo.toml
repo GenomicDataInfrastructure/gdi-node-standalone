@@ -187,7 +187,7 @@ figment = { version = "=0.10.19", features = ["toml", "env"] }
 toml = "=0.8.23"
 # Format-preserving TOML editing, already in the tree via `toml`. A tool config is updated
 # in place rather than re-serialised, so operator comments and inline credentials survive.
-toml_edit = "=0.22.27"
+toml_edit = "=0.25.13"
 # S3 client: endpoint-agnostic object_store, shared so the always-networked
 # `gdi-dataset-tool` and the service's `s3` feature resolve one pinned version.
 # `aws-base` is the transport-agnostic S3 client (the umbrella `aws` feature would force
