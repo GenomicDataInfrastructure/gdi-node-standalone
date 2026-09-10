@@ -34,15 +34,15 @@ exists.
 The `## [1.0.0]` date below is the intended release date, not a tagged fact: no tag has
 been cut. Correct it to the actual date if the tag slips, before pushing `v1.0.0`.
 
-No tag exists yet either, so `[Unreleased]` at the bottom points at the commit log rather
+No `v1.0.0` tag exists yet, so `[Unreleased]` at the bottom points at the commit log rather
 than a compare range. Change it to `compare/v1.0.0...HEAD` once `v1.0.0` is tagged, which
 is also when `[1.0.0]` starts resolving.
 -->
 
-## [1.0.0] - 2026-09-09
+## [1.0.0] - 2026-09-11
 
-*Prepared, not yet tagged: this section becomes true when `v1.0.0` is pushed, and the link
-at the bottom resolves from that moment.*
+*Not released yet — release candidates draw their notes from this section. The date above
+is the intended one. Correct it and delete this note when `v1.0.0` is tagged.*
 
 Initial public release. There is no earlier public version, so this section records the
 baseline rather than a set of changes: it names the contracts this release establishes, so
