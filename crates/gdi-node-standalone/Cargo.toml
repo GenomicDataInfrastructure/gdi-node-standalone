@@ -105,7 +105,7 @@ tower-http = { workspace = true }
 # The public plane is served through a manual hyper accept loop rather than `axum::serve`,
 # so it can set `http1_header_read_timeout` and cap concurrent connections. Both crates are
 # already in the graph via axum; pinned exact, as everything else is.
-hyper = { version = "=1.11.0", default-features = false, features = ["server", "http1"] }
+hyper = { version = "=1.11.1", default-features = false, features = ["server", "http1"] }
 hyper-util = { version = "=0.1.20", default-features = false, features = [
   "server",
   "server-graceful",

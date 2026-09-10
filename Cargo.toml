@@ -149,7 +149,7 @@ anyhow = "=1.0.104"
 thiserror = "=2.0.20"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
-serde-saphyr = "=1.1.0"
+serde-saphyr = "=1.2.0"
 regex = "=1.13.1"
 url = "=2.5.8"
 time = { version = "=0.3.55", features = ["formatting", "macros", "parsing"] }
@@ -157,9 +157,9 @@ noodles-vcf = "=0.93.0"
 noodles-bgzf = "=0.51.0"
 parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "zstd"] }
 arrow-array = { version = "=59.2.0", default-features = false }
-arrow-schema = { version = "=59.2.0", default-features = false }
-arrow-buffer = { version = "=59.2.0", default-features = false }
-arrow-data = { version = "=59.2.0", default-features = false }
+arrow-schema = { version = "=59.3.0", default-features = false }
+arrow-buffer = { version = "=59.3.0", default-features = false }
+arrow-data = { version = "=59.3.0", default-features = false }
 arrow-select = { version = "=59.2.0", default-features = false }
 sha2 = "=0.10.9"
 # crypt4gh codec: the pure-Rust RustCrypto stack, so nothing here needs `unsafe` or C.
@@ -206,7 +206,7 @@ reqwest = { version = "=0.13.4", default-features = false, features = ["json", "
 # rustls with `custom-provider`, which disables the implicit provider so one must be
 # installed explicitly. Shared by the service's `tls` group and the tool's startup
 # crypto-provider install; this is the surface that keeps the build on `ring` alone.
-rustls = { version = "=0.23.43", default-features = false, features = ["ring", "custom-provider", "logging", "tls12"] }
+rustls = { version = "=0.23.44", default-features = false, features = ["ring", "custom-provider", "logging", "tls12"] }
 # Mozilla CA roots as full DER certificates: `webpki-root-certs`, not the trust-anchor
 # `webpki-roots`, which reqwest 0.13 no longer consumes. Merged on top of the host platform
 # trust store, via reqwest's `tls_certs_merge` and object_store's `with_root_certificate`,
@@ -232,7 +232,7 @@ tower = { version = "=0.5.3", default-features = false, features = ["limit", "lo
 # would mean pinning this direct dependency back to 0.6 to suit a transitive one, so the
 # duplicate stays until reqwest moves to 0.7. It costs compile time only: no runtime or
 # advisory impact, and the `cargo deny` bans pass.
-tower-http = { version = "=0.7.0", default-features = false, features = ["limit", "timeout", "catch-panic", "cors", "request-id", "trace"] }
+tower-http = { version = "=0.7.1", default-features = false, features = ["limit", "timeout", "catch-panic", "cors", "request-id", "trace"] }
 # Prometheus / OpenMetrics instrumentation. `metrics` is the pure-Rust facade; the exporter
 # takes default features off, so it pulls no HTTP server stack and not its `push-gateway`
 # default, which would bring in `aws-lc-rs` (banned in deny.toml). The crate's
