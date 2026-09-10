@@ -227,7 +227,7 @@ services:
   # active — so enabling both renders fine under `config` and then fails to bind on
   # `up`. That is the intended reading: pick one backend.
   vault:
-    image: hashicorp/vault:2.0.4
+    image: hashicorp/vault:2.1.0
     profiles: ["vault"]
     logging: *default-logging
     # No -config flag: the entrypoint already appends -config=/vault/config. Passing
@@ -253,7 +253,7 @@ services:
 
   # --- Static seal key generation (runs before the backend starts) -----------
   secrets-keygen:
-    image: alpine/curl:8.21.0
+    image: alpine/curl:8.22.0
     profiles: ["openbao"]
     environment:
       KEYS_DIR: /keys
@@ -268,7 +268,7 @@ services:
   # VAULT_ADDR already selects the target. Mints a token whose id is the fixed
   # `dev-root-token`, so node.full.toml / setup.sh / the node need no change.
   secrets-init:
-    image: alpine/curl:8.21.0
+    image: alpine/curl:8.22.0
     profiles: ["openbao", "vault"]
     depends_on:
       # `service_started`, not `service_healthy`, and the distinction matters.
@@ -302,7 +302,7 @@ services:
 
   # --- S3 backend: Garage (default; `garage` profile, active via .env) -------
   garage:
-    image: dxflrs/garage:v2.3.0
+    image: dxflrs/garage:v2.4.1
     profiles: ["garage"]
     logging: *default-logging
     volumes:
@@ -331,7 +331,7 @@ services:
   # alpine/curl sidecar (assign+apply layout, create bucket, import the fixed dev
   # key, grant access). Idempotent — safe to re-run on `up`.
   garage-setup:
-    image: alpine/curl:8.21.0
+    image: alpine/curl:8.22.0
     profiles: ["garage"]
     depends_on:
       garage:
@@ -400,7 +400,7 @@ services:
   # The node crypt4gh identity is provisioned separately by the gdi-node-standalone
   # `identity init` subcommand — see the quick start at the top of this file.
   setup:
-    image: alpine/curl:8.21.0
+    image: alpine/curl:8.22.0
     profiles: ["setup"]
     environment:
       VAULT_ADDR: ${VAULT_ADDR:-http://openbao:8200}
