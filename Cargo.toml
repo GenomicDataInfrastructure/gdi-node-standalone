@@ -184,7 +184,7 @@ indicatif = { version = "=0.18.6", default-features = false, features = ["unicod
 figment = { version = "=0.10.19", features = ["toml", "env"] }
 # TOML serialization for writing the tool config (`config init`, `catalogs --sync`, the
 # wizard). Pinned to the version figment already brings, so no duplicate crate enters.
-toml = "=0.8.23"
+toml = "=1.1.5"
 # Format-preserving TOML editing, already in the tree via `toml`. A tool config is updated
 # in place rather than re-serialised, so operator comments and inline credentials survive.
 toml_edit = "=0.22.27"
