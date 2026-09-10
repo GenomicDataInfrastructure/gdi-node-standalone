@@ -46,7 +46,7 @@ REUSE resolves each file's `SPDX-License-Identifier` against.
 
 ## Overview
 
-- **Apache License 2.0** — 240 crate(s)
+- **Apache License 2.0** — 236 crate(s)
 - **MIT License** — 64 crate(s)
 - **ISC License** — 20 crate(s)
 - **Unicode License v3** — 19 crate(s)
@@ -483,10 +483,10 @@ Used by:
 
 Used by:
 - arrow-array 59.2.0
-- arrow-buffer 59.2.0
-- arrow-data 59.2.0
+- arrow-buffer 59.3.0
+- arrow-data 59.3.0
 - arrow-ipc 59.2.0
-- arrow-schema 59.2.0
+- arrow-schema 59.3.0
 - arrow-select 59.2.0
 - encode_unicode 1.0.0
 - encoding_rs 0.8.35
@@ -1435,14 +1435,10 @@ Used by:
 - windows-link 0.2.1
 - windows-result 0.4.1
 - windows-strings 0.5.1
-- windows-sys 0.52.0
 - windows-sys 0.60.2
 - windows-sys 0.61.2
-- windows-targets 0.52.6
 - windows-targets 0.53.5
-- windows_x86_64_gnu 0.52.6
 - windows_x86_64_gnu 0.53.1
-- windows_x86_64_msvc 0.52.6
 - windows_x86_64_msvc 0.53.1
 
 ```
@@ -5732,7 +5728,7 @@ Used by:
 - ring 0.17.14
 - rustix 1.1.4
 - rustls-native-certs 0.8.4
-- rustls 0.23.43
+- rustls 0.23.44
 - scopeguard 1.2.0
 - security-framework-sys 2.17.0
 - security-framework 3.7.0
@@ -7237,7 +7233,7 @@ Used by:
 - async-trait 0.1.92
 - figment 0.10.19
 - flatbuffers 25.12.19
-- granit-parser 1.1.0
+- granit-parser 1.2.0
 - half 2.7.1
 - itoa 1.0.18
 - libc 0.2.189
@@ -7261,7 +7257,7 @@ Used by:
 - ryu-js 1.0.3
 - ryu 1.0.23
 - seq-macro 0.3.6
-- serde-saphyr 1.1.0
+- serde-saphyr 1.2.0
 - serde 1.0.229
 - serde_core 1.0.229
 - serde_derive 1.0.229
@@ -8647,7 +8643,7 @@ THE SOFTWARE.
 ### MIT License (MIT)
 
 Used by:
-- hyper 1.11.0
+- hyper 1.11.1
 
 ```
 Copyright (c) 2014-2026 Sean McArthur
@@ -9046,7 +9042,7 @@ DEALINGS IN THE SOFTWARE.
 
 Used by:
 - tower-http 0.6.11
-- tower-http 0.7.0
+- tower-http 0.7.1
 
 ```
 Copyright (c) 2019-2021 Tower Contributors
