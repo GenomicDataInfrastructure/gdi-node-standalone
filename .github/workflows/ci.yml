@@ -744,9 +744,8 @@ jobs:
   # the zero-coverage guard (`check-coverage-zero.py`, a file the suite never enters) —
   # runs locally in `ci-local.sh release`.
 
-  # Dependabot's update PRs for the main workspace are vetted by the existing
-  # `cargo deny check` gate (see the `supply-chain` job + .github/dependabot.yml), so
-  # the pinned Cargo.lock stays current instead of rotting between manual bumps.
+  # `cargo deny check` vets whatever the lock says. Dependabot version updates are off
+  # (see .github/dependabot.yml), so the lock moves only when someone bumps it by hand.
   # The isolated cargo-fuzz crate (crates/core/fuzz) is excluded from this workspace, so
   # `--workspace` never reaches it. It is covered anyway: the `fuzz-smoke` job below
   # compile-gates its targets per PR, `deny_fuzz` inside the `supply-chain` leg scans its

@@ -1,14 +1,21 @@
-# Dependabot configuration: dependency freshness is automated, and `cargo deny`
-# plus the full CI gate then vet every update PR.
+# Dependabot configuration.
 #
-# Covers the Cargo workspace, the isolated cargo-fuzz crate, the Python
-# conformance/interop tooling, the GitHub Actions used by the workflows, and the
-# Dockerfile base images. A main-workspace update PR runs the full CI (fmt/clippy/
-# test + cargo deny + the cross-compile checks), so a bump that introduces an
-# advisory, a banned crate, or a breaking change fails before merge. One caveat: the
-# cargo-fuzz crate is excluded from the workspace, so per-PR CI does not compile or
-# deny-check its lock — a fuzz-only bump is advisory-scanned by the weekly scheduled
-# `advisories` job instead (see .github/workflows/scheduled.yml).
+# VERSION UPDATES ARE OFF: every entry sets `open-pull-requests-limit: 0`. Security
+# updates ignore that limit, so alerts and security PRs still work and this file still
+# configures them. Raise an entry's limit to turn version updates back on for it;
+# `github-actions` is the safe one to start with.
+#
+# Two inputs here Dependabot cannot maintain:
+#
+#   * The cargo-fuzz crate has its own lockfile. A bump from either side leaves the other
+#     lock stale and every `--locked` command fails. Its entry is deleted rather than
+#     zeroed, because the limit does not gate security updates.
+#   * `conformance/requirements.lock` is hash-generated. Dependabot only edits
+#     `requirements.txt`, so the two stop matching.
+#
+# Covers the Cargo workspace, the Python conformance and k8s tooling, the Actions the
+# workflows use, the Dockerfile base images and the compose stacks. Pins are exact
+# (`=x.y.z`), so with version updates off they move only when someone bumps them by hand.
 version: 2
 updates:
   # Cargo dependencies. The dependencies are exact-pinned ("=x.y.z") in the
@@ -17,7 +24,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0   # was 10; see the header
     commit-message:
       # This repo uses Conventional Commits.
       prefix: build
@@ -30,23 +37,15 @@ updates:
           - minor
           - patch
 
-  # The isolated cargo-fuzz crate carries its own Cargo.lock (nightly-only,
-  # excluded from the workspace), so it needs its own Dependabot entry.
-  - package-ecosystem: cargo
-    directory: "/crates/core/fuzz"
-    schedule:
-      interval: monthly
-    open-pull-requests-limit: 5
-    commit-message:
-      prefix: build
-      prefix-development: build
+  # No `/crates/core/fuzz` entry: see the header. Alerts for that lock still come from the
+  # dependency graph, so a vulnerability there is reported either way.
 
   # GitHub Actions used by the CI and release workflows.
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 0   # was 10; see the header
     commit-message:
       prefix: ci
     groups:
@@ -70,7 +69,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0   # was 5; see the header
     commit-message:
       prefix: build
     groups:
@@ -95,7 +94,7 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0   # was 5; see the header
     commit-message:
       prefix: build
     groups:
@@ -114,7 +113,7 @@ updates:
     directory: "/conformance"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0   # was 5; see the header
     commit-message:
       prefix: build
     groups:
@@ -132,7 +131,7 @@ updates:
     directory: "/scripts/tests/k8s"
     schedule:
       interval: weekly
-    open-pull-requests-limit: 2
+    open-pull-requests-limit: 0   # was 2; see the header
     commit-message:
       prefix: build
     groups:
