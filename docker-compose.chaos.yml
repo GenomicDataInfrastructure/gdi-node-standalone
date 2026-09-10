@@ -1,0 +1,49 @@
+# Chaos overlay for the full e2e stack: inserts a toxiproxy sidecar between the node and
+# its S3 + Vault dependencies so a fault can be injected on the wire (latency, bandwidth,
+# connection reset, timeout) without touching the node or the backends.
+#
+# Usage: run `scripts/chaos/run.sh`. It is the only supported entry point. This file does
+# not restate its invocation, because a second copy drifts, and a drifted one here can
+# silently disable the very thing the overlay exists to test (below).
+#
+# Selecting `chaos` is required, not optional: `toxiproxy` below is profile-gated while the
+# node `depends_on` it, so without it Compose rejects the whole project with
+# `service "gdi-node-standalone" depends on undefined service "toxiproxy"` (exit 1) — the
+# stack does not come up degraded, it does not come up at all.
+#
+# Select it through `COMPOSE_PROFILES` (as run.sh does), not through `--profile`. The two
+# are not equivalent: `--profile` replaces `COMPOSE_PROFILES` rather than adding to it, so
+# `--profile chaos` drops the `garage`/`openbao` (or `minio`/`vault`) profiles that the
+# backends are gated behind. Rendered, that route yields exactly two services —
+# `gdi-node-standalone` and `toxiproxy` — with no S3 and no secrets backend at all.
+# toxiproxy's upstreams then do not resolve and the node loses its Vault race and latches
+# keyless-degraded, which does not self-heal (see the `depends_on` note in
+# docker-compose.yml), so every injected fault produces a result indistinguishable from
+# the missing backends: the run looks like it worked and its verdict is meaningless.
+#
+# toxiproxy proxies (created at runtime via the admin API on :8474 by the scenario script):
+#   s3    listen 0.0.0.0:23900 -> upstream garage:3900   (or minio:9000)
+#   vault listen 0.0.0.0:28200 -> upstream openbao:8200   (or vault:8200)
+# The node reaches toxiproxy by compose DNS; only the admin port is published (loopback).
+services:
+  toxiproxy:
+    # Pinned; the scenario script drives the admin API (:8474). Same network as the stack.
+    image: ghcr.io/shopify/toxiproxy:2.12.0
+    profiles: ["chaos"]
+    command: ["-host", "0.0.0.0"]
+    ports:
+      # Overridable (GDI_HOST_PORT_TOXIPROXY) — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_TOXIPROXY:-8474}:8474"   # admin API — loopback only
+    healthcheck:
+      test: ["CMD", "/toxiproxy-cli", "list"]
+      start_period: 3s
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # The node's dependency endpoints are repointed at the toxiproxy listeners by the
+  # environment scripts/chaos/run.sh exports; toxiproxy must be up first.
+  gdi-node-standalone:
+    depends_on:
+      toxiproxy:
+        condition: service_healthy

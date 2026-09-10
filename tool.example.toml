@@ -1,0 +1,205 @@
+# gdi-dataset-tool configuration: annotated reference.
+#
+# This is the provider-side config, distinct from the service's node.example.toml.
+# With `--config <PATH>` the tool reads that exact file, tolerating a missing one as
+# empty. With no `--config` it reads `<config dir>/tool.toml`, where the config dir is
+# $GDI_CONFIG_DIR, else $XDG_CONFIG_HOME/gdi, else ~/.config/gdi, and skips it silently
+# when it does not exist.
+#
+# Every key may be overridden by a `GDI_TOOL__`-prefixed environment variable, such as
+# `GDI_TOOL__COUNTRY_CODE` or `GDI_TOOL__PROFILES__EE_PROD__S3__SECRET_ACCESS_KEY`, which
+# wins over the file.
+#
+# Unknown keys are a hard error, so this file documents the complete schema. All sections
+# are optional; a minimal config is a root `country_code` plus one `[profiles.<name>]`.
+
+# ----------------------------------------------------------------------------
+# Provider-wide settings: root-level keys, which must appear before any [section].
+# ----------------------------------------------------------------------------
+# Two-letter country code baked into every dataset ID, as in GDI-EE-EXAMPLE-<ts>.
+# Lowest-precedence source: overridden by GDI_TOOL__COUNTRY_CODE, then by the `--cc`
+# flag. There is no default, so `build` and `package` error if it is unset everywhere.
+# Type: string (2 uppercase letters). Optional (but required to build).
+country_code = "EE"
+
+# The profile used when no `--profile` flag is given. Must name one of the
+# [profiles.<name>] keys below. If unset and exactly one profile exists, that one
+# is used; with several, the tool asks for `--profile`. Overridable via
+# GDI_TOOL__DEFAULT_PROFILE.
+# Type: string. Optional.
+default_profile = "ee_prod"
+
+# ----------------------------------------------------------------------------
+# [keys]: the provider's own crypt4gh identities.
+# ----------------------------------------------------------------------------
+[keys]
+# Secret-key files tried in order when decrypting the provider's own packages
+# (inspect/validate/unpack/rekey try every entry). The first is the primary: its
+# recipient is added as the second encryption recipient on every package, so you
+# can always decrypt what you ship. List a previous key after a rotation so old
+# packages still decrypt.
+#
+# These are the provider's own keys, not the node's. The node generates and keeps its
+# key; the tool only ever learns its public recipient, via `node_recipient_url` or
+# `node_recipient_file` in the profile below.
+#
+# Paths here are not relative to your shell's working directory. A relative entry, and
+# the implicit default, resolve against a base dir that depends on how you invoke the
+# tool:
+#   * with `--config <PATH>`  => the directory containing that config file
+#   * with no `--config`      => the gdi config dir: $GDI_CONFIG_DIR, else
+#                                $XDG_CONFIG_HOME/gdi, else ~/.config/gdi
+# So `keys generate` with no --config writes into the config dir rather than your
+# project directory, which is why `ls ./keys/` then shows nothing. Empty or omitted means
+# one implicit key at `<base>/keys/provider.c4gh`. Absolute entries are used verbatim.
+# Run `gdi-dataset-tool keys show` to print the exact path in use.
+# Type: list of file paths. Optional.
+identities = ["keys/provider.c4gh", "keys/provider-prev.c4gh"]
+
+# ----------------------------------------------------------------------------
+# [profiles.<name>]: one target-node deployment each. `--profile <name>` switches the
+# whole set together: service_url, management_url, S3 bucket, recipient and catalogs.
+#
+# Use only letters, digits and underscores in a profile name, never hyphens. The
+# GDI_TOOL__PROFILES__<NAME>__… environment overlay splits on `__` and can only spell
+# `_`, so a hyphenated name such as `ee-prod` is unreachable that way: credentials you
+# inject land in a separate `ee_prod` phantom profile and the real one fails to
+# authenticate. The tool warns when it detects such a twin.
+# ----------------------------------------------------------------------------
+
+# An S3-backed node, reached remotely over its public Ingress.
+[profiles.ee_prod]
+# The node's public base URL, used for the FDP crawl and recipient reads: catalogs,
+# check, doctor, and /.well-known/c4gh-recipient. It is not the dataset-state oracle;
+# that is `management_url` below.
+# Type: URL. Optional.
+service_url = "https://gdi-ee.example.org"
+
+# `management_url` is omitted here because a remote node's management plane, which
+# serves health and GET /datasets/{id}/state, is kept off the public Ingress. The tool
+# then falls back to the bucket `{id}.state.json` sidecar for state, and the node
+# re-validates on ingest as the backstop. Set `management_url` only where the management
+# listener is reachable; see the ee_local profile below.
+
+# URL where the node publishes its crypt4gh recipient (online convenience). The
+# tool fetches it to encrypt packages to the node.
+# Type: URL. Optional.
+node_recipient_url = "https://gdi-ee.example.org/.well-known/c4gh-recipient"
+
+# Local file holding the node's crypt4gh recipient. Used only when neither
+# node_recipient_url nor service_url offers one online; it is not a fallback for a failed
+# online fetch. `--recipient` on pack, package and rekey overrides both this and the URL.
+# Type: file path. Optional.
+node_recipient_file = "keys/node-ee.pub"
+
+# The institute abbreviation minted into every dataset id built under this profile: the
+# ORG in `GDI-EE-<ORG>-<millis>`, 1 to 16 uppercase ASCII letters. It is a fact about the
+# provider, like the root-level `country_code`, so it lives here rather than in every
+# package.yaml, and `wizard setup` asks for it once. An integrating backend binds this
+# value to the provider and refuses a package whose id carries any other.
+# Type: string. Optional (while unset, the wizard asks and offers to store the answer).
+org = "EXAMPLE"
+
+# What `build` and `package` put in the packaged `headers/{vcfId}.vcf` members when no
+# `--header-policy` or `--no-headers` flag is given. The node drops these members at
+# ingest and never serves them; they travel only in the package's non-public sections
+# (see docs/package-format.md).
+#   minimal          structural keys only, `#CHROM` truncated to the eight fixed
+#                    columns, no sample identifiers.
+#   with-identifiers minimal plus the `#CHROM` sample columns and the `##SAMPLE` and
+#                    `##PEDIGREE` lines, for a node operator whose tooling accounts
+#                    for samples.
+#   none             no headers at all.
+# `verbatim`, which can carry tool command lines and filesystem paths, is not accepted
+# here and stays a per-invocation flag. `wizard setup` asks for this, and a flag always
+# wins over it.
+# Type: "minimal" | "with-identifiers" | "none". Default: minimal.
+# header_policy = "minimal"
+
+# The single S3 bucket this profile's node monitors (for upload/download/list and
+# the S3 lifecycle channel). Omit the whole [profiles.<name>.s3] block for an inbox-only
+# node. Endpoint-agnostic: Ceph, Garage and minio differ only here.
+[profiles.ee_prod.s3]
+# Bucket name on the endpoint. Required for any S3 op.
+# Type: string.
+bucket = "gdi-ee-datasets"
+# Key prefix within that bucket. Omit it for the whole bucket. Where the node is confined
+# to a prefix, because it shares the bucket with backups, a second node or a test channel,
+# set this to exactly the `prefix` on the node's [[s3.buckets]] entry for this channel.
+# Writer and reader must address one keyspace: a prefix on only one side means uploads the
+# node never lists, or a `list` or `status` that reports an empty bucket the node is
+# serving from. `wizard setup` asks for this in its S3 step, where blank means the whole
+# bucket, and validates the spelling the same way the node does.
+# Type: string. Default: "" (the whole bucket). Optional.
+# prefix = "gdi-node-storage/"
+# Logical channel name the node monitors this bucket under, which is the node's
+# per-bucket `name`. When set, publish, unpublish and delete warn if the node reports the
+# dataset owned by a different channel. That guards a multi-bucket node against a
+# lifecycle operation run under the wrong profile, which would write a sidecar the node
+# never observes. Single-bucket deployments can omit it. It is the node's
+# `[[s3.buckets]].name`, not the bucket name, so a guess makes the guard warn on every
+# correct operation. `wizard setup` asks for it; leaving that prompt blank keeps it unset.
+# Type: string. Optional.
+# channel = "primary"
+# S3-compatible endpoint URL. Required for every S3 verb, including against AWS S3
+# itself: give the regional endpoint explicitly, such as
+# https://s3.eu-north-1.amazonaws.com.
+# Type: URL. Required.
+endpoint = "https://s3.gdi-ee.example.org"
+# Region; some endpoints require it. Default: us-east-1 (the conventional
+# placeholder Ceph/Garage/minio accept).
+# Type: string. Optional.
+region = "us-east-1"
+# Path-style addressing (Ceph/Garage/minio) vs virtual-hosted (AWS).
+# Type: bool. Default: false.
+path_style = true
+# Allow a plain-HTTP endpoint. Local minio or Garage development only, never production.
+# Type: bool. Default: false.
+allow_http = false
+# Credentials: set both, or neither for anonymous read of a public bucket. Writing or
+# listing a private bucket needs both. Prefer the environment overlay, such as
+# GDI_TOOL__PROFILES__EE_PROD__S3__SECRET_ACCESS_KEY, over committing the secret here.
+# Type: string. Optional.
+access_key_id = "<from GDI_TOOL__PROFILES__EE_PROD__S3__ACCESS_KEY_ID>"
+secret_access_key = "<from GDI_TOOL__PROFILES__EE_PROD__S3__SECRET_ACCESS_KEY>"
+
+# Catalog allow-list: catalog name -> display title. A package whose
+# `metadata.catalog` is not listed here is rejected by `validate`/`build` when a
+# list is configured (without one, validation is structural only).
+# Type: table of string -> string. Optional.
+[profiles.ee_prod.catalogs]
+gdi-aggregated = "Genome of Europe Aggregated Data"
+
+# A co-located, inbox-only node with no S3: `deploy` drops packages straight into the
+# node's local inbox directory. Co-located means both listeners are reachable on
+# loopback, which is where `management_url` is most useful: with no S3 bucket, the
+# management plane is the only source of live node state.
+[profiles.ee_local]
+# Public listener (`[service].listen`): FDP and recipient reads for check and doctor.
+service_url = "http://127.0.0.1:8080"
+# Management listener (`[service].management_addr`): the `GET /datasets/{id}/state`
+# oracle used by deploy, delete and status. It is a separate listener from the public
+# one, so it needs its own URL; here, loopback on :9090. When unset, the state probes
+# fall back to `service_url` and then degrade gracefully, with the node as the backstop,
+# but for a no-S3 node that means no live state at all.
+# Type: URL. Optional.
+management_url = "http://127.0.0.1:9090"
+# Local inbox directory the node reconciles; `deploy --inbox` overrides it.
+# Type: path. Optional.
+inbox = "/var/lib/gdi-node-standalone/inbox"
+node_recipient_file = "keys/node-local.pub"
+
+# This node is keyless: it holds no crypt4gh identity, so there is nothing to encrypt to.
+# The wizard skips `pack` and deploys the plaintext staging dir into `inbox`, and the node
+# ingests it with `Plaintext` writer provenance. No node recipient is needed, so the
+# ordering problem of needing the node's key before packing does not arise.
+#
+# Set this only where the inbox is itself the trust boundary: a co-located node on a
+# filesystem you control, where the dataset never crosses an untrusted channel. Never set
+# it for an S3 bucket or a node someone else runs, because the dataset would travel in the
+# clear. Encryption is a property of the channel, not a preference.
+# Type: bool. Default: false.
+# keyless = true
+
+[profiles.ee_local.catalogs]
+gdi-aggregated = "Genome of Europe Aggregated Data"

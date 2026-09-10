@@ -1,0 +1,55 @@
+# The push-based telemetry shape, as a kustomize component.
+#
+# The base is written for a cluster with a Prometheus that scrapes the management plane
+# (servicemonitor.yaml, and the NetworkPolicy rule admitting the monitoring namespace's
+# scraper). This is for the other kind of cluster — an OTLP intake (Elastic APM, an
+# OpenTelemetry collector, Grafana Cloud) and nothing that scrapes — where the node
+# exports traces and metrics itself (docs/operating.md §2 and §16; `[service].otlp_*`).
+#
+# A component, not an overlay, so that it stacks. An overlay that names
+# `resources: [../../base]` itself and carries its patch in its own directory cannot be
+# combined with an operator's own overlay: kustomize's default load restrictor refuses a
+# patch file from a sibling directory, so they would have to copy the patch, and applying
+# the shipped overlay on top instead would revert their ConfigMap and drop their fourth
+# volume. A component is layered onto whatever is being built:
+#
+#   components:
+#     - ../../components/push-telemetry
+#
+# ../../overlays/push-telemetry does exactly that and is what you apply:
+#   kubectl apply -k deploy/kubernetes/overlays/push-telemetry
+# ...and ../../overlays/inbox-push shows the two components stacked.
+#
+# Do not point `kubectl kustomize` (or `apply -k`) at this directory: kustomize renders a
+# Component root as an empty document stream and exits 0 — no error to notice.
+#
+# It adds four environment variables to the container (deployment-env.patch.yaml) and
+# nothing else. The base's scraper rule stays: it admits nobody when no scraper exists,
+# and servicemonitor.yaml is not applied by either kustomization. The API key travels
+# in a Secret this component does not create — see secret.example.yaml beside this file
+# (placeholders; fill it and apply out of band, like the base's Vault Secret).
+#
+# The pod does not start until that Secret exists: the `secretKeyRef` here is not
+# `optional` (unlike the base's Vault one), so a missing Secret is
+# `CreateContainerConfigError` — the node never runs, and its own diagnostics
+# (`check-config`, the placeholder preflight) never get a chance to tell you why. Create
+# the Secret first.
+#
+# The endpoint must also be a valid URL. The exporter is constructed before the preflight
+# rejects a bad value, so both the shipped placeholder and a malformed URL (an unbracketed
+# IPv6 literal, say) log `OTLP exporter setup failed … invalid URI` twice and only then
+# refuse with `service.otlp_endpoint must be a valid URL`. Fail-closed, but the WARNs come
+# first and the pod crash-loops — that is the placeholder still being in place, not a
+# network problem.
+#
+# If your cluster restricts egress (the base policy does not — `policyTypes: [Ingress]`),
+# the node also needs a rule admitting the intake; write its address from what your
+# platform tells you, never a guess: a wrong address is a silent drop, not an error.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: deployment-env.patch.yaml
+    target:
+      kind: Deployment
+      name: gdi-node-standalone

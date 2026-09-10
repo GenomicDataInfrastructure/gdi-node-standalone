@@ -1,0 +1,59 @@
+metadata:
+  prefix: "GOE"
+  org: "UTARTU"
+  catalog: "gdi-aggregated"
+  title: "Genome of Europe Estonia aggregated allele frequencies"
+  description: "Aggregated allele frequencies for the Genome of Europe Estonia cohort, published as public summary statistics from whole-genome sequencing."
+  accessRights: "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+  applicableLegislation:
+    - "http://data.europa.eu/eli/reg/2025/327/oj"
+  license: "https://creativecommons.org/licenses/by/4.0/"
+  creator:
+    - name: "Genome of Europe - EE node"
+  healthCategory:
+    - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+  keywords:
+    - allele-frequency
+    - genomics
+  numberOfUniqueIndividuals: 1234
+  conformsTo:
+    - "http://data.gdi.eu/core/p2/1MGCompliant"
+  legalBasis:
+    - "https://w3id.org/dpv#Consent"
+  isReferencedBy:
+    - "https://doi.org/10.1234/example"
+  otherIdentifier:
+    - notation: "DOI-12345"
+      schemaAgency: "DataCite"
+      name: "Example identifier"
+  contactPoint:
+    fn: "Data team"
+    hasEmail: "mailto:data@example.org"
+    hasURL: "https://gdi.ut.ee"
+
+files:
+  - category: "VCF"
+    reference: "GRCh38"
+    preciseReference: "GRCh38.p14"
+    files:
+      - "relative/to/yaml/file1.vcf.gz"
+      - "/absolute/path/file2.vcf.gz"
+  - category: "BAM"
+    reference: "GRCh38"
+    preciseReference: "GRCh38.p14"
+    files:
+      - "relative/path/file1.bam"
+      - path: "file2.bam"
+        sha256: "181f1574af8632a70329f015ea121a0a5b6c7d8e9f0a1b2c3d4e5f6071829304"
+        size: 1234567
+
+internal:
+  internalId: "EGV012346"
+  pastVersion: "GDI-EE-UTARTU-20240601120000004"
+
+config:
+  mode: aggregated
+  blockRange: 10000000
+  afSource: "The Genome of Europe"
+  afSourceReference: "https://genomeofeurope.eu/"
+  minAlleleCount: 0

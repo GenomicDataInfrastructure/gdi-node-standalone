@@ -1,0 +1,80 @@
+# EditorConfig — https://editorconfig.org
+#
+# Rust is formatted by rustfmt and Python by ruff, both gated by scripts/ci-local.sh.
+# Nothing formats the rest — YAML, JSON, TOML, shell, HCL and Markdown. This file documents
+# what those files already use, so an editor whose defaults differ (tabs, 4-space YAML) does
+# not silently churn them.
+#
+# It is advisory: editors honour it, the gate does not enforce it. It prevents accidental
+# drift and guarantees nothing.
+#
+# Each value below is taken from the tracked files. `.json` reads as 4-space dominant only
+# because every 4-space JSON here is a vendored GA4GH schema; the repo's own JSON — the
+# Grafana dashboard and `docs/*.schema.json` — is 2-space.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+
+[*.rs]
+indent_size = 4          # rustfmt's default; it, not this, is authoritative
+
+[*.py]
+indent_size = 4          # ruff format's default; it, not this, is authoritative
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.json]
+indent_size = 2
+
+[*.toml]
+indent_size = 2
+
+[*.sh]
+indent_size = 2
+
+[*.hcl]
+indent_size = 2
+
+[*.md]
+indent_size = 2
+# Markdown gives two trailing spaces meaning (a hard line break). No file here relies on
+# that today, but trimming would destroy it silently the first time someone does — and
+# there is no Markdown formatter to catch it.
+trim_trailing_whitespace = false
+
+# --- Vendored and generated: hands off ---------------------------------------
+#
+# These are not cosmetic exclusions. Every tracked file that carries trailing whitespace is
+# one of them, so without the entries an editor would "tidy" a vendored schema on open and
+# break `scripts/ci-local.sh vendored-files`, which pins these against VENDORED.md.
+# Upstream's formatting is upstream's business; a diff here must be a real upstream diff.
+
+[conformance/ga4gh-beacon-v2/**]
+indent_size = unset
+indent_style = unset
+trim_trailing_whitespace = false
+insert_final_newline = unset
+
+[conformance/shapes/**]
+indent_size = unset
+indent_style = unset
+trim_trailing_whitespace = false
+insert_final_newline = unset
+
+# Generated: THIRD-PARTY-LICENSES.md by cargo-about (it contains tabs), Cargo.lock by
+# cargo. Both are rewritten wholesale by their tool; hand-editing either is already wrong.
+[THIRD-PARTY-LICENSES.md]
+indent_size = unset
+indent_style = unset
+trim_trailing_whitespace = false
+
+[Cargo.lock]
+indent_size = unset
+trim_trailing_whitespace = false

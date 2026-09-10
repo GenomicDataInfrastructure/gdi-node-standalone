@@ -1,0 +1,70 @@
+# Ruff config for the project's Python: the conformance checkers in `conformance/` and the
+# gate and harness scripts in `scripts/`. Everything shipped is Rust, and this Python never
+# enters either binary, but it guards the Rust gate, so it gets a linter for the same
+# reason the Rust does.
+#
+# Run it via the gate, which pins the exact ruff build:
+#   scripts/ci-local.sh ruff        # lint + format --check (what CI runs)
+#   uvx ruff@<pinned> check --fix   # to autofix locally
+# The pinned version is single-sourced in scripts/ci-local.sh (RUFF_VERSION).
+#
+# `target-version` is the floor: the oldest interpreter these scripts must stay parseable
+# on, not the version CI runs. That is `.python-version`, 3.14, which every Python job
+# selects via `setup-python`'s `python-version-file`. It is the same split this repo uses
+# for Rust, where `rust-version = "1.96"` is the floor and `rust-toolchain.toml` pins the
+# compiler. Different questions; neither is a copy of the other.
+#
+# py312 is what a contributor plausibly has: Ubuntu 24.04's system `python3` is 3.12, and
+# the stdlib-only guard legs (`ci-gate`, `dashboard`, `--glibc-floor`, `fetch-corpus`) run
+# on whatever `python3` is on PATH. A floor above what those legs actually run on is worse
+# than no floor, because the guard goes green while real execution sits outside the
+# declared range.
+#
+# Do not raise this to py314. Ruff modernizes to the target, so on py314 `ruff format`
+# rewrites `except (TypeError, ValueError):` into PEP 758's unparenthesized form, which is
+# valid on 3.14 and a SyntaxError on every older release. That would break every
+# contributor not yet on 3.14, in a file the gate had just reformatted. These are helper
+# scripts; 3.14-exclusive syntax buys them nothing.
+#
+# Ruff does not read `.python-version`: with the file present it still reports
+# `unresolved_target_version = none` and its formatter falls back to py310.
+target-version = "py312"
+
+# Ruff's formatter also reformats fenced Python inside Markdown. Under `conformance/` that
+# reaches `README.md`, both `VENDORED.md` files and `PROVENANCE.md`, which are vendored-input
+# provenance records guarded by `scripts/vendored.sh`; a formatter rewriting them is exactly
+# the drift that guard exists to catch. It would also desynchronise the syntax-floor check
+# in `ci-local.sh ruff`, which parses `*.py` only.
+extend-exclude = ["*.md"]
+
+[lint]
+# The rule set is pinned explicitly rather than inherited from ruff's defaults, which have
+# widened across releases. Relying on the default would let a routine ruff bump turn the
+# gate red, or stop enforcing a rule, with no reviewed change. Same reasoning as the exact
+# `=` pins in Cargo.toml.
+select = [
+  "E4", "E7", "E9",  # pycodestyle: imports, statements, runtime errors
+  "F",               # pyflakes
+  "I",               # isort — import order
+  "UP",              # pyupgrade — keep to modern syntax for the pinned interpreter
+  "B",               # bugbear — likely bugs
+  "SIM",             # simplify
+  "ISC",             # implicit string concat: catches the missing comma in a list literal,
+                     # which in a drift guard silently merges two expected entries into one
+  "EXE",             # shebang/permission agreement
+  "RUF",             # ruff-native (incl. RUF100: noqa that no longer suppresses anything)
+  "PLE", "PLW",      # pylint errors and warnings only — the PLR complexity metrics
+                     # (too-many-branches/returns/args) fire on guard scripts that
+                     # legitimately enumerate many cases, so they are excluded
+  "FURB",            # modernization
+  "BLE",             # blind except
+  "C4",              # comprehensions
+  "RET",             # return-statement hygiene
+]
+
+[lint.isort]
+# `_helpers` is the scripts/tests suite's own module, not a dependency. Ruff resolves
+# import origin by name and cannot infer that scripts/tests/ is a source root, so without
+# this it sorts `_helpers` in with third-party packages — contradicting the std/external/
+# internal grouping the rest of the repo follows.
+known-first-party = ["_helpers"]

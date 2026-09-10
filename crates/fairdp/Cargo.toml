@@ -1,0 +1,35 @@
+[package]
+name = "gdi-node-standalone-fairdp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "FAIR Data Point (DCAT / RDF) metadata emission for gdi-node-standalone."
+# Internal workspace library — not published to crates.io (see core/Cargo.toml).
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+gdi-node-standalone-core = { path = "../core" }
+oxrdf.workspace = true
+oxttl.workspace = true
+oxjsonld.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+# Property-tests the metadata graph -> Turtle -> reparse round-trip. Same pin as core's
+# dev-dependency, so this adds a dev edge rather than a new crate.
+proptest = "=1.11.0"
+criterion = { workspace = true }
+
+# Criterion bench for the RDF render hot path, once per `/fairdp` request: dataset and
+# catalog graph construction plus Turtle/JSON-LD serialization. `harness = false` lets
+# criterion own `fn main`.
+[[bench]]
+name = "render"
+harness = false

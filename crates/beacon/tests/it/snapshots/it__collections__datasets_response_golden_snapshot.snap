@@ -1,0 +1,73 @@
+---
+source: crates/beacon/tests/it/collections.rs
+assertion_line: 143
+expression: resp
+---
+{
+  "meta": {
+    "beaconId": "ee.ut.af-beacon.production",
+    "apiVersion": "v2.2.0",
+    "returnedGranularity": "record",
+    "returnedSchemas": [
+      {
+        "entityType": "dataset",
+        "schema": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/v2.2.0/models/json/beacon-v2-default-model/datasets/defaultSchema.json"
+      }
+    ],
+    "receivedRequestSummary": {
+      "apiVersion": "v2.2.0",
+      "requestedGranularity": "record",
+      "testMode": false,
+      "includeResultsetResponses": "HIT",
+      "requestedSchemas": [],
+      "pagination": {
+        "skip": 0,
+        "limit": 10
+      }
+    }
+  },
+  "responseSummary": {
+    "exists": true,
+    "numTotalResults": 3
+  },
+  "response": {
+    "collections": [
+      {
+        "id": "GDI-EE-UTARTU-20260409143052837",
+        "name": "COVID monogenic AFs",
+        "description": "Aggregated allele frequencies for the COVID monogenic panel.",
+        "createDateTime": "2026-04-09T14:30:52.837Z",
+        "updateDateTime": "2026-04-09T14:30:52.837Z",
+        "gdiDatasetInfo": {
+          "assembly": "GRCh38",
+          "populations": [
+            "EE",
+            "FI",
+            "Total"
+          ],
+          "minAlleleCount": 5
+        }
+      },
+      {
+        "id": "GDI-EE-UTARTU-20260411093000123",
+        "name": "Cardio panel AFs",
+        "createDateTime": "2026-04-11T09:30:00.123Z",
+        "updateDateTime": "2026-04-11T09:30:00.123Z",
+        "gdiDatasetInfo": {
+          "assembly": "GRCh38",
+          "minAlleleCount": 0
+        }
+      },
+      {
+        "id": "GDI-EE-TUK-20260412120000000",
+        "name": "Genome of Estonia",
+        "createDateTime": "2026-04-12T12:00:00.000Z",
+        "updateDateTime": "2026-04-12T12:00:00.000Z",
+        "gdiDatasetInfo": {
+          "assembly": "GRCh38",
+          "minAlleleCount": 0
+        }
+      }
+    ]
+  }
+}

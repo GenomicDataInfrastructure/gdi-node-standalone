@@ -1,0 +1,137 @@
+// Grafana Alloy config (River/HCL) for the local observability overlay.
+//
+// Alloy is the single telemetry agent. Two independent pipelines:
+//
+//   1. Traces: an OTLP receiver (gRPC :4317 + HTTP :4318) accepts spans from the
+//      node (which exports to http://alloy:4318) and forwards them to Tempo's
+//      OTLP/gRPC receiver (tempo:4317).
+//
+//   2. Logs: discover Docker containers via the docker socket, keep the
+//      container name as a `container` label, tail their logs, take the `service`
+//      label from each ECS line's own `service.name` (falling back to the Compose
+//      service name for containers that log plain text) and ship them to Loki
+//      (http://loki:3100/loki/api/v1/push).
+
+// --- Alloy's own logs -----------------------------------------------------
+
+// Pin the agent's log level instead of inheriting the implicit default (`info`).
+// When the alloy->tempo forward fails in a loop — a crash-looping Tempo, say — the node
+// keeps exporting and Alloy keeps accepting, so the only evidence is on this stream.
+// otelcol's exporterhelper emits the per-attempt "Exporting failed. Will retry..." line
+// at INFO, where the default level buries it in routine chatter and a dead trace
+// pipeline looks like a healthy one. At `warn` that chatter is gone and what remains is
+// the exporter's terminal "No more retries left. Dropping data." (emitted at ERROR).
+//
+// This only makes the symptom legible. Detecting a dead Tempo is the job of its
+// Prometheus scrape target (prometheus.yml) and of keeping tempo.yml in step with the
+// pinned image.
+logging {
+  level  = "warn"
+  format = "logfmt"
+}
+
+// --- Traces: OTLP in -> Tempo out -----------------------------------------
+
+otelcol.receiver.otlp "default" {
+  grpc {
+    endpoint = "0.0.0.0:4317"
+  }
+  http {
+    endpoint = "0.0.0.0:4318"
+  }
+
+  output {
+    traces = [otelcol.exporter.otlp.tempo.input]
+  }
+}
+
+otelcol.exporter.otlp "tempo" {
+  client {
+    endpoint = "tempo:4317"
+    tls {
+      insecure = true
+    }
+  }
+}
+
+// --- Logs: Docker discovery -> relabel -> tail -> Loki --------------------
+
+discovery.docker "containers" {
+  host = "unix:///var/run/docker.sock"
+}
+
+discovery.relabel "containers" {
+  targets = discovery.docker.containers.targets
+
+  // Keep the container name (strip the leading "/") as the `container` label.
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    target_label  = "container"
+  }
+
+  // The Compose service name — the label that separates app logs from infra logs.
+  // `container` above cannot: Compose names containers `<project>-<service>-<n>`, so the
+  // node's is `gdi-node-standalone-gdi-node-standalone-1`, and the project prefix changes
+  // with `-p` / COMPOSE_PROJECT_NAME. The `com.docker.compose.service` label is stable,
+  // so `{service="gdi-node-standalone"}` selects the node's own logs — that is what the
+  // Grafana dashboard's log panel queries. Non-Compose containers have no `service`
+  // label.
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service"
+  }
+
+  // Stable stream label shared by every discovered container. It identifies the source of
+  // the stream (`{job="docker-logs"}` selects all of them). It does not separate app logs
+  // from infra logs — it is set unconditionally, with no source_labels/regex gate. Use
+  // `service` above for that.
+  rule {
+    target_label = "job"
+    replacement  = "docker-logs"
+  }
+}
+
+loki.source.docker "containers" {
+  host       = "unix:///var/run/docker.sock"
+  targets    = discovery.relabel.containers.output
+  forward_to = [loki.process.ecs.receiver]
+}
+
+// The overlay sets the node's LOG_FORMAT=ecs, and an ECS backend separates per-service
+// views by `service.name`. Reading the same field here keeps a dev stack and a cluster on
+// one identity: when a line carries `service.name`, that is the `service` stream label;
+// when it does not (infra containers logging plain text, or a node run with
+// LOG_FORMAT=text), the Compose-derived label from discovery.relabel above stands —
+// stage.labels leaves a label alone when the extracted key is absent. For the node the two
+// spellings coincide (`gdi-node-standalone`), so the dashboard's
+// `{service="gdi-node-standalone"}` panel selects the same stream either way; what changes
+// is that any other ECS-logging service lands under its own name without an Alloy rule per
+// service.
+//
+// ECS allows two renderings of the same field and both occur here: the node writes the
+// dotted key (`"service.name": ...`), Python's ecs-logging nests it (`"service": {"name":
+// ...}`). JMESPath reads the nested form as `service.name` and the dotted key only when
+// quoted, so the expression takes whichever is present. With only the quoted form, nested
+// lines fall back to the Compose service name instead.
+loki.process "ecs" {
+  forward_to = [loki.write.default.receiver]
+
+  stage.json {
+    expressions = {
+      ecs_service = "service.name || \"service.name\"",
+    }
+  }
+
+  stage.labels {
+    values = {
+      service = "ecs_service",
+    }
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

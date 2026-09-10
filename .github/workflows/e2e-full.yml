@@ -1,0 +1,107 @@
+name: e2e-full
+# The full-stack end-to-end (Garage + OpenBao + PME at-rest + S3 round-trip) is the
+# heaviest test — it builds the service image and boots Garage/OpenBao — so it does
+# not run on every PR (the lite `e2e-smoke` in ci.yml covers the common path). It runs:
+#   * weekly, as a periodic safety net, Mondays 09:00 UTC — deliberately three hours
+#     after scheduled.yml rather than alongside it: both open a tracking issue on
+#     failure, so a shared start time turns one bad Monday into two issues, and GitHub
+#     queues all same-minute crons globally, which makes the start times drift anyway;
+#   * on demand, via the Actions "Run workflow" button (workflow_dispatch);
+#   * on a PR labelled `full-e2e`, for changes that touch the crypt4gh-ingest /
+#     at-rest-encryption / S3 path and want the full round-trip verified before merge.
+#
+# It is a separate workflow rather than a job in ci.yml or scheduled.yml, so that the
+# `labeled` trigger does not re-run the whole ci matrix on every label change, and the
+# `pull_request` trigger does not drag in scheduled.yml's other advisory jobs.
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays 09:00 UTC (staggered off scheduled.yml's 06:00)
+  workflow_dispatch: {}
+  pull_request:
+    # `labeled` lets adding the `full-e2e` label trigger a run on an existing PR
+    # without a fresh push; the job's `if` keeps unrelated label events cheap.
+    types: [opened, synchronize, reopened, labeled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Least-privilege default token: this workflow only checks out and builds/boots the
+# stack — it never writes to the repo. Mirrors ci.yml/scheduled.yml/release.yml.
+permissions:
+  contents: read
+
+# Cold CI runners gain nothing from incremental artifacts (mirrors ci/scheduled).
+env:
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  e2e-smoke-full:
+    # Always run on schedule / manual dispatch; on a PR, only when it carries the
+    # `full-e2e` label. An unlabelled PR — or a label-add of any other label — still
+    # spins the workflow up but skips this job cheaply (no runner build).
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'full-e2e')
+    runs-on: ubuntu-latest
+    # Builds the service image + boots Garage/OpenBao; cap it so a wedged container or
+    # health-poll fails fast instead of running to the 6h GitHub default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Full-stack end-to-end (PME at-rest + S3 round-trip)
+        run: ./scripts/e2e/run-full.sh
+
+  # Real-dependency S3 + Vault chaos (toxiproxy). Same trigger + gating as
+  # `e2e-smoke-full` (weekly + manual dispatch always; on a PR only with the `full-e2e`
+  # label — the job's `if` keeps unrelated PRs cheap). Boots the full stack with the
+  # docker-compose.chaos.yml overlay, repoints the node through a toxiproxy sidecar, and
+  # injects latency / connection-reset / timeout on the S3 and Vault connections, asserting
+  # the node degrades gracefully and recovers or fails closed. Exits non-zero on a real
+  # regression (a crash under fault, or no recovery). See scripts/chaos/run.sh.
+  chaos:
+    if: >-
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'full-e2e')
+    runs-on: ubuntu-latest
+    # Builds the service image + boots Garage/OpenBao + toxiproxy; cap it so a wedged
+    # container or health-poll fails fast instead of the 6h GitHub default.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Real-dependency S3 + Vault chaos (toxiproxy)
+        run: ./scripts/chaos/run.sh
+
+  # Active failure surfacing, mirroring scheduled.yml's `notify` job. This workflow is
+  # the only exercise of the full at-rest-encryption S3 round-trip, and it runs weekly
+  # on cron — where GitHub's default failure email goes to the cron owner alone, is easy
+  # to miss, and is not assignable. Without this, a regression in the heaviest test can
+  # sit unnoticed for weeks. Scoped to the schedule trigger: a human already watches a
+  # manual dispatch or a labelled PR. Uses the preinstalled `gh` CLI (no new
+  # supply-chain surface), like its sibling.
+  notify:
+    needs: [e2e-smoke-full, chaos]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the weekly e2e-full failure tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="The weekly \`e2e-full\` run failed: ${RUN_URL} — this is the only test covering the full Garage + OpenBao + PME at-rest + S3 round-trip, so treat a red run as a release blocker until triaged."
+          existing=$(gh issue list --state open --search "in:title e2e-full-failure" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "${body}"
+          else
+            gh issue create --title "e2e-full-failure: weekly full-stack e2e run failed" --body "${body}"
+          fi

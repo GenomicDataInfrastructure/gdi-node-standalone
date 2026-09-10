@@ -1,0 +1,119 @@
+# S3 stack config: S3 ingest with a key on disk and no secrets backend.
+#
+# The sibling of node.full.toml. Same node, same S3 channel; the difference is where the
+# secrets live:
+#
+#   node.full.toml   node identity and per-bucket S3 credentials in Vault/OpenBao, PME on
+#   node.s3.toml     node identity is a file ([keys].identities); S3 credentials come
+#                    from the GDI_NODE__S3__BUCKETS__0__* env overlay; no Vault, no PME
+#
+# This is the posture node.quickstart.toml calls "a real (S3-backed, crypt4gh)
+# deployment": a node that decrypts .tar.c4gh packages with a key on disk and needs no
+# secrets backend. It is the most common production shape.
+#
+# Used by: docker compose -f docker-compose.yml -f docker-compose.s3.yml --profile garage up
+#
+# The image is the full-feature build, so the S3 code path is compiled in; `vault` and
+# `pme` stay dormant because neither is configured here.
+
+# The node's crypt4gh identity: an unencrypted secret key file, mounted read-only. The
+# `keyinit` one-shot in docker-compose.s3.yml installs it into the `keys` volume owned by
+# the run uid (65532) with mode 0400, because the node refuses to start on a group- or
+# other-readable key (`[service].strict_key_perms`, on by default).
+[keys]
+identities = ["/keys/node.c4gh"]
+
+[service]
+listen = "0.0.0.0:8080"
+# Not parameterised: a stack shifted with GDI_HOST_PORT_PUBLIC still mints :8080 IRIs.
+# See compose/node.minimal.toml for why that is tolerated.
+base_url = "http://localhost:8080"
+data_dir = "/var/lib/gdi-node-standalone/datasets"
+# The inbox stays available alongside S3: an inbox drop is a second ingest channel, not
+# an alternative to this one.
+inbox = "/var/lib/gdi-node-standalone/inbox"
+ingest_concurrency = 2
+rescan_interval_seconds = 60
+# Management plane (health, dataset state, metrics) on its own port, never the public
+# `listen`. The bind is a hard startup requirement.
+management_addr = "0.0.0.0:9090"
+
+[catalogs]
+gdi-aggregated = "Genome of Europe Aggregated Data"
+synthetic-data = "Synthetic Data"
+
+[fairdp]
+title = "GDI Local FAIR Data Point"
+description = "Local development FAIR Data Point for gdi-node-standalone (S3, disk key)"
+issued = "2026-01-01T00:00:00Z"
+license = "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
+theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
+applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
+
+[fairdp.publisher]
+name = "Local Dev Org"
+homepage = "https://example.org"
+mbox = "mailto:dev@example.org"
+[fairdp.publisher.contact_point]
+fn = "GDI Local"
+has_email = "mailto:dev@example.org"
+
+[fairdp.hdab]
+name = "Local HDAB"
+[fairdp.hdab.contact_point]
+fn = "Local HDAB"
+has_email = "mailto:hdab@example.org"
+
+[beacon]
+aggregated_base_path = "/beacon/v2"
+sensitive_base_path = "/beacon/v2"
+id = "org.local.beacon"
+name = "GDI Local Beacon"
+api_version = "v2.2.0"
+environment = "dev"
+# k-anonymity floor for the aggregated plane. The unit is alleles, not individuals
+# (roughly 2*k), so 10 guarantees k = 5 distinct individuals per served cell. 0, the
+# built-in default, disables small-count suppression and the node warns at boot.
+min_allele_count = 10
+# Dev placeholder. Without this and organization.logo_url below, the GDI
+# allele-frequency network's registry has been observed to degrade the whole shared
+# member listing, not just this node's entry;
+# see node.example.toml.
+alternative_url = "https://alt.example.org/beacon"
+
+[beacon.organization]
+id = "org.local"
+name = "Local Dev Org"
+welcome_url = "https://example.org"
+logo_url = "https://example.org/logo.png"
+
+[beacon.configuration]
+production_status = "DEV"
+security_level = "PUBLIC"
+default_granularity = "record"
+
+# The monitored S3 bucket, as in node.full.toml except that the credentials are not in
+# Vault: they arrive from the env overlay (GDI_NODE__S3__BUCKETS__0__ACCESS_KEY_ID and
+# __SECRET_ACCESS_KEY, set in docker-compose.s3.yml). Never put them in this file.
+[[s3.buckets]]
+name = "primary"
+endpoint = "http://garage:3900"
+bucket = "gdi-datasets"
+region = "garage"
+path_style = true
+# The dev S3 backends speak plain HTTP on the Compose network, so an http:// endpoint has
+# to be allowed explicitly. It is off by default so a production misconfiguration cannot
+# silently drop TLS.
+allow_http = true
+marker_poll_interval = 15
+full_poll_interval = 60
+
+# No [vault] block: the identity is the file above and the S3 credentials come from the
+# env overlay. Setting any GDI_NODE__VAULT__* env var here would synthesize a partial
+# [vault] section and the node would refuse to boot ("vault.kv_path is required"), which
+# is why docker-compose.s3.yml neutralizes the base stack's Vault env overlay.
+
+# No [ingest] writer_policy: the shipped default is `off`, which records provenance and
+# gates nothing. To gate producers, add the writers' key fingerprints per channel and
+# switch to "warn" (discovery) and then "enforce" (fail closed, which also rejects
+# unidentified plaintext staging-dir drops, since they carry no writer key to allow-list).

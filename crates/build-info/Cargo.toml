@@ -1,0 +1,22 @@
+[package]
+name = "gdi-build-info"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Compile-time build provenance (git SHA and build epoch) for the gdi-node-standalone binaries."
+# Internal workspace library — not published to crates.io.
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+# Scratch repositories for the `build.rs` resolution-ladder tests. Dev-only: the crate
+# itself stays dependency-free, so the build script can `include!` its logic.
+tempfile = { workspace = true }

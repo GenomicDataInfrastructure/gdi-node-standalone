@@ -1,0 +1,33 @@
+# Two services: the public plane is meant to be reachable, the management
+# plane is not. Splitting them means an Ingress can select the public one without ever
+# exposing :9090 (the unauthenticated dataset-state oracle plus /metrics).
+apiVersion: v1
+kind: Service
+metadata:
+  name: gdi-node-standalone
+  labels:
+    app.kubernetes.io/name: gdi-node-standalone
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gdi-node-standalone
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gdi-node-standalone-management
+  labels:
+    app.kubernetes.io/name: gdi-node-standalone
+    app.kubernetes.io/component: management
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gdi-node-standalone
+  ports:
+    - name: management
+      port: 9090
+      targetPort: management

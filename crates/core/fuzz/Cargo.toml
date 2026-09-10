@@ -1,0 +1,120 @@
+[package]
+name = "gdi-node-standalone-core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+# Literal, not `license.workspace = true`: the empty `[workspace]` table below makes this
+# crate its own workspace root, and that root declares no `[workspace.package]`, so the
+# inherited form fails to parse ("error inheriting `license` from workspace root
+# manifest"). It is therefore a second copy of the root's licence, and `fuzz_license_drift`
+# in scripts/ci-local.sh asserts the two agree — see the dependency-pin note below.
+license = "MIT OR Apache-2.0"
+
+# Isolate this crate from the stable workspace: an empty `[workspace]` table
+# makes `fuzz/` its own workspace root with its own `Cargo.lock`, so the nightly
+# cargo-fuzz build never perturbs the pinned stable workspace lockfile, and the
+# stable `cargo build/clippy/deny --workspace` never compiles the fuzz crate.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+# Exact-pinned (=x.y.z), matching the main workspace, so the committed fuzz Cargo.lock is
+# authoritative and a bump is a reviewed change rather than a silent `^`-range drift.
+[dependencies]
+libfuzzer-sys = "=0.4.13"
+serde_json = "=1.0.151"
+serde-saphyr = "=1.1.0"
+tempfile = "=3.27.0"
+
+[dependencies.gdi-node-standalone-core]
+path = ".."
+
+[dependencies.gdi-node-standalone-beacon]
+path = "../../beacon"
+
+# Keep fuzz iterations fast while still catching arithmetic and index panics. `release` leaves
+# `overflow-checks` and `debug-assertions` off, which would wrap integer overflow silently and
+# skip every `debug_assert!`. With them on, the arithmetic-heavy VCF, parquet and popfield
+# value paths trap overflow and invariant violations as crashes.
+[profile.release]
+debug = 1
+overflow-checks = true
+debug-assertions = true
+
+[[bin]]
+name = "popfield"
+path = "fuzz_targets/popfield.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "package_yaml"
+path = "fuzz_targets/package_yaml.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypt4gh_header"
+path = "fuzz_targets/crypt4gh_header.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tar_extract"
+path = "fuzz_targets/tar_extract.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "vcf_convert"
+path = "fuzz_targets/vcf_convert.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parquet_validate"
+path = "fuzz_targets/parquet_validate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "beacon_request"
+path = "fuzz_targets/beacon_request.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "beacon_classify"
+path = "fuzz_targets/beacon_classify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "crypt4gh_body"
+path = "fuzz_targets/crypt4gh_body.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest_gate"
+path = "fuzz_targets/manifest_gate.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "boot_state"
+path = "fuzz_targets/boot_state.rs"
+test = false
+doc = false
+bench = false

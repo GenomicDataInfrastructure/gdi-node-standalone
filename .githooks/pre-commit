@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+#
+# Pre-commit gate: doc-attachment and rustfmt always; clippy (lite, -D warnings) only
+# when the commit can actually change a clippy result.
+#
+# This hook is the first gate on a commit; `scripts/ci-local.sh all` is the full one.
+#
+# The clippy skip: `clippy --workspace --all-targets` covers every target of every crate
+# and takes minutes, while most commits touch no Rust-relevant file at all. A hook slow
+# enough to interrupt is a hook people permanently `--no-verify`.
+#
+# The skip fails soft. If the classifier is wrong, the lint surfaces at
+# `scripts/ci-local.sh all` instead, so it cannot reach `main` unchallenged.
+#
+# scripts/ci-local.sh itself is not in the trigger set. Editing the clippy invocation does
+# change what clippy reports, but the full gate covers that, and including it would make
+# every gate-script edit slow.
+#
+# Install (git cannot do this from the repo, .git/config is not versioned):
+#
+#     git config core.hooksPath .githooks
+#     # or: scripts/dev-setup.sh
+#
+# Bypass for a work-in-progress commit:
+#
+#     git commit --no-verify
+#
+set -euo pipefail
+
+# Hooks run from the top level of the working tree, but be explicit rather than assume it.
+repo_root="$(git rev-parse --show-toplevel)"
+cd "$repo_root"
+
+if [ ! -x scripts/ci-local.sh ]; then
+  echo "pre-commit: scripts/ci-local.sh is missing or not executable" >&2
+  exit 1
+fi
+
+# An interrupted hook that exits without a word reads like it ate the staged changes.
+trap 'printf "\npre-commit: interrupted, commit aborted. Your changes are still staged.\n            Re-run git commit, or use --no-verify to skip this hook.\n" >&2; exit 130' INT TERM
+
+# A commit can change a clippy result only through these paths. Keep the pattern on one
+# line directly after the marker: scripts/tests/test_pre_commit_hook.py extracts it.
+# RUST_TRIGGER_RE
+rust_trigger='(\.rs|(^|/)Cargo\.(toml|lock)|(^|/)clippy\.toml|(^|/)rust-toolchain\.toml|(^|/)\.cargo/config\.toml)$'
+
+# The gate's own guards. scripts/tests/ asserts against these paths, so staging one can
+# invalidate a guard without touching a line of Rust. Without this trigger the hook runs
+# rustfmt alone on the commits most likely to break the suite, including edits to this
+# hook. It costs a few seconds, and nothing on commits that touch none of them.
+#
+# deploy/kubernetes/ is absent. Its guard is the only Python here that needs a third-party
+# import (PyYAML), so a missing module would hard-fail every commit touching scripts/. It
+# runs as the `k8s-manifests` leg of `all` instead. Keep this trigger pointed only at what
+# `script-tests`, which is stdlib-only, actually covers.
+# Keep the pattern on one line directly after the marker:
+# scripts/tests/test_pre_commit_hook.py extracts it.
+# GUARD_TRIGGER_RE
+guard_trigger='^(scripts/|\.githooks/|ruff\.toml$)'
+
+# --diff-filter=ACMR: added/copied/modified/renamed. A pure deletion cannot introduce a
+# lint, and `git diff --cached` is the set being committed, so this stays correct for a
+# partial `git add -p` stage and for `--amend`.
+#
+# core.quotePath=false: by default git C-quotes any path holding a non-ASCII byte, so
+# `zz_café.rs` arrives as `"zz_caf\303\251.rs"` and the `$`-anchored regexes below stop
+# matching, silently downgrading the commit to fmt-only. A path containing a literal
+# newline still defeats this. Only `-z` cures that, and every consumer here would have to
+# read NUL-separated input.
+staged="$(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR)"
+
+# The classification above reads the index, but every leg this hook runs reads the working
+# tree. When a staged file also has unstaged edits the two disagree, and a green hook then
+# says nothing about the staged content. Verifying the index properly would mean
+# materialising it into a separate checkout with its own target directory, so warn instead.
+# This fails soft: `all` still reads the tree.
+divergent="$(
+  comm -12 \
+    <(printf '%s\n' "$staged" | grep -v '^$' | sort -u) \
+    <(git -c core.quotePath=false diff --name-only --diff-filter=ACMR | sort -u)
+)"
+if [ -n "$divergent" ]; then
+  printf 'pre-commit: warning: staged content differs from the working tree for:\n' >&2
+  while IFS= read -r f; do
+    [ -n "$f" ] && printf '              %s\n' "$f" >&2
+  done <<< "$divergent"
+  printf '            The checks below read the working tree, so a pass here does not\n' >&2
+  printf '            prove the staged version passes. Re-stage those files with git add,\n' >&2
+  printf '            or expect the difference to surface in scripts/ci-local.sh all.\n' >&2
+fi
+
+# Doc attachment. An item inserted between a doc comment and the item it documents
+# re-parents that doc silently: the inserted item renders with the victim's description
+# and the victim renders with none. It compiles, `cargo doc` is happy, and `missing_docs`
+# does not see it, because a doc is present on the thief and the victim is usually private.
+#
+# It runs on every commit rather than behind the Rust classifier above. It is pure Python
+# over the staged diff, and its shell half guards `usage()`, which `rust_trigger` does not
+# match. Unlike the clippy skip it does not fail soft: nothing else checks this, because
+# `scripts/ci-local.sh all` has no revision to diff against.
+python3 scripts/check-doc-attachment.py || exit 1
+
+# Python formatting. `fmt` is `cargo fmt --all --check` and nothing else, and
+# `script-tests` is unittest discovery, which passes whatever the layout. Without this
+# trigger a `ruff format` violation in a staged Python guard reaches `scripts/ci-local.sh
+# all` instead, tens of minutes later.
+#
+# `conformance/` is included even though `script-tests` does not cover it: the `ruff` leg
+# lints both directories, so its .py files have the same exposure.
+#
+# Keep the pattern on one line directly after the marker:
+# scripts/tests/test_pre_commit_hook.py extracts it.
+# PY_TRIGGER_RE
+py_trigger='(^scripts/.*\.py$|^conformance/.*\.py$|(^|/)ruff\.toml$)'
+if printf '%s\n' "$staged" | grep -qE "$py_trigger"; then
+  # The leg hard-`need`s uv. Making that a prerequisite for committing any Python would
+  # block a contributor who has none, so degrade instead and name what went unchecked. A
+  # lint that silently does not run is the failure this block prevents.
+  if command -v uv >/dev/null 2>&1; then
+    printf 'pre-commit: staged Python, so also running ruff for lint and format.\n'
+    ./scripts/ci-local.sh ruff || exit 1
+  else
+    printf 'pre-commit: WARNING: staged Python, but `uv` is not installed, so ruff did\n' >&2
+    printf '            not run. Lint and formatting are unchecked for this commit, and\n' >&2
+    printf '            will fail in scripts/ci-local.sh all. Install uv:\n' >&2
+    printf '            https://docs.astral.sh/uv/getting-started/installation/\n' >&2
+  fi
+fi
+
+# A commit can change a feature-gated clippy result only by touching a file that carries a
+# feature gate. `quick` lints the default (lite) profile only, so `#[cfg(feature = "vault")]`
+# code is never compiled by it, and a lint there would surface only in `all`. Keep the
+# pattern on one line directly after the marker:
+# scripts/tests/test_pre_commit_hook.py extracts it.
+# FEATURE_TRIGGER_RE
+feature_trigger='^[[:space:]]*#\[cfg.*feature'
+
+# A staged crate manifest or lock can leave the fuzz workspace's own lock stale.
+# `crates/core/fuzz` is excluded from the root workspace and checked `--locked` by the
+# `fuzz-smoke` leg, so a new dependency edge on a crate its targets use reddens `all`
+# rather than this hook. Path match, since the files are few and named. Keep the pattern on
+# one line directly after the marker: scripts/tests/test_pre_commit_hook.py extracts it.
+# MANIFEST_TRIGGER_RE
+manifest_trigger='(^|/)Cargo\.(toml|lock)$'
+
+# Match on the staged content, not the path: only a minority of crate sources carry a gate,
+# so the rest keep paying nothing. `git grep --cached` reads the index, so it sees what is
+# being committed, which is correct under `git add -p` and `--amend`.
+#
+# Anchored to the start of a line, so a gate quoted inside a `///` doc comment does not
+# count and a file that only mentions one is not escalated.
+#
+# A module gated at its declaration (`#[cfg(feature = "pme")] mod pme;` in a crate root)
+# carries no gate in its own file, so those names are derived from the crate roots and
+# matched by path. The window is one line: with two, a `pub mod` that merely follows a
+# gated one is collected as well.
+gated_module_names() {
+  git grep -h --cached -A1 -E '^#\[cfg.*feature' -- 'crates/*/src/main.rs' 'crates/*/src/lib.rs' \
+    2>/dev/null | sed -n 's/^[[:space:]]*\(pub \)\?mod \([a-z0-9_]*\);.*/\2/p' | sort -u
+}
+feature_staged() {
+  local f base gated
+  gated="$(gated_module_names)"
+  while IFS= read -r f; do
+    case "$f" in *.rs) ;; *) continue ;; esac
+    base="$(basename "$f" .rs)"
+    if [ -n "$gated" ] && printf '%s\n' "$gated" | grep -qx "$base"; then
+      return 0
+    fi
+    # `git grep --cached` searches the index blob, which exists for added and renamed paths
+    # too, so a gate added in this very commit counts and one only in the working tree does
+    # not. Not `git show ":$f" | grep -q`: `grep -q` exits at the first match, `git show`
+    # then dies of SIGPIPE, and `set -o pipefail` fails the pipeline, so a large gated file
+    # is classified as ungated while a small one is not.
+    if git grep -q --cached -E "$feature_trigger" -- "$f" 2>/dev/null; then
+      return 0
+    fi
+  done <<< "$staged"
+  return 1
+}
+
+# Call the gate script rather than `exec` it. `exec` replaces this shell process and
+# discards the INT/TERM trap installed above, so an interrupt during the build would print
+# nothing. Calling it normally keeps this shell and its trap alive for the whole run, and
+# `set -e` propagates a non-zero status unchanged, so the hook's exit code is still the
+# gate's.
+
+# Marker for "clippy has completed in this worktree at least once".
+# `target/debug/.fingerprint` is not a usable proxy: any `cargo build` or `cargo test`
+# populates it, while `cargo clippy` keys its own fingerprints, so a tree full of
+# fingerprint entries can still face a cold clippy build. Under target/, so it is already
+# gitignored and cleaned by `cargo clean`.
+clippy_warm_marker='target/debug/.gdi-clippy-warm'
+
+if printf '%s\n' "$staged" | grep -qE "$rust_trigger"; then
+  # A worktree where clippy has never run must build its own artifacts for every target:
+  # minutes, with cargo silent for most of it. Say so before it starts, because a hook that
+  # looks hung is a hook that gets killed.
+  if [ ! -f "$clippy_warm_marker" ]; then
+    printf 'pre-commit: clippy has not run in this worktree, so it builds from cold.\n'
+    printf '            Expect several minutes with little output, once per worktree.\n'
+    printf '            Ctrl-C is safe: your changes stay staged. --no-verify skips.\n'
+  fi
+  # Fails soft, like the clippy skip above: if this classifier is wrong, the only cost is a
+  # feature-gated lint reaching `all`.
+  if feature_staged; then
+    printf 'pre-commit: staged a file carrying a feature gate, so also linting the full profile.\n'
+    # Not the `lint` target: that adds the `ruff` leg, which hard-`need`s uv, so a commit
+    # with feature-gated Rust and no Python would be refused on a machine without uv.
+    # `quick clippy-full` gives the same coverage without touching ruff.
+    ./scripts/ci-local.sh quick clippy-full
+  else
+    ./scripts/ci-local.sh quick
+  fi
+  if printf '%s\n' "$staged" | grep -qE "$manifest_trigger"; then
+    printf 'pre-commit: staged a crate manifest or lock, so also compile-gating the fuzz workspace.\n'
+    # fuzz-smoke is a compiling leg of `all`, so it sits in ci-local.sh's GATE_QUEUE_LEGS.
+    # Run bare it would hand off to scripts/gate-queue.sh and block this commit behind
+    # another session's gate. GATE_QUEUE=0 keeps this branch interactive.
+    GATE_QUEUE=0 ./scripts/ci-local.sh fuzz-smoke
+  fi
+  # Only on success (set -e exits on failure before this line).
+  mkdir -p "$(dirname "$clippy_warm_marker")" && : > "$clippy_warm_marker"
+  exit 0
+fi
+
+if printf '%s\n' "$staged" | grep -qE "$guard_trigger"; then
+  printf 'pre-commit: staged a gate script or manifest, so also running its unit tests.\n'
+  ./scripts/ci-local.sh fmt script-tests
+  exit 0
+fi
+
+printf 'pre-commit: no Rust-relevant files staged, running rustfmt only, skipping clippy.\n'
+printf '            scripts/ci-local.sh all still runs the full pipeline.\n'
+./scripts/ci-local.sh fmt

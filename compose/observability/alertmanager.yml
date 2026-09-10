@@ -1,0 +1,17 @@
+# Minimal Alertmanager config for the local observability overlay.
+#
+# Development only: every alert routes to a do-nothing "devnull" receiver. Firing
+# alerts are visible in the Alertmanager UI (:9093) but no external notifications are
+# sent — there is no webhook/email/Slack configured. Wire a real receiver here for
+# non-dev use.
+
+route:
+  receiver: devnull
+  group_by: ["alertname"]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 1h
+
+receivers:
+  # No notifier configured: alerts are stored/shown but never dispatched.
+  - name: devnull

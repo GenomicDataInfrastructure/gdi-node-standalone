@@ -1,0 +1,36 @@
+# Strategic-merge patch: the four variables that turn on the push path. Each is read by
+# the binary or by its OpenTelemetry SDK as named; none has any effect on the base.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdi-node-standalone
+spec:
+  template:
+    spec:
+      containers:
+        - name: gdi-node-standalone
+          env:
+            # Where traces and metrics go: the intake's base URL (the node appends
+            # /v1/traces and /v1/metrics). Same knob as `[service].otlp_endpoint`;
+            # the environment form wins over the ConfigMap, so the base's node.toml
+            # needs no edit. `check-config` lists it while it is still a placeholder.
+            - name: GDI_NODE__SERVICE__OTLP_ENDPOINT
+              value: "<SET ME: the OTLP/HTTP intake base URL, e.g. https://apm.example.org>"
+            # The metrics push cadence (`[service].otlp_metrics_interval_seconds`).
+            # Unset, the node exports traces only and `/metrics` is scrape-only.
+            - name: GDI_NODE__SERVICE__OTLP_METRICS_INTERVAL_SECONDS
+              value: "60"
+            # Elastic's intake refuses cumulative metrics; a Prometheus OTLP receiver
+            # refuses delta. The SDK reads this standard variable; the default is
+            # cumulative, so set `delta` for Elastic and drop the variable otherwise.
+            - name: OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE
+              value: "delta"
+            # The credential, as the SDK's standard header variable — never in the
+            # ConfigMap. Value shape: `Authorization=ApiKey%20<key>` (URL-encoded,
+            # per the OpenTelemetry specification). From the Secret in
+            # secret.example.yaml, created out of band.
+            - name: OTEL_EXPORTER_OTLP_HEADERS
+              valueFrom:
+                secretKeyRef:
+                  name: gdi-node-standalone-otlp
+                  key: headers

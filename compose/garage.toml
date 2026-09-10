@@ -1,0 +1,34 @@
+# Minimal single-node Garage config for the full dev Compose stack
+# (Garage is the default local S3 backend).
+#
+# After `docker compose up garage`, initialise the cluster layout once:
+#   docker compose exec garage /garage status
+#   docker compose exec garage /garage layout assign -z dev -c 1G <NODE_ID>
+#   docker compose exec garage /garage layout apply --version 1
+#   docker compose exec garage /garage bucket create gdi-datasets
+#   # import the fixed dev key (matches the creds compose/setup.sh writes to Vault;
+#   # `key create` would mint a random key the node could not authenticate with):
+#   docker compose exec garage /garage key import --yes -n dev-key \
+#     GK0123456789abcdef01234567 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+#   docker compose exec garage /garage bucket allow --read --write gdi-datasets --key dev-key
+# (the scripts/e2e/run.sh harness automates this; for manual use the commands above).
+
+metadata_dir = "/var/lib/garage/meta"
+data_dir = "/var/lib/garage/data"
+db_engine = "sqlite"
+
+replication_factor = 1
+
+# A fixed dev RPC secret (32 bytes hex) — dev only, never a real deployment.
+rpc_secret = "0000000000000000000000000000000000000000000000000000000000000001"
+rpc_bind_addr = "[::]:3901"
+rpc_public_addr = "127.0.0.1:3901"
+
+[s3_api]
+s3_region = "garage"
+api_bind_addr = "[::]:3900"
+root_domain = ".s3.garage.localhost"
+
+[admin]
+api_bind_addr = "[::]:3903"
+admin_token = "dev-admin-token"

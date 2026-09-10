@@ -1,0 +1,69 @@
+# Two claims.
+#
+# `data` is reconstructible: S3 is the source of truth for dataset content, so a lost
+# data volume is a re-ingest, not a data loss.
+#
+# `overrides` is not. The operator-override store holds suppressions (dataset and channel
+# takedowns) and metadata overlays, and re-ingest cannot rebuild them — it restores each
+# dataset to the source-resolved state an override exists to countermand. Its loss
+# presents as a clean, successful recovery in which every withheld dataset is served
+# again. operating.md §17 therefore says to back it separately from the data volume;
+# that is why it is its own claim rather than a subdirectory of data_dir.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gdi-node-standalone-data
+spec:
+  # ReadWriteOnce is node-scoped, not pod-scoped: it means "mountable read-write by pods on
+  # one node", so two pods co-scheduled there can both mount this claim read-write. It is
+  # therefore not the single-writer guarantee, and reading it as one is how a second writer
+  # gets onto a data volume that "could not have one".
+  #
+  # What actually guarantees a single writer is (a) the node's own exclusive advisory lock
+  # on `<data_dir>/.lock`, which fails a second process fast, and (b) `strategy: Recreate`,
+  # which stops the rollout ever running two. RWO is here to keep the claim from being
+  # spread across nodes (and, at the storage layer, because block volumes are RWO anyway);
+  # it is the topology constraint, not the concurrency one. See operating.md §18 —
+  # including its warning that the lock is worthless on NFS/RWX.
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Size from the caps, not from measured load: >= ingest_concurrency x 4 x largest
+      # package, + ~25 % headroom — 4 x 4 x 16 GiB = 256 GiB peak scratch at the shipped
+      # defaults, 320 GiB with the margin. The 4x multiplier is measured, not the
+      # package-plus-extracted-tree 2x it looks like (docs/deployment.md "Resource
+      # baseline": 4.0x for a 29.8 MiB package).
+      # scripts/tests/k8s/test_k8s_manifests.py derives the floor from the same two caps.
+      storage: 320Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gdi-node-standalone-overrides
+spec:
+  # Every serving replica must see this store. A replica that cannot read it serves every
+  # withheld dataset, silently, because an absent store is indistinguishable from one that
+  # never existed — set [service].require_override_store = true so that refuses to serve
+  # instead. Scaling out wants ReadOnlyMany, not ReadWriteMany: the serving path does not
+  # write here (markers are matched on their stamp, not consumed), so a shared read-write
+  # mount would grant a write nothing performs.
+  accessModes: ["ReadWriteOnce"]
+  #
+  # Durability is not complete here. `require_override_store = true` refuses to serve when
+  # this store is absent, and the used-marker (`<data_dir>/.override-store-used.json`,
+  # operating.md §17) refuses when it is present-and-empty after ever holding an override —
+  # so a fresh re-provisioned PVC does not pass the boot guard; the node stops instead of
+  # lifting every withhold. What neither can do is bring the bytes back: a refused boot is
+  # an outage until the store is restored, and the marker lives on the data volume, so
+  # losing both volumes together leaves nothing to refuse on. Close that at the storage
+  # layer: give this claim a StorageClass whose reclaimPolicy is Retain (see
+  # storageclass.example.yaml) by setting `storageClassName` below, OR bind it to a
+  # statically provisioned PV with persistentVolumeReclaimPolicy: Retain. Then back the
+  # volume up independently and restore it before serving (§17). Left unset here because
+  # the class name is cluster-specific; unset uses the default class, which is typically
+  # reclaimPolicy: Delete — the case this warning is about.
+  #   storageClassName: gdi-node-standalone-overrides-retain
+  resources:
+    requests:
+      # Kilobytes of JSON. Size is irrelevant here; durability is the point.
+      storage: 1Gi

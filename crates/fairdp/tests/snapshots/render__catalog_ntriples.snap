@@ -1,0 +1,33 @@
+---
+source: crates/fairdp/tests/render.rs
+expression: nt
+---
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://data.europa.eu/r5r/applicableLegislation> <http://data.europa.eu/eli/reg/2025/327/oj>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/conformsTo> <https://gdi-ee.example.org/fairdp/profile/catalog>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/description> "GoE aggregated catalog"
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/hasPart> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260409143052837>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/hasPart> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260512090000000>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/isPartOf> <https://gdi-ee.example.org/fairdp>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/language> <http://publications.europa.eu/resource/authority/language/EST>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/license> <https://creativecommons.org/licenses/by/4.0/>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/publisher> _:c14n0
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://purl.org/dc/terms/title> "GoE aggregated catalog"
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#Catalog>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://www.w3.org/ns/dcat#dataset> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260409143052837>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://www.w3.org/ns/dcat#dataset> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260512090000000>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://www.w3.org/ns/dcat#themeTaxonomy> <http://publications.europa.eu/resource/authority/data-theme>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://www.w3.org/ns/ldp#contains> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260409143052837>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <http://www.w3.org/ns/ldp#contains> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260512090000000>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <https://w3id.org/fdp/fdp-o#conformsToFdpSpec> <https://specs.fairdatapoint.org/v1.2/fdp-specs-v1.2.html>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <https://w3id.org/fdp/fdp-o#metadataIdentifier> <https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <https://w3id.org/fdp/fdp-o#metadataIssued> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTime>
+<https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated> <https://w3id.org/fdp/fdp-o#metadataModified> "2026-05-12T09:00:00.000Z"^^<http://www.w3.org/2001/XMLSchema#dateTime>
+_:c14n0 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://xmlns.com/foaf/0.1/Agent>
+_:c14n0 <http://www.w3.org/ns/dcat#contactPoint> _:c14n1
+_:c14n0 <http://xmlns.com/foaf/0.1/homepage> <https://gdi.ut.ee>
+_:c14n0 <http://xmlns.com/foaf/0.1/mbox> <mailto:gdi@example.org>
+_:c14n0 <http://xmlns.com/foaf/0.1/name> "University of Tartu"
+_:c14n1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2006/vcard/ns#Kind>
+_:c14n1 <http://www.w3.org/2006/vcard/ns#fn> "GDI Estonia"
+_:c14n1 <http://www.w3.org/2006/vcard/ns#hasEmail> <mailto:gdi@example.org>
+_:c14n1 <http://www.w3.org/2006/vcard/ns#hasURL> <https://gdi.ut.ee/contact>

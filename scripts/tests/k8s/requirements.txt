@@ -1,0 +1,18 @@
+# PyYAML, for the deploy/kubernetes contract guard (scripts/tests/k8s/).
+#
+# The pin lives in a file rather than inline in the workflow, so Dependabot's `pip`
+# ecosystem and GitHub's dependency-graph alerts can both see it. An inline `pip install`
+# in a `run:` step is invisible to both. Same reasoning as conformance/requirements*.txt.
+#
+# This is the only third-party Python the gate needs outside conformance/, and it is not
+# reachable from scripts/tests/ proper: that suite runs on the pre-commit path via
+# `quick`, where a missing module would block every commit touching scripts/. The
+# separation is asserted by scripts/tests/test_suite_is_stdlib_only.py.
+#
+# Installed from the hash-locked `requirements.lock` with pip `--require-hashes`, so no
+# unverified PyPI artifact can enter the job. Regenerate the lock in the same change as
+# any bump here:
+#   uv pip compile --universal --generate-hashes scripts/tests/k8s/requirements.txt -o scripts/tests/k8s/requirements.lock
+# `--universal` emits environment markers, so the lock is not specialized to the Python
+# that regenerated it.
+PyYAML==6.0.3

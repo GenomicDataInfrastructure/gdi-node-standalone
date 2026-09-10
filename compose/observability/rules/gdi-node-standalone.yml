@@ -1,0 +1,846 @@
+# Prometheus alerting rules for gdi-node-standalone.
+#
+# This file is canonical for the shipped Prometheus deployment. docs/operating.md
+# §3 ("Alert thresholds (quick reference)") is a backend-agnostic human summary of
+# these same alerts; it is not a verbatim copy (translate these expressions to your
+# own alerting backend as needed). The set of `alert:` names here is kept in exact
+# sync with the rule-names list in §3 by scripts/check-dashboard-metrics.py (a
+# rename/add/remove here that is not reflected in the runbook fails CI). The
+# placeholder margins the runbook leaves as `<...>` are made concrete here:
+#   * low-disk margin       = 5e9 bytes  (~5 GB)
+#   * vault token-TTL margin = 600 s     (10 min; governs VaultTokenLeaseTooShort — not
+#                                          VaultRenewalFailing, which has no 600s margin)
+#   * vault token-file age   = 3600 s    (1 h; governs VaultTokenFileStale. Agents refresh
+#                                          well inside an hour — tune to your agent's TTL)
+#   * S3 poll staleness      = 600 s     (2× the 300s full_poll_interval default; the dev
+#                                          compose configs poll at 60s, so this is ~10× there)
+#   * inbox scan staleness   = 1200 s    (2× the 600s rescan_interval default; the dev
+#                                          compose configs use 60s, so this is ~20× there)
+# Tune the windows/margins to your scrape interval and dataset sizes — these are
+# starting points, exactly as §3 notes.
+
+groups:
+  - name: gdi-node-standalone
+    rules:
+      # Busy vs. wedged: a non-empty queue with NO worker processing (inflight == 0)
+      # means the pool has stopped draining — jobs are queued but nothing is picking
+      # them up (all workers dead / dispatcher broken). This is the robust wedge
+      # signal: it does not false-fire on a long single ingest (inflight stays >= 1
+      # for the whole job) nor on cold start (idle workers pick up queued work within
+      # ms; `for: 5m` absorbs the sub-second pickup gap). A worker stuck inside a job
+      # keeps inflight >= 1, so it is caught by `IngestTimeout` below, not here.
+      #
+      # Every other rule in this file is of the form "metric crosses threshold", so none of
+      # them can fire when there is no metric at all: if scraping breaks, the file goes
+      # quiet and the silence is indistinguishable from health. `TargetDown` below covers
+      # the case where the target still exists but cannot be scraped. This covers the one
+      # it structurally cannot — the target that stopped existing, at which point there is
+      # no `up` series left to be zero (ServiceMonitor deleted, selector stopped matching,
+      # job renamed). `Watchdog` does not cover it either: a dead-man's switch proves the
+      # alerting pipeline is alive, not that this node is still being scraped.
+      #
+      # `gdi_build_info` is the right witness: `seed_always_present` registers it at
+      # recorder install, so it is there from the first scrape of a healthy node regardless
+      # of config, traffic or dataset count.
+      - alert: NodeMetricsAbsent
+        expr: absent(gdi_build_info)
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "No gdi_build_info series at all — nothing is scraping the node, and every other alert here is blind"
+
+      - alert: WedgedIngestPool
+        expr: gdi_ingest_queue_depth > 0 and gdi_ingest_inflight == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Ingest pool wedged: queue non-empty but no worker processing for >5m"
+
+      - alert: IngestTimeout
+        expr: increase(gdi_ingest_total{outcome="timeout"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "An ingest job exceeded ingest_timeout_seconds (restart to clear)"
+
+      # Persistent transient-retry churn: datasets keep failing transiently and
+      # re-enqueuing without reaching a terminal state — a backend dependency (Vault
+      # DEK mint, slow/full volume) is degraded. This RATE alert catches many failures
+      # (across one or more sources); the companion IngestSourceBackoff (a gauge) catches
+      # one source stuck failing. Per-source retries are paced with capped exponential
+      # backoff — `gdi_ingest_transient_backoff` counts the sources currently in a window.
+      - alert: IngestRetryChurn
+        expr: increase(gdi_ingest_total{outcome="transient"}[1h]) > 5
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Persistent transient ingest retries (>5/h) — a backend dependency is degraded"
+
+      # A single source stuck in transient-failure backoff: its ingest has failed
+      # continuously long enough to stay in the backoff map for the whole window — a
+      # backend (Vault/S3) is persistently failing that source (vs the rate signal above,
+      # which many one-off blips can also trip). Cleared on the source's first success.
+      - alert: IngestSourceBackoff
+        expr: gdi_ingest_transient_backoff > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A source stuck in transient-failure backoff for >15m — a backend is persistently failing its ingest"
+
+      # An ingest held for a sustained window: the in-flight guard is taken but no
+      # terminal outcome is reached (a hung/timed-out ingest, or repeated transient
+      # failure). Pair with IngestRetryChurn / IngestTimeout for the cause; see
+      # docs/operating.md "clearing a dataset stuck in processing".
+      #
+      # Keyed on `gdi_ingest_inflight_oldest_age_seconds`, not
+      # `gdi_dataset_state{state="processing"}`. The latter is sampled from the metadata
+      # cache, which by design never holds `Processing` — the state exists on the
+      # provider-facing `_status/{id}.json` sidecar (`writeback_processing`) and in the
+      # runtime's in-flight markers (`AppState::ingest_inflight`), never as a cache
+      # entry, because an id mid-first-ingest has no manifest to build one from. That
+      # series is therefore always 0 and could never fire this alert.
+      #
+      # Nor `min_over_time(gdi_ingest_inflight[30m]) > 0`: that count sits at 1 just as
+      # well under a steady stream of short, overlapping ingests (a busy node with nothing
+      # stuck). The age gauge reads the oldest marker, so only one ingest that never
+      # finishes can push it past 30m.
+      #
+      # Not covered by the siblings: WedgedIngestPool is `queue>0 and inflight==0`
+      # (work queued, nothing running) and IngestPoolSaturated is
+      # `inflight >= concurrency` (all workers busy). Neither catches one ingest held
+      # continuously, which is what a hung job looks like on an otherwise idle node.
+      - alert: DatasetStuckProcessing
+        expr: gdi_ingest_inflight_oldest_age_seconds > 1800
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "The oldest in-flight ingest has been held for >30m — likely a stuck ingest; identify the id from `_status/{id}.json` or the ingest logs, and confirm with IngestTimeout / IngestRetryChurn"
+
+      # Every ingest worker busy for a sustained window — not necessarily wedged (it
+      # may be steadily draining a backlog), but a signal to raise ingest_concurrency
+      # or investigate slow ingests. Deployment-independent: compares against the
+      # emitted capacity gauge rather than a hardcoded worker count.
+      - alert: IngestPoolSaturated
+        expr: gdi_ingest_inflight >= gdi_ingest_concurrency
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "All ingest workers busy for >10m (inflight >= configured concurrency)"
+
+      # The Beacon query fan-out and ingest share tokio's blocking pool (default 512
+      # threads). Ingest's share is bounded (ingest_concurrency + a 16-task detached
+      # headroom), and a scan detached by a request timeout keeps running — so a flood of
+      # slow/abandoned g_variants scans can occupy the pool and starve ingest while the
+      # async /health probes stay green.
+      #
+      # Compared against the emitted capacity gauge, like IngestPoolSaturated above,
+      # rather than a hardcoded count. A fixed threshold cannot fire on most deployments:
+      # the per-query scan window is capped at ingest_concurrency (default 4) and HTTP
+      # admission at max_concurrent_requests (64), so the metric's ceiling is about
+      # requests x datasets-selected, while the degradation it names shows up as low as
+      # inflight 5 (a 342 MiB ingest takes 29s -> 46s under 3 concurrent broad queries).
+      #
+      # A visibility threshold, not enforcement: nothing in-node reserves ingest headroom,
+      # so treat a firing as "shed query load / scale out", not a node fault.
+      #
+      - alert: IngestPoolStarvedByQueries
+        expr: gdi_beacon_scan_blocking_inflight >= gdi_query_concurrency * 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Beacon scans sustained at >=2x the query fan-out cap (gdi_query_concurrency) for >5m — query fan-out is occupying the shared blocking pool and ingest may be starving (async /health stays green); shed query load or scale out"
+
+      # 5 GB is a placeholder, not a proactive margin. The peak-scratch formula puts a
+      # default-capped node at 4 workers × 4× × 16 GiB = 256 GiB peak, ~320 GiB with headroom: at 5 GB
+      # free a default-sized ingest has been impossible for a long time, so this alert cannot
+      # "grow before a wedge" until you raise it. Sizing it needs `ingest_concurrency` and
+      # `max_package_bytes`, which a rules file cannot see — so the number stays a starting
+      # point and the summary says so rather than promising lead time it cannot deliver.
+      - alert: LowDisk
+        expr: gdi_disk_free_bytes < 5e9
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: >-
+            Data volume free space below the 5 GB PLACEHOLDER margin. This is far below peak
+            ingest scratch for default caps (§7: ~320 GiB) — raise this threshold to >= peak
+            scratch + headroom, or ingests will wedge before it ever fires.
+
+      # The health companion of `gdi_disk_free_bytes`, and the reason `LowDisk` above can be
+      # trusted. This exporter is a registry rendered on demand with NO idle timeout, so a
+      # gauge that stops being set keeps rendering its last value forever: a `statvfs` that
+      # starts failing (a detaching NFS/CSI volume, a moved `data_dir`) freezes
+      # `gdi_disk_free_bytes` at its last healthy reading, and `LowDisk` — the only
+      # `severity: critical` threshold alert over a sampled gauge — then evaluates a number
+      # that can never fall. A failed sample is not a gap Prometheus can surface; it is an
+      # indefinitely stale point that reads as healthy. This alert is what makes it visible.
+      - alert: DiskSampleFailed
+        expr: gdi_disk_sample_failed > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: >-
+            statvfs on the data volume is failing, so gdi_disk_free_bytes is STALE and LowDisk
+            cannot fire. Check that data_dir is still mounted and readable.
+
+      # Feature-dependent (vault): the three Vault alerts below evaluate the Vault token /
+      # renewal / call-error metric series, which are emitted only by a binary built with the
+      # `vault` feature (the shipped image is; a default `lite` build is not). On a node
+      # without it these series never exist, so these alerts sit at no data and can never
+      # fire — that is correct (there is no Vault to alert on), but do not read their
+      # presence as coverage on a keyless/lite node. Deploy them only with a vault build.
+      #
+      # The gauge is the full lease re-stamped on every login/renew — a step value that
+      # never counts down — so this fires only on a token issued with a lease under the
+      # margin (a token-policy misconfiguration), never on an expiry. The lapsing-token
+      # signal is VaultRenewalFailing below.
+      - alert: VaultTokenLeaseTooShort
+        expr: gdi_vault_token_ttl_seconds > 0 and gdi_vault_token_ttl_seconds < 600
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vault/secrets token issued with a lease under 10 min (token policy too short; the gauge never counts down)"
+
+      # Keyed on the re-auth outcome, not on the renewal counter. A failed renewal is part
+      # of the designed AppRole lifecycle — a renewable token cannot be renewed past its
+      # token_max_ttl, so reaching that ceiling always fails one renewal and then re-logs in
+      # successfully. Keying `increase(gdi_vault_renewal_failures_total[15m]) > 0` at
+      # severity: critical would therefore page once per max-TTL (daily at the documented
+      # token_ttl=1h/token_max_ttl=24h) on a completely healthy node: vault "ok", ready
+      # true, zero call errors, queries served throughout. An alert that fires on routine
+      # operation is the one that gets silenced, and operating.md §8 makes this the primary
+      # signal for AppRole credential health, so it keeps `critical` and instead excludes
+      # the routine cases below.
+      #
+      # `outcome="failed"` means the renewal failed AND the fallback re-login failed too:
+      # the credential is genuinely unusable and the node is running on borrowed time until
+      # its current token lapses. `outcome="recovered"` is the routine rollover and is
+      # not alerted; it stays on the dashboard for correlation.
+      - alert: VaultRenewalFailing
+        expr: increase(gdi_vault_reauth_total{outcome="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vault re-authentication failing (renewal failed AND re-login failed)"
+
+      # The agent-sidecar analogue of VaultRenewalFailing, and it is not redundant with
+      # it. Under [vault].token_file the node does not renew — an external agent rewrites
+      # the file — so gdi_vault_renewal_failures_total can never increment and
+      # VaultRenewalFailing can never fire. gdi_vault_token_ttl_seconds also stays 0 (no
+      # lease), so VaultTokenLeaseTooShort is inert for this auth mode by design, exactly as
+      # it already is for a static token. A climbing file age is then the only evidence that
+      # the agent has died and stopped refreshing the credential.
+      # The series is absent entirely unless token_file is configured, so this rule is a
+      # no-op for token/AppRole deployments rather than a false positive.
+      - alert: VaultTokenFileStale
+        expr: gdi_vault_token_file_age_seconds > 3600
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vault token file not refreshed for >1h (the agent sidecar may be dead)"
+
+      # Distinguishes "the agent wrote garbage / the mount vanished" from "the agent
+      # stopped writing", which the age gauge alone cannot: a file that is missing has no
+      # mtime to age.
+      - alert: VaultTokenFileUnreadable
+        expr: increase(gdi_vault_token_file_read_errors_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Vault token file missing, empty, or unreadable"
+
+      # Vault KV/Transit calls failing on the DATA path (PME key fetch / crypt4gh
+      # unwrap) — distinct from VaultRenewalFailing (token lifecycle). The {operation}
+      # label is kept so the failing call (kv_read|kv_write|transit_datakey|
+      # transit_decrypt) shows in the series.
+      - alert: VaultCallErrors
+        expr: increase(gdi_vault_call_errors_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Vault KV/Transit call errors in the last 15m (data-path dependency fault)"
+
+      - alert: DatasetsInError
+        expr: gdi_dataset_state{state="error"} > 0
+        for: 5m
+        labels:
+          severity: info
+        annotations:
+          summary: "One or more datasets are in the error state"
+
+      # Feature-dependent (s3): the S3 alerts below (through S3DownloadErrors, plus
+      # MassRemovalSkipped / StatusWritebackDisabled) evaluate S3 poller / download metric
+      # series emitted only by a binary built with the `s3` feature. On an inbox-only node
+      # without it these series are absent and the alerts sit at no data — expected (there is
+      # no S3 poller), not silent coverage. Deploy them only with an S3 build.
+      - alert: S3PollerWedged
+        expr: time() - gdi_s3_poll_last_success_timestamp_seconds > 600
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 poller has not completed a successful poll in >10m"
+
+      - alert: S3PollErrors
+        expr: increase(gdi_s3_poll_errors_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 poll errors observed in the last 15m"
+
+      # The fetch leg (distinct from the listing leg above): a bucket that lists fine
+      # but whose packages fail to download shows healthy poll-success while datasets
+      # never appear — otherwise visible only in warn logs.
+      - alert: S3DownloadErrors
+        expr: increase(gdi_s3_download_errors_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 package downloads failing (bucket lists OK, packages won't fetch)"
+
+      # A persistently broken governance overlay keeps serving last-good metadata
+      # silently; reason ∈ fetch|parse|validate.
+      # Labelled {channel} so it covers the inbox as well as S3. Emitted only from the S3
+      # path, an inbox-only node would produce no series at all and this alert could never
+      # fire.
+      - alert: OverlayApplyFailing
+        expr: increase(gdi_overlay_apply_failed_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dataset metadata-overlay apply failing (serving last-good metadata)"
+
+      # The visibility counterpart of OverlayApplyFailing, and the more consequential of the
+      # two: a rejected `{id}.state.json` fails the dataset safe to `hidden`, so this fires
+      # when a dataset has been withdrawn from the public plane because its sidecar could not
+      # be read — a truncated write, a bad value — rather than because anyone chose to hide
+      # it. reason ∈ unreadable|unrecognized.
+      - alert: StateSidecarRejected
+        expr: increase(gdi_state_sidecar_rejected_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Visibility sidecar rejected (dataset failed safe to hidden)"
+
+      # The collapse guard fired: a listing that would have mass-evicted a majority of
+      # owned datasets was suppressed. Served data is retained (fail-safe) — this is a
+      # signal to check the bucket/endpoint, not that anything was deleted.
+      - alert: MassRemovalSkipped
+        expr: increase(gdi_s3_removal_skipped_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 reconcile suppressed a mass eviction (collapsed listing); check the bucket/endpoint"
+
+      # An operator wrote `state: deleted` into a `.state.json` sidecar on S3, which is
+      # not how deletion works there — on a bucket, deleting means removing the object.
+      # The node fails safe (the dataset stays hidden) and the emit-site WARN names the
+      # exact object to remove, so the log line is the actionable detail. This alert
+      # exists because a recurring count means someone is repeatedly performing an
+      # operation that silently does not do what they believe it does — a
+      # documentation/training signal, not a node fault. Info severity: never page.
+      - alert: DeletedSidecarIgnored
+        expr: increase(gdi_s3_deleted_sidecar_ignored_total[24h]) > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "A `deleted` .state.json on S3 was ignored (delete the OBJECT instead); see the WARN log for the key"
+
+      # A published dataset dropped out of serving on a cache reload because its
+      # manifest.json was unreadable/corrupt (a missing manifest mid-ingest is benign
+      # and not counted here).
+      - alert: ManifestReloadSkipped
+        expr: increase(gdi_manifest_reload_skipped_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dataset skipped on cache reload (unreadable/corrupt manifest.json) — dropped from serving until fixed"
+
+      # Only meaningful when an inbox is configured; on a pure-S3 node this series
+      # does not advance — alert conditionally (see docs/operating.md §3).
+      - alert: InboxScanWedged
+        expr: time() - gdi_inbox_scan_last_success_timestamp_seconds > 1200
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inbox scan has not succeeded in >20m (only if inbox configured)"
+
+      - alert: InboxWatcherFlapping
+        expr: increase(gdi_inbox_watcher_restarts_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Inbox filesystem watcher restarted in the last hour"
+
+      - alert: StatusWritebackDisabled
+        expr: gdi_s3_status_writeback_disabled == 1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "S3 status writeback is disabled"
+
+      - alert: DecryptFailures
+        expr: increase(gdi_decrypt_failures_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Decrypt failures observed in the last 15m"
+
+      - alert: BackgroundPanics
+        expr: increase(gdi_background_task_panics_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A background task panicked in the last hour"
+
+      # A .tar.c4gh whose body decrypted (so it published) but whose header yielded no
+      # crypt4gh writer key. The node does not authenticate producers, so this is the
+      # only signal that a published package's provenance is unknown. Keyed on
+      # `recovery_failed` alone: `reason="plaintext"` is the expected, every-drop case for
+      # an inbox staging directory, so alerting on it would be noise. The counter is
+      # seeded to 0 for both reasons at startup, so this fires on the first anomalous
+      # package rather than waiting for a baseline.
+      - alert: ProvenanceRecoveryFailed
+        expr: increase(gdi_ingest_provenance_absent_total{reason="recovery_failed"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A package published with an unreadable writer key in the last hour"
+
+      # A package whose writer key is not allow-listed for its channel reached ingest
+      # (warn: published anyway; enforce: quarantined). Under `enforce` this is a rejected
+      # producer; under `warn` it is the allow-list-discovery signal. Either way an operator
+      # should know a package arrived from an un-listed writer. Not seeded (per-channel
+      # label), so it appears when first observed.
+      - alert: WriterKeyNotAllowed
+        expr: increase(gdi_ingest_writer_unknown_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A package from a non-allow-listed writer reached ingest ({{ $labels.channel }})"
+
+      # Synthetic probe down: the blackbox-exporter `blackbox-http` job (see
+      # prometheus.yml) GETs /health/ready; `probe_success == 0` means the data plane
+      # is unreachable or not ready, including during the SIGTERM drain.
+      - alert: SyntheticProbeDown
+        expr: probe_success == 0
+        # 5m (not 2m) rides out a normal initial reconcile / SIGTERM drain, during which
+        # /health/ready is 503 by design — matches HealthNotReady's window.
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Synthetic /health/ready probe failing (data plane down or draining)"
+
+      # The node's own readiness self-report, scraped natively from /metrics (no
+      # blackbox-exporter needed) — and unlike the synthetic probe it carries the
+      # per-subsystem detail in the `component` label, so the alert says which
+      # subsystem is unready. `for: 5m` rides out a normal SIGTERM drain / restart
+      # (readiness is intentionally 0 while draining). Complements SyntheticProbeDown,
+      # which still covers external reachability of /health/live + /fairdp.
+      - alert: HealthNotReady
+        expr: gdi_health_ready{component="overall"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node reports not-ready for >5m (check gdi_health_ready{component} for the subsystem)"
+
+      # Sustained serving-path 5xx: a ratio (not a raw count) so a single transient
+      # 5xx does not page, and guarded by a minimum request rate so an idle node never
+      # alerts on a divide-by-near-zero. The per-route metric never sees load-shed/
+      # timeout rejections — those are gdi_http_requests_rejected_total (below).
+      - alert: BeaconServingErrors
+        expr: |
+          sum(rate(gdi_beacon_requests_total{status_class="5xx"}[5m]))
+            / sum(rate(gdi_beacon_requests_total[5m])) > 0.05
+          and sum(rate(gdi_beacon_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Beacon 5xx ratio >5% over 10m (sustained serving errors)"
+
+      # Resilience-layer rejections the per-route counters never see: a load-shed 503,
+      # a request-timeout 408, or an oversized body/URI (413/414) is rejected before
+      # (or instead of) reaching a handler. The {reason} label is kept (not summed
+      # away), so the alert fires per reason and the tripped guard is visible in the
+      # series labels.
+      - alert: HttpRequestsRejected
+        expr: increase(gdi_http_requests_rejected_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP requests rejected by a resilience layer (load-shed/timeout/body-or-URI cap) in the last 15m"
+
+      # Serving-plane saturation: in-flight requests within 80% of the configured
+      # concurrency limit for a sustained window — the *approach* to the load-shed
+      # cliff (HttpRequestsRejected{reason="overloaded"} only fires once it is hit).
+      # Deployment-independent: a ratio against the emitted capacity gauge rather than
+      # a hardcoded limit.
+      - alert: HttpInflightSaturated
+        expr: gdi_http_inflight / gdi_http_max_concurrent_requests > 0.8
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Public-plane in-flight requests >80% of the concurrency limit for >10m"
+
+      # Connections dropped at accept because a plane's 2048-connection cap was full.
+      # This is a layer below every request-level signal — a dropped connection never
+      # becomes a request, so HttpRequestsRejected cannot see it, and the drop is not
+      # logged, because a flood would amplify the log. Any drop at all
+      # is worth a warning: the cap is far above normal use, so reaching it means a
+      # flood, an FD/connection leak in a client, or a scraper misbehaving.
+      #
+      # `plane="management"` is the serious one: that semaphore sits below the
+      # health-probe exemption in the management router, so a saturated management
+      # listener starves the kubelet's /health/live + /health/ready at accept and, after
+      # failureThreshold, the kubelet SIGKILLs a node that is serving public traffic
+      # correctly — the exact eviction the split stack exists to prevent.
+      - alert: HttpConnectionsRejected
+        expr: increase(gdi_http_connections_rejected_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Connections dropped at accept on the {{ $labels.plane }} plane — connection cap reached (on the management plane this starves kubelet probes and risks a SIGKILL)"
+
+      # Sustained FDP serving-path 5xx: the FDP mirror of BeaconServingErrors — a
+      # ratio (not a raw count) guarded by a minimum request rate, so a single transient
+      # 5xx never pages and an idle FDP plane never divides by near-zero. Broader than
+      # FdpSerializationFailures (the dedicated empty-output 500 counter): this catches
+      # any 5xx on the RDF plane.
+      - alert: FdpServingErrors
+        expr: |
+          sum(rate(gdi_fairdp_requests_total{status_class="5xx"}[5m]))
+            / sum(rate(gdi_fairdp_requests_total[5m])) > 0.05
+          and sum(rate(gdi_fairdp_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "FDP 5xx ratio >5% over 10m (sustained serving errors)"
+
+      # FDP RDF serialization regression: the internal-invariant empty-output 500
+      # branch fired (dedicated counter, not just an undifferentiated 5xx).
+      - alert: FdpSerializationFailures
+        expr: increase(gdi_fairdp_serialization_failures_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "FDP RDF serialization produced empty output (500) in the last 15m"
+
+      # Datasets that failed the detached store-readability sweep: on-disk corruption or
+      # a missing/unreadable store that serving would hit. The sweep runs at startup and
+      # then every [service].rescan_interval_seconds, so this count tracks current
+      # corruption: it rises when a pass finds an unreadable dataset and clears once a
+      # later pass finds it repaired.
+      - alert: StoreScrubFailed
+        expr: gdi_store_scrub_failed > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "One or more datasets failed the store-readability sweep (on-disk corruption)"
+
+      # Enabling PME does not migrate datasets already on disk: they keep their plaintext
+      # (PAR1) parquet and are served alongside newly-written encrypted (PARE) ones, so an
+      # operator who turned PME on to satisfy an at-rest-encryption control believes the whole
+      # store is encrypted when it is not. The series is emitted only on a PME node (see
+      # `metrics::DATASETS_AT_REST`), so this cannot fire on a deployment that never enabled
+      # it. `for: 0m` and no upper bound on duration are deliberate: it is expected to fire
+      # the moment PME is switched on and to keep firing until the last dataset is re-ingested
+      # — staying visible for the whole migration is the point, not a defect to tune away.
+      - alert: DatasetsPlaintextAtRest
+        expr: gdi_datasets_at_rest{form="plaintext"} > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "PME is configured but dataset(s) are still PLAINTEXT at rest"
+          description: >-
+            Enabling PME does not migrate existing datasets. Re-ingest them (delete + re-add,
+            or re-upload from S3) to encrypt; `verify --digest` shows the form per dataset.
+            Clears on its own as datasets are migrated.
+
+      # A dataset directory the node serves that holds no readable `allele-freq.*.parquet`
+      # — deleted, truncated below the 4-byte magic, or unreadable. It is corruption, not an
+      # at-rest form, so it is not counted as `encrypted`. Deriving `encrypted` as
+      # `total - plaintext` would let missing data raise the at-rest-encryption figure.
+      #
+      # This exists because `gdi_store_scrub_failed` does not say what failed, not because it
+      # is slow. An indeterminate store fails at footer depth (`scrub_dataset` classifies
+      # `AtRestForm::Indeterminate` before the Footer early return), and the readability tier
+      # runs footer depth over every dataset every pass, so the quarantine lands on the first
+      # sweep after the store goes bad — the same one-`rescan_interval_seconds` window in
+      # which this gauge is recomputed. What this gauge adds is the form: the scrub counter is
+      # a bare count of datasets failing verification for any reason; this one says the
+      # at-rest form is unknown and the data is not known to be encrypted.
+      #
+      # `for: 15m` (not 0m, unlike its plaintext sibling): a dataset dir can be legitimately
+      # parquet-less for the instant an erase is in flight, and the tally could sample it then.
+      # 15m spans more than one default sweep, so a real finding persists and a mid-erase
+      # sample does not.
+      - alert: DatasetsIndeterminateAtRest
+        expr: gdi_datasets_at_rest{form="indeterminate"} > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Dataset(s) have NO readable parquet — at-rest form unknown, and NOT known to be encrypted"
+          description: >-
+            A published dataset always carries at least one `allele-freq.*.parquet`, so this is
+            a deleted, truncated or unreadable store. Run `verify`, which fails on it at footer
+            depth and names the dataset. The periodic scrub quarantines it on the same schedule
+            (footer depth covers every dataset every pass); this alert adds what
+            `gdi_store_scrub_failed` cannot say — the at-rest form is unknown, so the data is
+            NOT known to be encrypted.
+
+      # The sweep stopping is its own failure mode: if the loop dies, the count above
+      # freezes at its last value and stops being evidence of anything. Staleness is
+      # alertable because the sweep is periodic. The 6h threshold is generous, so it trips
+      # only on a stuck sweep and not on a long rescan_interval_seconds.
+      - alert: StoreScrubStale
+        expr: time() - gdi_store_scrub_last_run_timestamp_seconds > 21600
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Store-readability sweep has not completed in over 6h (corruption detection is blind)"
+
+      # An operator suppression-override file failed to parse on the last load and was
+      # fail-closed to `hide` (never `remove` — see core::suppression). The dataset
+      # stays withheld either way, so this is not a disclosure risk. It is an operator
+      # task: fix or remove the broken file. A degraded load is meant to alert loudly.
+      - alert: SuppressionStoreDegraded
+        expr: gdi_suppression_load_degraded > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "One or more <override_dir>/suppressions/*.json files failed to parse (fail-closed to hide)"
+
+      # The operator-override store root is gone while [service].require_override_store
+      # is set. The node is holding its last known-good in-memory set rather than
+      # adopting the empty one, so nothing is re-disclosed — but the store is the one
+      # part of the data volume re-ingest cannot rebuild, no new hide/correct can take
+      # effect until it returns, and a restart would refuse to serve. `critical`, not
+      # `warning`: the data is one process lifetime from being lost, and no other series
+      # moves — gdi_datasets_suppressed keeps reporting the retained counts and
+      # gdi_suppression_load_degraded stays 0 (nothing failed to parse). See
+      # docs/operating.md §17.
+      - alert: OverrideStoreAbsent
+        expr: gdi_override_store_absent > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Operator-override store is absent while require_override_store is set (serving from the last in-memory set)"
+
+      # A whole channel (a bucket, or inbox) is under an operator channel-suppression
+      # override: every dataset of it is withheld and its ingest paused. This is the
+      # "provider X is compromised, stop now" lever. It is `info` rather than `warning`,
+      # because it is an operator choice (the same
+      # posture as gdi_datasets_suppressed), not a fault — but it must not go
+      # unnoticed, either as an active incident that needs following up or as a
+      # forgotten override quietly blocking a legitimate provider.
+      - alert: ChannelSuppressed
+        expr: gdi_channel_suppressed > 0
+        for: 0m
+        labels:
+          severity: info
+        annotations:
+          summary: "A channel (bucket or inbox) is under an operator suppression override (withheld + ingest paused)"
+
+      # A channel still owns datasets but is no longer declared in [[s3.buckets]]:
+      # its datasets are withheld from boot (withheld, not erased) and nothing polls
+      # its bucket, so the provider's own deletion (the documented retraction verb)
+      # can never take effect here. `warning`, not `info`: this is either an
+      # offboarding left half-finished (finish it: `channel take-down <name>`) or a
+      # config mistake that just withheld a live provider's data (revert it: re-add
+      # the [[s3.buckets]] entry). Neither state should stand.
+      - alert: S3ChannelOrphaned
+        expr: gdi_s3_channel_orphaned > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A channel's datasets are withheld because its [[s3.buckets]] entry was removed; re-add it or finish the offboarding with channel take-down"
+
+      # The catalog counterpart, and note what it does not say: these datasets are still
+      # being served on both planes. What they have lost is discoverability — /fairdp lists
+      # one catalog per configured [catalogs] entry, so a dataset naming a removed catalog
+      # falls out of the root's ldp:contains and cannot be reached by crawling, which is the
+      # whole purpose of a FAIR Data Point. Unlike S3ChannelOrphaned nothing is withheld: a
+      # catalog is a grouping, the dataset still reconciles through its own channel, and the
+      # provider's retraction still works, so pulling live public data over a config typo
+      # would buy nothing.
+      # `warning` because both readings are wrong to leave standing: either an operator
+      # removed the catalog believing it retracted the data (it did not — use a take-down),
+      # or it was a config slip that silently de-listed a live provider (re-add the entry).
+      - alert: CatalogOrphaned
+        expr: gdi_catalog_orphaned > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Visible datasets declare a [catalogs] entry that no longer exists: still served, but unreachable by crawling the FDP. Re-add the entry, or take the datasets down if retraction was the intent"
+
+      # A bucket channel's configured endpoint/bucket/prefix is not the keyspace its
+      # on-disk datasets were ingested from (or the recorded witness is unreadable),
+      # and datasets are missing from the new keyspace's listing — so the node is
+      # refusing to process removals for the channel (without that gate, a config re-point
+      # would apply at restart as a mass eviction). `warning`, not
+      # `info`: unlike a suppression this is rarely an operator choice — it is either a
+      # config mistake to revert or a migration to finish — and while it stands,
+      # legitimate provider deletions (retractions) are not being applied either.
+      - alert: S3KeyspaceMismatch
+        expr: gdi_s3_keyspace_mismatch > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A bucket channel's configured keyspace is not the one its datasets came from; removal processing is refused (revert the config, finish the migration, or take-down the channel's datasets)"
+
+      # A SIGHUP config-reload attempt failed validation (unparsable TOML, or the
+      # reloaded file failed the same preflight boot runs) and was discarded — the node
+      # kept its previous [catalogs]/[ingest] writer-allow-list subset, because a bad
+      # reload must never crash a serving node.
+      # `warning`, not `critical`: the node keeps serving correctly on
+      # its previous config; this just means the operator's edit did not take effect.
+      - alert: ConfigReloadFailed
+        expr: increase(gdi_config_reload_failed_total[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "A SIGHUP config reload failed validation and was discarded; the node kept its previous [catalogs]/[ingest] allow-list"
+
+      # Operator-actionable quarantine backlog: permanently-rejected packages parked
+      # under inbox/.rejected/ pile up silently in storage until cleared. Distinct
+      # from the permanent-outcome rate (DatasetsInError / gdi_ingest_total).
+      - alert: InboxQuarantineBacklog
+        expr: gdi_inbox_rejected_packages > 0
+        for: 30m
+        labels:
+          severity: info
+        annotations:
+          summary: "Packages parked in inbox .rejected quarantine for >30m (operator must clear)"
+
+      # Encrypted packages are piling up on a node that holds no crypt4gh identity. The
+      # node skips them by design (they survive for a later keyed run), so nothing errors,
+      # nothing is quarantined, and no dataset state appears — the drop is silent apart
+      # from an INFO line, which is invisible at the common `GDI_LOG=warn`. Either the
+      # identity configuration is missing/failed on this node, or a provider is dropping
+      # into the wrong one. 30m tolerates a keyed restart in progress.
+      - alert: InboxKeylessPackages
+        expr: gdi_inbox_keyless_packages > 0
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Encrypted inbox packages waiting >30m on a node with no crypt4gh identity (nothing will ingest them)"
+
+      # A replaced or reset at-rest Transit master key. Distinct from VaultCallErrors
+      # (Vault here is reachable and answering) and from KeylessDegraded (that is the
+      # crypt4gh identity, a different key entirely). Latched for the process lifetime,
+      # so it fires until an operator resolves it and restarts — see operating.md §17.
+      # A transient check failure leaves the gauge at 0, so a network blip cannot trip
+      # this.
+      - alert: PmeMasterKeyMismatch
+        expr: gdi_pme_master_key_mismatch > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "At-rest Transit master key cannot decrypt this node's data (key replaced or backend reset)"
+
+      # The node booted with [vault] configured but Vault unreachable, so it runs
+      # keyless-degraded: encrypted-package ingest is skipped and /health/ready stays
+      # 503. This does not self-heal (identities load once at startup) — restart once
+      # Vault is reachable. See docs/operating.md §8.
+      - alert: KeylessDegraded
+        expr: gdi_keyless_degraded == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Node running keyless-degraded (Vault unreachable at startup) — restart once Vault is reachable"
+
+      # Scrape-up backstop. Every gdi_* staleness rule above uses `time() - <gauge>`, which
+      # goes to no data (not stale) when the node's /metrics target is down — so a hard
+      # node-down is invisible to them. This fires directly on the scrape `up` series for
+      # the node and the blackbox-exporter. (SyntheticProbeDown covers data-plane
+      # reachability via the probe, but is itself blind if blackbox-exporter is down — this
+      # covers the metrics target and the exporter itself.)
+      - alert: TargetDown
+        # The matcher is anchored (PromQL regexes always are), so a bare
+        # `gdi-node-standalone|blackbox-http` would match those two job names exactly and
+        # silently exclude every Kubernetes deployment: the Prometheus Operator derives
+        # the job label from the Service name, and the management plane's Service is
+        # `gdi-node-standalone-management` — the one target carrying the health probes and
+        # the dataset-state oracle. Hence the trailing `.*`.
+        expr: up{job=~"gdi-node-standalone.*|blackbox-http"} == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Prometheus target {{ $labels.job }} ({{ $labels.instance }}) down for >5m"
+
+      # Dev overlay only, and split from TargetDown. That rule is `critical` and paged, and
+      # watches only the node and the blackbox job. An infra scrape target going away is
+      # `warning`, so a crash-looping Tempo is visible without paging anyone. These jobs
+      # exist only under docker-compose.observability.yml, so this rule can only fire
+      # there — delete it along with that stack. `loki` is not a scrape job
+      # (prometheus.yml), so it is not listed.
+      - alert: ObservabilityTargetDown
+        expr: up{job=~"alloy|tempo|prometheus"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Observability scrape target {{ $labels.job }} ({{ $labels.instance }}) down for >5m (dev overlay only)"
+
+      # Dead-man's switch: an always-firing heartbeat so the absence of alerts is itself
+      # detectable. A real deployment routes Watchdog to an external monitor that pages when
+      # it stops arriving (i.e. Prometheus / Alertmanager / the pipeline is down). In dev it
+      # sits in the Alertmanager UI.
+      - alert: Watchdog
+        expr: vector(1)
+        for: 0m
+        labels:
+          severity: none
+        annotations:
+          summary: "Always-on heartbeat — alert externally if this STOPS arriving (monitoring pipeline down)"

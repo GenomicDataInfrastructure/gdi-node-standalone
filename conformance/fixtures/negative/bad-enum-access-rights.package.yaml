@@ -1,0 +1,46 @@
+# NEGATIVE FIXTURE — controlled-vocabulary (enum) violation (`accessRights`).
+# Violates: gdi-metadata `DatasetShape#access-rights` `sh:in (eu:PUBLIC eu:RESTRICTED
+# eu:NON_PUBLIC)`. The value below is a well-formed IRI but not one of the three
+# authority access-right tokens.
+# Expected: Rust gate REJECTS (validate_enum); pySHACL VIOLATES (sh:in).
+metadata:
+  prefix: "GDI"
+  org: "EXAMPLE"
+  catalog: "gdi-aggregated"
+  title:
+    en: "Genome of Europe Estonia aggregated allele frequencies"
+    et: "Genome of Europe Eesti koondsagedused"
+  description: "Aggregated allele frequencies for the Genome of Europe Estonia cohort."
+  accessRights: "http://publications.europa.eu/resource/authority/access-right/SECRET"
+  applicableLegislation:
+    - "http://data.europa.eu/eli/reg/2025/327/oj"
+  license: "https://creativecommons.org/licenses/by/4.0/"
+  creator:
+    - name: "Genome of Europe - EE node"
+  healthCategory:
+    - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+  keywords:
+    - allele-frequency
+    - genomics
+  numberOfUniqueIndividuals: 1234
+  conformsTo:
+    - "http://data.gdi.eu/core/p2/1MGCompliant"
+  legalBasis:
+    - "https://w3id.org/dpv#Consent"
+  contactPoint:
+    fn: "Data team"
+    hasEmail: "mailto:data@example.org"
+    hasURL: "https://example.org"
+
+files:
+  - category: "VCF"
+    reference: "GRCh38"
+    files:
+      - "relative/to/yaml/file1.vcf.gz"
+
+config:
+  mode: aggregated
+  blockRange: 10000000
+  afSource: "The Genome of Europe"
+  afSourceReference: "https://genomeofeurope.eu/"
+  minAlleleCount: 0

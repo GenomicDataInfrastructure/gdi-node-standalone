@@ -1,0 +1,31 @@
+---
+source: crates/gdi-node-standalone/tests/beacon_info.rs
+expression: v
+---
+{
+  "meta": {
+    "apiVersion": "v2.2.0",
+    "beaconId": "org.example.beacon",
+    "returnedSchemas": []
+  },
+  "response": {
+    "alternativeUrl": "https://alt.example.org/beacon",
+    "apiVersion": "v2.2.0",
+    "createDateTime": "2026-01-01T00:00:00Z",
+    "description": "An example aggregated allele-frequency beacon.",
+    "environment": "test",
+    "id": "org.example.beacon",
+    "name": "Example GDI Beacon",
+    "organization": {
+      "contactUrl": "mailto:beacon@example.org",
+      "description": "The example organization.",
+      "id": "org.example",
+      "logoUrl": "https://example.org/logo.png",
+      "name": "Example Organization",
+      "welcomeUrl": "https://example.org"
+    },
+    "updateDateTime": "2026-06-16T00:00:00Z",
+    "version": "1.2.3",
+    "welcomeUrl": "https://beacon.example.org"
+  }
+}

@@ -1,0 +1,133 @@
+# Full dev stack config.
+#
+# The service, an S3 backend (Garage by default, minio behind --profile minio) and a
+# secrets backend (OpenBao by default, HashiCorp Vault behind --profile vault). The node
+# crypt4gh identity and the per-bucket S3 credentials come from Vault/OpenBao, and at-rest
+# Parquet Modular Encryption (PME) is on via the Transit key. All of it is provisioned by
+# compose/setup.sh, which runs unchanged against either secrets backend, since both speak
+# the same KV v2 and Transit API.
+#
+# This config needs the full build of the service image (--features full).
+#
+# The `endpoint` and `address` URLs use the in-Compose service DNS names. The same
+# `[[s3.buckets]]` works against either S3 backend: path-style, region "garage" for Garage
+# and "us-east-1" for minio, though both accept either with path_style.
+
+[service]
+listen = "0.0.0.0:8080"
+# Not parameterised: a stack shifted with GDI_HOST_PORT_PUBLIC still mints :8080 IRIs.
+# See compose/node.minimal.toml for why that is tolerated.
+base_url = "http://localhost:8080"
+data_dir = "/var/lib/gdi-node-standalone/datasets"
+inbox = "/var/lib/gdi-node-standalone/inbox"
+ingest_concurrency = 2
+rescan_interval_seconds = 60
+# Management plane (health, dataset state, metrics) on its own port, never the public
+# `listen`. The bind is a hard startup requirement.
+management_addr = "0.0.0.0:9090"
+
+[catalogs]
+gdi-aggregated = "Genome of Europe Aggregated Data"
+synthetic-data = "Synthetic Data"
+
+[fairdp]
+title = "GDI Local FAIR Data Point"
+description = "Local development FAIR Data Point for gdi-node-standalone (full stack)"
+issued = "2026-01-01T00:00:00Z"
+license = "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
+theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
+applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
+
+[fairdp.publisher]
+name = "Local Dev Org"
+homepage = "https://example.org"
+mbox = "mailto:dev@example.org"
+[fairdp.publisher.contact_point]
+fn = "GDI Local"
+has_email = "mailto:dev@example.org"
+
+[fairdp.hdab]
+name = "Local HDAB"
+[fairdp.hdab.contact_point]
+fn = "Local HDAB"
+has_email = "mailto:hdab@example.org"
+
+[beacon]
+aggregated_base_path = "/beacon/v2"
+sensitive_base_path = "/beacon/v2"
+id = "org.local.beacon"
+name = "GDI Local Beacon"
+api_version = "v2.2.0"
+environment = "dev"
+# k-anonymity floor for the aggregated plane. The unit is alleles, not individuals
+# (roughly 2*k), so 10 guarantees k = 5 distinct individuals per served cell. 0, the
+# built-in default, disables small-count suppression and the node warns at boot.
+min_allele_count = 10
+# Dev placeholder. Without this and organization.logo_url below, the GDI
+# allele-frequency network's registry has been observed to degrade the whole shared
+# member listing, not just this node's entry;
+# see node.example.toml.
+alternative_url = "https://alt.example.org/beacon"
+
+[beacon.organization]
+id = "org.local"
+name = "Local Dev Org"
+welcome_url = "https://example.org"
+logo_url = "https://example.org/logo.png"
+
+[beacon.configuration]
+production_status = "DEV"
+security_level = "PUBLIC"
+default_granularity = "record"
+
+# S3 bucket: works against either Garage or minio, path-style. The credentials are read
+# from Vault/OpenBao, keyed by this bucket's `name` (`primary_access_key_id` and
+# `primary_secret_access_key`); the inline keys below are the no-Vault fallback and are
+# overridden by Vault.
+[[s3.buckets]]
+name = "primary"
+# The setup script writes the bucket credentials to Vault and creates the bucket on the
+# selected backend; the service reaches it by its in-Compose DNS name. The value below is
+# the Garage default. For minio, or any external S3 endpoint such as a real Ceph RGW,
+# docker-compose.yml overrides the endpoint and region at `up` time through the
+# GDI_NODE__S3__BUCKETS__0__ENDPOINT and __REGION env overlay (for example
+# GDI_S3_ENDPOINT=http://minio:9000 GDI_S3_REGION=us-east-1). Those are the only fields
+# that differ between the dev S3 backends.
+endpoint = "http://garage:3900"
+bucket = "gdi-datasets"
+# Confine the channel to a key prefix, so the full-stack e2e exercises the prefixed path
+# end to end (upload -> ingest -> visible -> Beacon read-back). `scripts/e2e/run-full.sh`
+# writes the same prefix into the tool profile it generates; the two must agree, and the
+# harness asserts they do by listing the bucket root and finding nothing.
+prefix = "gdi-node-storage/"
+region = "garage"
+access_key_id = "inline-fallback"
+secret_access_key = "inline-fallback"
+path_style = true
+# The dev S3 backends speak plain HTTP on the Compose network, so an http:// endpoint has
+# to be allowed explicitly. It is off by default so a production misconfiguration cannot
+# silently drop TLS.
+allow_http = true
+marker_poll_interval = 15
+full_poll_interval = 60
+
+# Vault / OpenBao: both speak the identical KV v2 + Transit API, so this one block
+# works for either backend (the address points at the selected service's DNS name;
+# the docker-compose override swaps it for --profile vault).
+[vault]
+address = "http://openbao:8200"
+# A static dev root token (set by setup.sh / the dev backend's -dev-root-token-id).
+# Also overridable via GDI_NODE__VAULT__TOKEN / VAULT_TOKEN.
+token = "dev-root-token"
+kv_mount = "secret"
+# The node's crypt4gh identities: one KV secret whose values are identity PEMs, each
+# field named `c4gh-<epoch-millis>`. The published recipient is the one with the greatest
+# parsed epoch-millis, not the lexicographically greatest field name (docs/operating.md
+# §9). Minted by `identity init`, extended by `identity rotate`.
+kv_path = "gdi-node-standalone/c4gh-identities"
+# Per-bucket S3 credentials (keyed by bucket name).
+s3_path = "gdi-node-standalone/s3-credentials"
+# At-rest PME on: the Transit master key (aes256-gcm96) provisioned by setup.sh. Its
+# presence is the switch; each parquet file's DEK is minted and wrapped under it.
+transit_mount = "transit"
+transit_key = "gdi-node-standalone-at-rest"

@@ -1,0 +1,58 @@
+# A fully-enriched, valid package.yaml (every mandatory + recommended field).
+# The Rust gate (`validate_package`) ACCEPTS it; rendered to RDF, pySHACL CONFORMS.
+#
+# Each file under conformance/fixtures/negative/ is this file plus exactly one
+# perturbation: the single rule its filename names, and nothing else.
+#
+# Two tests in tests/conformance_agreement.rs enforce that, and both are needed:
+#   * `each_negative_fixture_is_a_single_perturbation_of_the_baseline` diffs the parsed
+#     fixture against the parsed baseline and requires exactly the one expected field to
+#     differ. This is the structural guard.
+#   * `each_negative_fixture_is_rejected_for_its_own_rule` requires the gate to reject it
+#     FOR that rule, not merely to reject it.
+#
+# The structural one is not redundant: `validate_package_collect_all` reports section-level
+# errors and each section short-circuits at its first `?`, so a second violation inside the
+# same section is invisible to the gate. Adding a fixture? Perturb one field, and add its
+# dotted path to `expected_diff_paths`.
+metadata:
+  prefix: "GDI"
+  org: "EXAMPLE"
+  catalog: "gdi-aggregated"
+  title:
+    en: "Genome of Europe Estonia aggregated allele frequencies"
+    et: "Genome of Europe Eesti koondsagedused"
+  description: "Aggregated allele frequencies for the Genome of Europe Estonia cohort."
+  accessRights: "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+  applicableLegislation:
+    - "http://data.europa.eu/eli/reg/2025/327/oj"
+  license: "https://creativecommons.org/licenses/by/4.0/"
+  creator:
+    - name: "Genome of Europe - EE node"
+  healthCategory:
+    - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+  keywords:
+    - allele-frequency
+    - genomics
+  numberOfUniqueIndividuals: 1234
+  conformsTo:
+    - "http://data.gdi.eu/core/p2/1MGCompliant"
+  legalBasis:
+    - "https://w3id.org/dpv#Consent"
+  contactPoint:
+    fn: "Data team"
+    hasEmail: "mailto:data@example.org"
+    hasURL: "https://example.org"
+
+files:
+  - category: "VCF"
+    reference: "GRCh38"
+    files:
+      - "relative/to/yaml/file1.vcf.gz"
+
+config:
+  mode: aggregated
+  blockRange: 10000000
+  afSource: "The Genome of Europe"
+  afSourceReference: "https://genomeofeurope.eu/"
+  minAlleleCount: 0

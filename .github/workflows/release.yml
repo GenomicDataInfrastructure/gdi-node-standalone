@@ -1,0 +1,607 @@
+# Tag-triggered release workflow.
+#
+# Pushing a `v*` tag (e.g. `v0.2.0`) cuts a release: it cross-compiles the
+# `gdi-dataset-tool` CLI for its three platforms and the `gdi-node-standalone` service
+# (`gnu`/glibc primary + static `musl` secondary, x86_64 + aarch64, full features), checksums
+# every artifact into a single `SHA256SUMS`, attaches a GitHub build-provenance
+# attestation (SLSA — keyless, via OIDC, so no signing-key secrets are needed),
+# generates the CycloneDX SBOM, and publishes them all on a GitHub Release.
+#
+# The container image is built + published to GHCR by the `image` job below: it
+# packages the same released `gnu` (glibc) service binary onto `distroless/cc` via
+# the single `Dockerfile`'s no-recompile `prebuilt` stage (`--build-arg
+# BIN_SOURCE=prebuilt`), so the image binary is byte-identical to the bare-metal
+# download, and it carries its own keyless build-provenance attestation.
+#
+# This file is authored to run on GitHub-hosted runners; the build-provenance
+# attestation needs the workflow's `id-token`/`attestations` permissions (granted
+# below) and does not run outside Actions.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+# Least-privilege by default; the jobs that need more opt in explicitly.
+permissions:
+  contents: read
+
+jobs:
+  # Build one artifact per target. The tool's three platforms (macOS + MSVC on
+  # native runners since `cross` from Linux cannot reach the Apple target;
+  # `windows-gnu` and `linux-gnu` via `cross`) plus the `gdi-node-standalone` service —
+  # `gnu` (glibc, primary) + static `musl` (secondary), x86_64 + aarch64, full
+  # features — on a Linux runner via `cross`.
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Platform set (the superset that ships) — keep in sync with the two
+          # build-verify cross matrices that gate it earlier:
+          #   * ci.yml `cross-compile` (per-PR Linux legs), and
+          #   * scheduled.yml `cross-native` (macOS + Windows tool legs, weekly).
+          # When you add a platform here, add a verify leg there — the ci.yml
+          # "Release targets are all build-verified (or allowlisted)" step enforces it, and
+          # its allowlist is empty, so an unverified new target fails the gate.
+          # --- gdi-dataset-tool CLI, three+ platforms ---
+          - name: tool-x86_64-linux-gnu
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            crate: gdi-dataset-tool
+            bin: gdi-dataset-tool
+            artifact-stem: gdi-dataset-tool
+            features: ""
+            use-cross: true
+          # Static musl build of the CLI alongside the gnu one (not a replacement): the
+          # tool's audience (data providers) runs it on a wide, less-controlled set of
+          # hosts, and a fully-static musl binary runs on Alpine / musl / old-glibc where
+          # the gnu build can't. The verify leg lives in ci.yml `cross-compile`.
+          - name: tool-x86_64-linux-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            crate: gdi-dataset-tool
+            bin: gdi-dataset-tool
+            artifact-stem: gdi-dataset-tool
+            features: ""
+            use-cross: true
+          # macOS is Apple-silicon only. `macos-latest` is arm64. There is no Intel macOS
+          # row: GitHub is winding its Intel runner labels down, and the target could not be
+          # build-verified without one.
+          - name: tool-aarch64-macos
+            os: macos-latest
+            target: aarch64-apple-darwin
+            crate: gdi-dataset-tool
+            bin: gdi-dataset-tool
+            artifact-stem: gdi-dataset-tool
+            features: ""
+            use-cross: false
+          - name: tool-x86_64-windows-msvc
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            crate: gdi-dataset-tool
+            bin: gdi-dataset-tool.exe
+            artifact-stem: gdi-dataset-tool
+            features: ""
+            use-cross: false
+          # --- glibc (gnu) service binary, x86_64 + aarch64 (full features) — primary ---
+          # The deployed service runs on glibc: under concurrent Beacon load it serves
+          # ~1.8–4x the throughput of the static musl build (musl's mallocng serializes
+          # allocation across the async worker pool). Built via `cross`, whose old-glibc
+          # image gives a ~2.23 floor — runs on every supported distro (RHEL/Rocky 8+,
+          # Ubuntu 18.04+, Debian 10+). The x86_64 binary is what the `image` job packages
+          # onto distroless/cc; both arches are also bare-metal downloads.
+          - name: service-x86_64-linux-gnu
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            crate: gdi-node-standalone
+            bin: gdi-node-standalone
+            artifact-stem: gdi-node-standalone
+            features: "full"
+            use-cross: true
+          - name: service-aarch64-linux-gnu
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            crate: gdi-node-standalone
+            bin: gdi-node-standalone
+            artifact-stem: gdi-node-standalone
+            features: "full"
+            use-cross: true
+          # --- static musl service binary, x86_64 + aarch64 (full features) — secondary ---
+          # Fallback for Alpine / NixOS / hard-static bare-metal nodes where the dynamic
+          # glibc binary can't run (no glibc / no dynamic loader). Not the default and not
+          # packaged into a container image; shipped as a downloadable static binary only.
+          - name: service-x86_64-linux-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            crate: gdi-node-standalone
+            bin: gdi-node-standalone
+            artifact-stem: gdi-node-standalone
+            features: "full"
+            use-cross: true
+          - name: service-aarch64-linux-musl
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            crate: gdi-node-standalone
+            bin: gdi-node-standalone
+            artifact-stem: gdi-node-standalone
+            features: "full"
+            use-cross: true
+          # No separate "lite" (default-feature) service artifact is shipped. The
+          # full binary with S3/Vault unconfigured behaves identically to a lite build
+          # for an inbox-only node (the optional subsystems lie dormant), so a second
+          # download only adds a confusing choice and two more build/sign steps. The
+          # ring-free lite *build* is still exercised in CI (the `profiles` job) to
+          # prevent cfg-rot; it is just not a released artifact.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Key on the matrix name, not the target: four rows share a target with another
+          # row (`tool-`/`service-x86_64-linux-gnu` and the two `…-musl` pairs) while
+          # building a different crate with different features. Keyed on the target they
+          # would thrash one cache slot, each row evicting the other's artifacts and
+          # emitting "cache already exists" warnings. Same fix, same reason, as ci.yml's
+          # cross-compile matrix.
+          key: ${{ matrix.name }}
+
+      # Dependency inventory for every artifact comes from the CycloneDX SBOM (the
+      # `sbom` job below), not from an embedded-in-the-binary manifest: cargo-auditable
+      # can't run under `cross` (it doesn't containerize the `auditable` subcommand,
+      # so it falls back to host `cargo` and the cross C-toolchains are missing), and
+      # a native-only embed would leave the deployed musl binaries inconsistent — so
+      # the SBOM sidecar is the single, uniform mechanism.
+      - name: Install cross
+        if: matrix.use-cross
+        uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cross@0.2.5 }
+
+      - name: Build (cross)
+        if: matrix.use-cross
+        run: |
+          cross build --release --locked -p ${{ matrix.crate }} --target ${{ matrix.target }} \
+            ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+
+      - name: Build (native)
+        if: ${{ !matrix.use-cross }}
+        shell: bash
+        run: |
+          cargo build --release --locked -p ${{ matrix.crate }} --target ${{ matrix.target }} ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+
+      # Name the artifact `<artifact-stem>-<version-tag>-<target>[.exe]` so
+      # downloads are self-describing. The release profile already strips symbols
+      # (Cargo.toml). artifact-stem names the product (gdi-dataset-tool /
+      # gdi-node-standalone) while bin is always the real Cargo output filename
+      # (gdi-node-standalone[.exe]).
+      - name: Stage artifact
+        shell: bash
+        run: |
+          mkdir -p dist
+          src="target/${{ matrix.target }}/release/${{ matrix.bin }}"
+          base="${{ matrix.bin }}"
+          ext=""
+          case "$base" in *.exe) ext=".exe";; esac
+          out="dist/${{ matrix.artifact-stem }}-${GITHUB_REF_NAME}-${{ matrix.target }}${ext}"
+          cp "$src" "$out"
+          echo "staged $out"
+
+      - name: Upload per-target artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifact-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+
+  # Tag ↔ Cargo version guard. Artifacts and the image are named from the tag while
+  # the binary reports CARGO_PKG_VERSION, so a tag that doesn't match the workspace
+  # version ships skewed `--version` / `GET /version` / `gdi_build_info` metadata.
+  # Fast (no toolchain — reads [workspace.package].version straight from Cargo.toml).
+  # `publish`/`image` `needs:` it alongside `gate`.
+  version-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert the tag matches [workspace.package].version
+        shell: bash
+        run: |
+          tag_ver="${GITHUB_REF_NAME#v}"
+          # Exact match, pre-release suffix included: the manifest carries the version being
+          # shipped. A base-version comparison would accept `v1.0.0-rc.1` against a `1.0.0`
+          # manifest, and the binary built from it reports `CARGO_PKG_VERSION` through
+          # `--version`, `GET /version`, the log preamble, `gdi_build_info` and the Beacon
+          # `info` response — so a candidate would be indistinguishable from the release over
+          # the wire, which is what an operator and a federation aggregator must tell apart.
+          #
+          # `changelog-guard` and the release-notes assembly still strip the suffix, on
+          # purpose: an RC draws its notes from the `## [1.0.0]` section it is a candidate
+          # for, rather than needing a section of its own.
+          cargo_ver="$(awk -F'"' '/^\[workspace\.package\]/{f=1} f&&/^version[[:space:]]*=/{print $2; exit}' Cargo.toml)"
+          if [ "${tag_ver}" != "${cargo_ver}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} implies version ${tag_ver} but [workspace.package].version is ${cargo_ver} — set the manifest to the exact version you are shipping (including any -rc.N suffix), or fix the tag"
+            exit 1
+          fi
+          echo "ok: tag ${GITHUB_REF_NAME} matches workspace version ${cargo_ver} exactly"
+
+  # The CHANGELOG gate, as its own job for exactly the reason `version-guard` is one: a
+  # release precondition that can fail must gate everything the release ships, not just the
+  # step that happens to consume it.
+  #
+  # It must be its own job, not a step inside `publish`. As a step, a tag cut without
+  # rolling `[Unreleased]` into a versioned section would fail only once `publish` was
+  # already running, and every other job would have to re-derive the precondition to know
+  # whether to proceed. As a job it gates `publish` and `image` alike, before either starts.
+  #
+  # `image` additionally `needs: publish`, so it cannot push an image for a release that
+  # does not exist — see the note on the `image` job for why the guards alone are not
+  # enough there.
+  #
+  # Cheap and toolchain-free (awk over one file), so gating both jobs on it costs nothing.
+  changelog-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Assert CHANGELOG.md has a section for this version
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # A pre-release tag (`v1.0.0-rc.1`) is checked against its base version's section
+          # (`## [1.0.0]`) — same rule as version-guard. A real release tag carries no
+          # suffix, so this is a no-op for it.
+          base_version="${version%%-*}"
+          # The heading is the assertion, not its body: the grep below matches the
+          # heading line alone, so an empty versioned section passes and content is
+          # not required. CONTRIBUTING 'Cutting a release' covers what belongs in one.
+          if ! grep -qE "^## \\[${base_version}\\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${base_version}]' section — roll [Unreleased] into a versioned section before tagging ${GITHUB_REF_NAME} (see CONTRIBUTING 'Cutting a release')."
+            exit 1
+          fi
+          echo "ok: CHANGELOG.md carries a '## [${base_version}]' section"
+
+  # Correctness gate for the release. A `v*` tag must not publish artifacts or the
+  # GHCR image if the core suite is red. `ci.yml` also runs on the tag, but as a
+  # separate workflow with no linkage to this one — so without an in-workflow gate
+  # `publish`/`image` could complete before (or regardless of) that run's result.
+  # Invokes the same single-source `rust` + `supply-chain` aggregates the CI jobs run
+  # (fmt + clippy-lite + nextest, then cargo-deny + cargo-machete). `publish`/`image`
+  # `needs:` it; `build` is left ungated so the cross-compile legs run in parallel with the
+  # gate and are simply discarded if it fails (nothing they produce is published
+  # without the gate passing).
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with: { components: clippy, rustfmt }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: nextest@0.9.143 }
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cargo-deny@0.20.2 }
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cargo-machete@0.9.2 }
+      # Same reason as ci.yml's `supply-chain` job: the leg ends in `pip_audit`, which
+      # `need`s `uv`, and the runner image does not ship it. `publish` and `image` both
+      # `needs: gate`, so without this step no tag can ever publish anything.
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: uv }
+      - run: ./scripts/ci-local.sh rust supply-chain
+      # Attribution-bundle freshness on the release path. THIRD-PARTY-LICENSES.md is
+      # the committed, cargo-about-generated bundle the release ships verbatim (staged
+      # in `publish`, COPY'd into the image). The weekly `licenses` job only catches
+      # staleness up to 7 days late, so a tag cut after a dep bump could ship a stale
+      # bundle; regenerating and diffing here blocks the release
+      # instead. Same pinned cargo-about as scheduled.yml (from source — no prebuilt).
+      - name: Third-party attribution bundle is up to date (matches Cargo.lock)
+        run: |
+          cargo install cargo-about --version 0.9.2 --locked --features cli
+          cargo about generate --fail about.hbs -o /tmp/THIRD-PARTY-LICENSES.gen.md
+          diff -u THIRD-PARTY-LICENSES.md /tmp/THIRD-PARTY-LICENSES.gen.md \
+            || { echo "::error::THIRD-PARTY-LICENSES.md is stale for this release — run 'cargo about generate about.hbs -o THIRD-PARTY-LICENSES.md' and commit before tagging"; exit 1; }
+
+  # CycloneDX SBOM, one per shipped binary (gdi-node-standalone, gdi-dataset-tool),
+  # published with the release.
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      - name: Generate workspace SBOM
+        # `--spec-version 1.5` explicit (not cargo-cyclonedx's implicit 1.3 default) —
+        # matches the ci.yml `sbom` job; 1.5 carries the fields modern scanners key on.
+        run: cargo cyclonedx --all --format json --spec-version 1.5
+      - name: Collect SBOMs
+        shell: bash
+        run: |
+          # One SBOM per shipped binary — not per workspace crate. `cargo cyclonedx --all`
+          # writes one `*.cdx.json` per crate (including test-only
+          # `test-util` and the internal `gdi-build-info`), but only the two crates that
+          # produce a released artifact belong on the Release.
+          mkdir -p dist
+          for sbom in \
+            crates/gdi-node-standalone/gdi-node-standalone.cdx.json \
+            crates/gdi-dataset-tool/gdi-dataset-tool.cdx.json; do
+            if [ ! -f "$sbom" ]; then
+              echo "::error::expected SBOM $sbom was not generated by 'cargo cyclonedx --all' — did a crate/binary name change?"
+              exit 1
+            fi
+            cp "$sbom" dist/
+          done
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: artifact-sbom
+          path: dist/*
+          if-no-files-found: error
+
+  # Aggregate every artifact, checksum them all into one SHA256SUMS, attest build
+  # provenance (SLSA, keyless via OIDC), and publish the GitHub Release.
+  publish:
+    needs: [build, sbom, gate, version-guard, changelog-guard]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the release + upload assets
+      id-token: write # OIDC token for keyless attestation
+      attestations: write # write the build-provenance attestation
+    steps:
+      # Checkout for CHANGELOG.md (release-notes assembly below); the build artifacts
+      # arrive separately via download-artifact, into staged/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download all build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: artifact-*
+          path: staged
+          merge-multiple: true
+
+      - name: Stage the third-party licence bundle
+        shell: bash
+        run: |
+          # Ship attribution alongside the binaries (permissive-licence binary-
+          # redistribution obligation): the committed THIRD-PARTY-LICENSES.md (drift-
+          # guarded on this release path by the `gate` job + weekly) + the project's
+          # own dual licence. Staged into
+          # staged/ before the checksum step so they are covered by SHA256SUMS and the
+          # SLSA attestation (subject-path staged/*) and attached to the Release.
+          cp THIRD-PARTY-LICENSES.md LICENSE-APACHE LICENSE-MIT staged/
+
+      - name: Compute SHA256SUMS
+        shell: bash
+        run: |
+          cd staged
+          sha256sum -- * > SHA256SUMS
+          echo "----- SHA256SUMS -----"
+          cat SHA256SUMS
+
+      # Keyless SLSA build-provenance attestation over the released binaries +
+      # checksums. No signing-key secret is needed; the OIDC token above is the
+      # trust anchor. An operator verifies with
+      # `gh attestation verify <file> --repo <owner>/<repo>`.
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "staged/*"
+
+      # Assemble the release body from the curated CHANGELOG section for this version,
+      # then the artifacts blurb. Fails if CHANGELOG.md has no `## [<version>]` section
+      # — i.e. the tag was cut without rolling `[Unreleased]` into a versioned section
+      # (see CONTRIBUTING "Cutting a release"). This keeps the hand-curated CHANGELOG
+      # authoritative rather than silently replaced by raw commit notes.
+      - name: Assemble release notes from CHANGELOG.md
+        shell: bash
+        run: |
+          # `set -u`: this step interpolates shell variables into the published release
+          # body, and an unset one would expand to the empty string silently — a release
+          # body shipped with the curated CHANGELOG text missing and nothing failing.
+          # Under `set -u` that is a hard error.
+          set -u
+          version="${GITHUB_REF_NAME#v}"
+          # A pre-release tag (`v1.0.0-rc.1`) draws its notes from its base version's
+          # section — same rule as version-guard/changelog-guard. A real release tag
+          # carries no suffix, so this is a no-op for it.
+          base_version="${version%%-*}"
+          # The heading is the assertion, not its body: the grep below matches the
+          # heading line alone, so an empty versioned section passes and content is
+          # not required. CONTRIBUTING 'Cutting a release' covers what belongs in one.
+          if ! grep -qE "^## \\[${base_version}\\]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [${base_version}]' section — roll [Unreleased] into a versioned section before tagging ${GITHUB_REF_NAME} (see CONTRIBUTING 'Cutting a release')."
+            exit 1
+          fi
+          # Body = the curated CHANGELOG section + the artifacts footer (kept in
+          # .github/release-notes-footer.md so the markdown — with its literal backticks —
+          # lives in a file, not awkwardly shell-quoted here). __REPO__ filled in after.
+          #
+          # __ARTIFACTS__ is expanded from `staged/` — the actual published assets, at the
+          # point where they are all present (downloaded, licences staged, SHA256SUMS
+          # computed). The footer does not enumerate the platforms itself: that would be a
+          # second copy of the release matrix with nothing guarding it. Deriving the list
+          # from the artifacts means it cannot disagree with them.
+          # Extract the curated section for this version: everything after the `## [version]`
+          # heading, up to (not including) the next `## [` heading OR a reference-style link
+          # definition (`[label]: url`, e.g. the trailing `[Unreleased]: https://…` line) —
+          # that line belongs to the file as a whole, not this section, and does not belong
+          # in the release body. `index($0, hdr) == 1` rather than a regex, because the
+          # version string contains dots — as a regex `1.0.0` would also match `1x0y0`, and
+          # building a pattern from a variable is how that goes unnoticed. An empty section
+          # is legitimate (see the guard above), so content is not checked here; `set -u`
+          # only guarantees the variable was assigned.
+          section="$(awk -v hdr="## [${base_version}]" '
+            index($0, hdr) == 1 { f = 1; next }
+            f && index($0, "## [") == 1 { exit }
+            f && $0 ~ /^\[[^]]+\]: / { exit }
+            f
+          ' CHANGELOG.md)"
+          f=.github/release-notes-footer.md
+          grep -qx '__ARTIFACTS__' "$f" || {
+            echo "::error::$f lost its __ARTIFACTS__ placeholder — the release notes would ship with no asset list at all"; exit 1
+          }
+          # Glob + printf rather than `ls | sed`: parsing `ls` is SC2012 and backticks
+          # inside single quotes are SC2016, and actionlint runs its bundled linter over
+          # every inline `run:` block — so this is the only form that survives the gate.
+          # (Keep the word "shell"+"check" off the start of a comment line here: a comment
+          # beginning with it is parsed as a directive, which is SC1072/SC1073.)
+          {
+            printf '%s\n\n' "$section"
+            while IFS= read -r line; do
+              if [ "$line" = "__ARTIFACTS__" ]; then
+                for a in staged/*; do
+                  printf -- "- \`%s\`\n" "${a#staged/}"
+                done
+              else
+                printf '%s\n' "$line"
+              fi
+            done < "$f"
+          } > RELEASE_NOTES.md
+          # Two placeholders, because the same repository name is needed in two cases and
+          # only one of them tolerates the mixed-case form. `--repo` wants the canonical
+          # `Owner/Name`; a container reference must be all-lowercase, and docker rejects
+          # anything else outright with `repository name must be lowercase` — so a single
+          # substitution would publish a release body advertising an image nobody can pull.
+          # `${VAR,,}` is bash's lowercase expansion, and matches how the `image` job below
+          # builds the tag it actually pushes.
+          sed -i "s|__REPO__|${GITHUB_REPOSITORY}|g" RELEASE_NOTES.md
+          sed -i "s|__IMAGE__|${GITHUB_REPOSITORY,,}|g" RELEASE_NOTES.md
+          # Neither placeholder may survive into the published body, and the image line
+          # must not have been rewritten back to the mixed-case form.
+          if grep -nE '__REPO__|__IMAGE__' RELEASE_NOTES.md; then
+            echo "::error::a placeholder survived substitution in RELEASE_NOTES.md (shown above)"; exit 1
+          fi
+          if grep -nE 'ghcr\.io/[^[:space:]`]*[A-Z]' RELEASE_NOTES.md; then
+            echo "::error::RELEASE_NOTES.md advertises a GHCR path containing an uppercase character; docker rejects that reference. Use the __IMAGE__ placeholder, not __REPO__, for image paths."; exit 1
+          fi
+          echo "----- RELEASE_NOTES.md -----"; cat RELEASE_NOTES.md
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          files: staged/*
+          # Curated CHANGELOG section + artifacts blurb (assembled above);
+          # generate_release_notes appends the auto commit/PR list below it.
+          body_path: RELEASE_NOTES.md
+          generate_release_notes: true
+          # Pre-1.0.0 tags (v0.x.y) and pre-release tags (v1.2.0-rc.1 — the suffix the
+          # changelog guard and the release-notes assembly strip with `%%-*`; `version-guard`
+          # matches the tag exactly) are marked pre-release. The
+          # `v0.` test alone would publish a 1.x release candidate as the latest stable
+          # release once the version passes 1.0.
+          prerelease: ${{ startsWith(github.ref_name, 'v0.') || contains(github.ref_name, '-') }}
+
+  # Build + publish the container image to GHCR from the already-released x86_64
+  # gnu (glibc) binary (not a recompile — the single `Dockerfile` built with
+  # `--build-arg BIN_SOURCE=prebuilt`, which selects the no-compile `prebuilt`
+  # stage that packages the released binary verbatim), so the published image is
+  # byte-identical to the release download, then attest its provenance (keyless
+  # OIDC). Before pushing, the image's OS layer is Trivy-scanned so a `v*` tag
+  # cannot publish + attest an image carrying a known-fixable base CVE. Uses the
+  # docker CLI directly (buildx is preinstalled on the runner) to avoid adding more
+  # pinned third-party actions; only the already-pinned attestation + install
+  # actions are reused.
+  # `needs: publish`, not just the guards. The guards close the known preconditions; they do
+  # nothing about `publish` itself failing on a malformed footer, a failed attestation or a
+  # transient 5xx from the release upload. Running in parallel, any of those leaves
+  # `ghcr.io/…:<tag>` pushed and attested with no Release behind it, and a published image is
+  # the hardest artifact to retract. The cost is serialising the two.
+  image:
+    needs: [build, gate, version-guard, changelog-guard, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push to GHCR
+      id-token: write # OIDC for keyless attestation
+      attestations: write # write the image build-provenance attestation
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Download the released x86_64 gnu (glibc) service binary
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: artifact-service-x86_64-linux-gnu
+          path: image-ctx
+      - name: Stage the build context (binary + licence bundle + Dockerfile)
+        shell: bash
+        run: |
+          # The release artifact is named gdi-node-standalone-<tag>-x86_64-unknown-linux-gnu.
+          mv "image-ctx/gdi-node-standalone-${GITHUB_REF_NAME}-x86_64-unknown-linux-gnu" image-ctx/gdi-node-standalone
+          chmod +x image-ctx/gdi-node-standalone
+          # The unified Dockerfile's `prebuilt` (FROM scratch) stage COPYs the binary
+          # and the third-party attribution bundle out of this context, so stage them
+          # both. LICENSE-*/THIRD-PARTY-LICENSES.md come from the checkout above.
+          cp THIRD-PARTY-LICENSES.md LICENSE-APACHE LICENSE-MIT image-ctx/
+          cp Dockerfile image-ctx/Dockerfile
+      - name: Install Trivy
+        uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        # Pin the release-gate scanner version so gate behaviour is reproducible and
+        # bumped in a reviewed change, matching the pinned cargo-deny, cross and cyclonedx,
+        # rather than floating to whatever `latest` resolves at release time. Trivy fetches
+        # its vulnerability DB fresh at scan time, so a pinned binary still sees current
+        # CVEs. Bump this in step with the scheduled scan (.github/workflows/scheduled.yml).
+        with: { tool: trivy@0.74.0 }
+      - name: Build image locally + scan OS layer (release-time gate)
+        shell: bash
+        run: |
+          # Build the same image (prebuilt stage) locally and Trivy-scan its OS layer
+          # for fixable HIGH/CRITICAL CVEs the Rust cargo-deny gate structurally cannot
+          # see (distroless glibc/libgcc). `--exit-code 1` fails the job before the push
+          # step below, so a tag cannot publish + attest a base carrying a known-fixable
+          # CVE (the weekly scheduled `image-scan` remains the between-release net). The
+          # push step re-runs the identical build (buildx cache → near-instant, same
+          # bytes). `--ignore-unfixed`: an unpatchable base CVE should not block a release.
+          docker buildx build --build-arg BIN_SOURCE=prebuilt --load -t gdi-node-standalone:scan image-ctx
+          trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 --quiet gdi-node-standalone:scan
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Build and push (byte-identical to the released gnu binary)
+        id: push
+        shell: bash
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          # Always tag the immutable version. Only move `:latest` on a stable release
+          # — never a `v0.x` pre-release, and never a suffixed pre-release tag such as
+          # `v1.2.0-rc.1` (the same two-part predicate the GitHub Release uses for
+          # `prerelease:`), so `:latest` does not silently track pre-releases.
+          # Pinned-tag deploys (the k8s norm) are unaffected either way.
+          tags=( --tag "${image}:${GITHUB_REF_NAME}" )
+          if [[ "${GITHUB_REF_NAME}" != v0.* && "${GITHUB_REF_NAME}" != *-* ]]; then
+            tags+=( --tag "${image}:latest" )
+          else
+            echo "::notice::pre-release ${GITHUB_REF_NAME}: not moving :latest"
+          fi
+          # This is an amd64-only image. The build context is the x86_64 gnu binary, so
+          # this is a single-arch (linux/amd64) image. The arm64 service runs from the
+          # released aarch64 binary on bare metal; a manifest-list multi-arch image is
+          # a deliberate future upgrade (see docs/operating.md). Documented so an arm64
+          # operator gets a clear answer, not an opaque no-matching-manifest pull error.
+          # OCI labels: link the GHCR package back to the repo + carry version/revision
+          # provenance in `docker inspect` (the SLSA attestation is the strong binding;
+          # these are the registry-UX / human layer on top). `created` is set to the
+          # commit date (not wall-clock) so the label is stable across rebuilds. That
+          # pins only the label — the image config's own `created` field and layer
+          # mtimes still take build time (SOURCE_DATE_EPOCH is not set), so the image
+          # digest is not guaranteed byte-reproducible; the strong guarantees are the
+          # byte-identical embedded binary (SHA256SUMS) and the SLSA attestation binding
+          # this exact digest (`gh attestation verify`), not image-digest rebuild.
+          created="$(git log -1 --format=%cI)"
+          docker buildx build --push \
+            --build-arg BIN_SOURCE=prebuilt \
+            "${tags[@]}" \
+            --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            --label "org.opencontainers.image.version=${GITHUB_REF_NAME}" \
+            --label "org.opencontainers.image.created=${created}" \
+            --label "org.opencontainers.image.licenses=MIT OR Apache-2.0" \
+            --metadata-file metadata.json \
+            image-ctx
+          echo "image=${image}" >> "$GITHUB_OUTPUT"
+          echo "digest=$(jq -r '."containerimage.digest"' metadata.json)" >> "$GITHUB_OUTPUT"
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.image }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true

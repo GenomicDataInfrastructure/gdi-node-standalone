@@ -1,0 +1,156 @@
+# =============================================================================
+# gdi-node-standalone — quickstart service config (the short path to a running node)
+# =============================================================================
+# This lists only the fields a real (S3-backed, crypt4gh) deployment has to decide.
+# Everything else uses a safe built-in default; node.example.toml is the exhaustive
+# per-knob reference.
+#
+# How to use it:
+#   1. Copy it:        cp node.quickstart.toml node.toml
+#   2. Generate the node's crypt4gh identity, an unencrypted secret key at the
+#      [keys].identities path below:
+#          gdi-node-standalone --config node.toml identity init
+#      With no [vault] it writes the key to the first [keys].identities entry and its
+#      recipient to <path>.pub; with [vault] it mints into Vault instead. `--ensure`
+#      makes a re-run an idempotent no-op, and the provider's gdi-dataset-tool is not
+#      involved. See docs/operating.md §9.
+#      That <path>.pub is the only half a provider ever needs: hand it over, or let
+#      them fetch it from {base_url}/.well-known/c4gh-recipient once the node is up.
+#      Keep the secret key 0400 or 0600 and readable by the user the node runs as; the
+#      node refuses to start on a group- or other-readable key
+#      ([service].strict_key_perms).
+#      For a keyless, plaintext-only node, delete the [keys] block.
+#   3. Replace every `<SET ME: …>` value below. Supply S3 credentials and other
+#      secrets out of band (env or Vault), never in this file.
+#   4. Validate. This lists every field you still need to set, without serving:
+#          gdi-node-standalone --config node.toml check-config
+#   5. Run it (needs the `--features full` build, since this carries [[s3.buckets]]):
+#          gdi-node-standalone --config node.toml
+#
+# Variants, described in the inline notes below:
+#   * No S3: ingest from a local drop directory instead. Delete [[s3.buckets]] and
+#     uncomment [service].inbox. Needs no S3 credentials and runs on the plain build.
+#   * Vault-sourced secrets: omit [keys] and add a [vault] block. It supplies the
+#     crypt4gh identity and the per-bucket S3 credentials. Needs --features full.
+#
+# The `<SET ME: …>` markers are more than comments: preflight, and so check-config,
+# refuses to start while any remain and names each unset field, so a half-edited copy
+# fails fast instead of booting with a placeholder identity.
+# =============================================================================
+
+[service]
+# The node's externally reachable base URL: the public Ingress host, not the
+# in-cluster address. Every FDP and Beacon URI is built from it.
+base_url = "<SET ME: https://your-node.example.org>"
+# Absolute directory holding ingested datasets, writable by the run user.
+data_dir = "/var/lib/gdi-node-standalone/datasets"
+# Local drop directory, the no-S3 ingest channel: a directory where {id}.tar.c4gh
+# packages and {id}.state.json sidecars land and are reconciled like a bucket.
+# Uncomment to run without (or alongside) [[s3.buckets]]; it needs no S3 credentials
+# and no --features full.
+# inbox = "/var/lib/gdi-node-standalone/inbox"
+
+# The catalogs this node advertises (id = human-readable label). One line each.
+[catalogs]
+gdi-aggregated = "Genome of Europe Aggregated Data"
+
+# The node's crypt4gh identity, which decrypts inbound .tar.c4gh packages. Generate
+# the key file as in step 2 above. Omit this whole block for a keyless, plaintext-only
+# node. To source it from Vault instead, omit [keys] and add a [vault] block: Vault
+# then supplies the crypt4gh identity and the per-bucket S3 credentials, superseding
+# any inline values, and is provisioned with `gdi-node-standalone identity init`. That
+# needs --features full; see the [vault] section of node.example.toml for the fields.
+[keys]
+# Give an absolute path. Identity paths are used verbatim and resolve against the
+# service process's working directory, not the directory holding this file, so a
+# relative path silently misses when the node runs from elsewhere (the container's
+# WORKDIR is `/`). Point this at wherever `identity init` wrote the key.
+identities = ["/var/lib/gdi-node-standalone/keys/node.c4gh"]
+
+# One monitored S3 bucket. Add more [[s3.buckets]] blocks for more sources.
+# For a no-S3 node, delete this whole [[s3.buckets]] block and uncomment
+# [service].inbox above: a local-drop node needs no S3 credentials and runs on the
+# plain (non-full) build.
+[[s3.buckets]]
+# Logical name: channel and provenance label, Vault credential key, metric label.
+name = "<SET ME: primary>"
+# The S3-compatible endpoint and the bucket to poll for packages.
+endpoint = "<SET ME: https://s3.example.org>"
+bucket = "<SET ME: gdi-datasets>"
+# true for Garage, minio and Ceph; false for AWS virtual-hosted addressing.
+path_style = true
+# Credentials come from GDI_NODE__S3__BUCKETS__0__ACCESS_KEY_ID and
+# ..._SECRET_ACCESS_KEY, or from Vault via [vault].s3_path. Keep them out of this file.
+
+# Beacon identity.
+[beacon]
+# Your Beacon id and display name. The GDI User Portal integrates against
+#   <cc>.<institution>.<af-beacon|sl-beacon>.<staging|production>[.<extra>]
+# for example "es.crg.af-beacon.production.fega-spain". Use `af-beacon` for an
+# aggregated-frequency node. The last segment must match `environment` below, which
+# spells production as `prod`; a mismatch is a startup warning. It is checked only
+# when environment is "staging" or "prod", since a "dev" or "test" node is never
+# published to the User Portal.
+id = "<SET ME: cc.institution.af-beacon.production>"
+name = "<SET ME: Your Beacon Name>"
+# Deployment stage: "dev" | "test" | "staging" | "prod".
+environment = "prod"
+# k-anonymity floor for the aggregated path. 0 disables small-count suppression, so
+# raw per-population counts including singletons are served. The unit is alleles, not
+# individuals: a homozygous carrier contributes 2 to AC, so for k distinct people set
+# roughly 2*k. The 10 below guarantees k >= 5. A floor bounds singleton
+# re-identification only; no floor value prevents multi-variant membership inference
+# (Homer-style, on the common variants that always survive the floor), which needs the
+# authenticated tier or differential privacy.
+#
+# There are two floors and they compose. This is the node's serve-time floor, retunable
+# by restarting. The provider's package.yaml carries a build-time `config.minAlleleCount`
+# applied once at `gdi-dataset-tool build`, whose dropped rows never reach the node and
+# cannot be recovered without rebuilding. The effective floor is max(build-time,
+# serve-time), reported per dataset as `gdiDatasetInfo.minAlleleCount`. Full semantics:
+# node.example.toml and the k-anonymity material in docs/threat-model.md.
+min_allele_count = 10
+
+[beacon.organization]
+# The organization running this node.
+id = "<SET ME: org.example>"
+name = "<SET ME: Your Organization>"
+
+[beacon.configuration]
+# Keep in step with [beacon].environment: "PROD" for a production node.
+production_status = "PROD"
+
+# ---------------------------------------------------------------------------------
+# Optional: FAIR Data Point descriptive metadata.
+#
+# Delete this whole block, down to the end of the file, to run without an FDP. The node
+# still serves the Beacon and publishes no FAIR Data Point. That is the right first run,
+# because the fields below are all-or-nothing: once `[fairdp]` is present the DCAT-AP
+# profile requires every one of them, including your organisation's Health Data Access
+# Body (HDAB). Add the FDP once you have the real values.
+# ---------------------------------------------------------------------------------
+[fairdp]
+# FDP title, ISO-8601 issue date, and licence URI.
+title = "<SET ME: Your FAIR Data Point title>"
+issued = "2026-01-01T00:00:00Z"
+license = "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
+theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
+applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
+
+[fairdp.publisher]
+# The dataset publisher organization.
+name = "<SET ME: Your Organization>"
+
+[fairdp.publisher.contact_point]
+# Publisher contact (vCard fn and email).
+fn = "<SET ME: Your Contact Name>"
+has_email = "<SET ME: mailto:you@example.org>"
+
+[fairdp.hdab]
+# The Health Data Access Body.
+name = "<SET ME: Your HDAB>"
+
+[fairdp.hdab.contact_point]
+# HDAB contact (vCard fn and email).
+fn = "<SET ME: HDAB Contact Name>"
+has_email = "<SET ME: mailto:hdab@example.org>"

@@ -1,0 +1,16 @@
+# Reference `crypt4gh` tool for the crypt4gh Rust<->Python interop CI job
+# (crates/core/tests/crypt4gh_interop.rs). CI-only: it is the cross-implementation
+# oracle for the ENCRYPT + header-rewrap directions and never ships in either
+# binary. Kept in its own requirements file (separate from the FDP conformance
+# deps in requirements.txt) so the two jobs install disjoint venvs — but in a FILE,
+# not inline in the workflow YAML, so Dependabot's `pip` ecosystem and GitHub's
+# dependency-graph advisory alerts can both SEE this pin (an inline `pip install`
+# in a run: step is invisible to both). Pinned for reproducibility.
+#
+# The venv installs from the hash-locked `requirements-crypt4gh.lock` (this pin plus its
+# transitive closure) with pip `--require-hashes`, so no unverified PyPI artifact can enter
+# the interop venv. Regenerate the lock in the same change as any bump here:
+#   uv pip compile --universal --generate-hashes conformance/requirements-crypt4gh.txt -o conformance/requirements-crypt4gh.lock
+# (`--universal` for the same reason as requirements.txt: it emits environment markers so the
+# lock is not silently specialized to the regenerating developer's Python version.)
+crypt4gh==1.8.6

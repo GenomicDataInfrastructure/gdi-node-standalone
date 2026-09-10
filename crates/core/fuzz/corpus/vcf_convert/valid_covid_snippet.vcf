@@ -1,0 +1,9 @@
+##fileformat=VCFv4.1
+##reference=GRCh38
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Total alt alleles">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total alleles">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Allele frequency">
+##contig=<ID=3>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+3	100	.	T	C	.	PASS	AC=5;AN=100;AF=0.05
+3	200	.	A	G	.	PASS	AC=2;AN=100;AF=0.02

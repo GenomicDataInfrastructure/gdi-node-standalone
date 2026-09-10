@@ -1,0 +1,153 @@
+{
+  "metadata": {
+    "datasetId": "GDI-EE-UTARTU-20260409143052837",
+    "catalog": "gdi-aggregated",
+    "title": "Genome of Europe Estonia aggregated allele frequencies",
+    "description": "Aggregated allele frequencies for the Genome of Europe Estonia cohort, published as public summary statistics from whole-genome sequencing.",
+    "accessRights": "http://publications.europa.eu/resource/authority/access-right/PUBLIC",
+    "applicableLegislation": [
+      "http://data.europa.eu/eli/reg/2025/327/oj"
+    ],
+    "license": "https://creativecommons.org/licenses/by/4.0/",
+    "creator": [
+      {
+        "name": "Genome of Europe - EE node"
+      }
+    ],
+    "healthCategory": [
+      "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+    ],
+    "keywords": [
+      "allele-frequency",
+      "genomics"
+    ],
+    "numberOfUniqueIndividuals": 1234,
+    "conformsTo": [
+      "http://data.gdi.eu/core/p2/1MGCompliant"
+    ],
+    "legalBasis": [
+      "https://w3id.org/dpv#Consent"
+    ],
+    "isReferencedBy": [
+      "https://doi.org/10.1234/example"
+    ],
+    "otherIdentifier": [
+      {
+        "notation": "DOI-12345",
+        "schemaAgency": "DataCite",
+        "name": "Example identifier"
+      }
+    ],
+    "contactPoint": {
+      "fn": "Data team",
+      "hasEmail": "mailto:data@example.org"
+    },
+    "numberOfRecords": 123456
+  },
+  "files": [
+    {
+      "category": "VCF",
+      "reference": "GRCh38",
+      "preciseReference": "GRCh38.p14",
+      "files": [
+        {
+          "path": "file1.vcf.gz",
+          "sha256": "da4a598d5625746f3284a279585ee92c7b1e9f0a4c6d8e2f5a3b1c9d7e0f6a48",
+          "size": 688,
+          "conversion": {
+            "input": {
+              "records": 1000,
+              "nonPassRecords": 12,
+              "gvcfReferenceBlocks": 3,
+              "populationsRecognized": [
+                "EE",
+                "FI",
+                "Total"
+              ]
+            },
+            "discarded": {
+              "recordsUnsupportedContig": 4,
+              "recordsNoSupportedAlt": 5,
+              "recordsAllRowsWithheld": 3,
+              "recordsNoAf": 2,
+              "alleles": 6,
+              "ignoredInfoFields": [
+                "EUR_AF",
+                "SAS_AF"
+              ],
+              "populationsWithoutAf": [
+                "LV"
+              ]
+            },
+            "suppressed": {
+              "rowsBelowFloor": 7,
+              "rowsCollapsedToTotal": 8,
+              "variantsCollapsedToTotal": 9
+            },
+            "output": {
+              "records": 900,
+              "recordsEmitted": 986,
+              "rows": 2700,
+              "populations": [
+                "EE",
+                "FI",
+                "Total"
+              ]
+            }
+          }
+        },
+        {
+          "path": "file2.vcf.gz",
+          "sha256": "7d74e6f55191738b0161093b3d84540e2c9a7b3e1d5f8064a2b9c7d3e6f1a0b8",
+          "size": 12345
+        }
+      ]
+    },
+    {
+      "category": "BAM",
+      "reference": "GRCh38",
+      "preciseReference": "GRCh38.p14",
+      "files": [
+        {
+          "path": "file1.bam",
+          "sha256": "a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4f7e6d5c4b3a29180776655443322110f",
+          "size": 2345678
+        },
+        {
+          "path": "file2.bam",
+          "sha256": "181f1574af8632a70329f015ea121a0a5b6c7d8e9f0a1b2c3d4e5f6071829304",
+          "size": 1234567
+        }
+      ]
+    }
+  ],
+  "internal": {
+    "internalId": "EGV012346",
+    "pastVersion": "GDI-EE-UTARTU-20240601120000004"
+  },
+  "payload": {
+    "algorithm": "sha256",
+    "members": {
+      "allele-freq.0000000000.parquet": {
+        "sha256": "3b1f2c4d5e6a7b8c9d0e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6e",
+        "size": 1048576
+      },
+      "headers/EGV012345.vcf": {
+        "sha256": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a39281706f5e4d3c2b1a0",
+        "size": 4096
+      }
+    }
+  },
+  "config": {
+    "mode": "aggregated",
+    "blockRange": 10000000,
+    "afSource": "The Genome of Europe",
+    "afSourceReference": "https://genomeofeurope.eu/",
+    "minAlleleCount": 0,
+    "assembly": {
+      "reference": "GRCh38"
+    },
+    "manifestVersion": 1,
+    "generatedBy": "gdi-dataset-tool v1.0.0"
+  }
+}

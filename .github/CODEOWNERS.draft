@@ -1,0 +1,82 @@
+# PARKED: this file is not active. GitHub reads code owners only from a file named exactly
+# `CODEOWNERS`, in `.github/`, the root, or `docs/`, so the `.draft` suffix keeps it out of
+# that lookup and out of the settings page, placeholder owners and all. It is kept rather
+# than deleted for the path list below.
+#
+# To activate, in this order: substitute a real team or handle for every
+# `@REPLACE-BEFORE-ENABLING-CODEOWNERS`, rename to `.github/CODEOWNERS`, then enable
+# "Require review from Code Owners".
+
+# CODEOWNERS — review ownership for high-blast-radius paths.
+#
+# @REPLACE-BEFORE-ENABLING-CODEOWNERS is a placeholder, not a real handle. It is written to
+# be unmistakable in GitHub's own "not a valid owner" error, because that is where it will
+# be read: while flipping a branch-protection toggle, not while reading this file.
+# Substitute the real reviewing team or handles first. Enabling "Require review from Code
+# Owners" while the placeholder is here blocks every pull request touching these paths.
+#
+# This file is advisory on its own: GitHub only auto-requests these owners and does not
+# block a merge unless "Require review from Code Owners" is enabled in the branch-protection
+# rule. Enable that toggle, or these entries are a suggestion, not a gate.
+#
+# Each line: <path-pattern>   <owner(s)>. Later matches win, so order from broad to specific.
+#
+# Inclusion test — one question: *would a silent change here weaken a guarantee that nothing
+# else re-checks?* That is why the list below owns the gate's implementation and not only its
+# declaration: most of ci.yml's jobs are thin `run: ./scripts/ci-local.sh <leg>` wrappers, so
+# the workflows describe the gate while that script is the gate, and editing it silently
+# weakens every job that delegates to it.
+
+# --- The gate itself: these decide whether anything else is actually checked -------------
+/scripts/ci-local.sh               @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/scripts/check-ci-gate.py          @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/scripts/vendored.sh               @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/.githooks/                        @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# The chokepoint lint: `disallowed-methods` here is what binds fixes such as the
+# redirect-SSRF one, so relaxing an entry silently un-fixes it at every call site at once.
+/clippy.toml                       @REPLACE-BEFORE-ENABLING-CODEOWNERS
+
+# --- CI / release pipeline: build, sign, publish, supply-chain gates ----------------------
+/.github/workflows/                @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# Controls whether dependency updates are proposed at all; narrowing it stops the freshness
+# net without any check going red.
+/.github/dependabot.yml            @REPLACE-BEFORE-ENABLING-CODEOWNERS
+
+# --- Supply chain: what actually gets compiled in and shipped ----------------------------
+/deny.toml                         @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# The resolved dependency closure. A lock change is a supply-chain change, and it is the one
+# artifact `cargo deny` reads; reviewing it is the point, Dependabot churn included.
+/Cargo.lock                        @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# The hash-locked Python closure for the conformance + crypt4gh oracles (CI-only, never
+# shipped, but fetched and executed on the runner).
+/conformance/requirements.lock     @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/conformance/requirements-crypt4gh.lock  @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# The single container-image definition (both the recompile and byte-identical `prebuilt`
+# release paths) and the digest-pinned cross-rs containers that compile the SLSA-attested
+# release binaries.
+/Dockerfile                        @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/Cross.toml                        @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# The compiler pin. It outranks `rustup default`, so it is what every gated `cargo` actually
+# builds with, and what the Dockerfile builder must match.
+/rust-toolchain.toml               @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# Third-party licence attribution: what ships in THIRD-PARTY-LICENSES.md and in the image.
+/about.toml                        @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/about.hbs                         @REPLACE-BEFORE-ENABLING-CODEOWNERS
+
+# --- Disclosure control: the privacy guarantee this node exists to make -------------------
+# k-anonymity thresholds and the suppression decision. A quiet change here does not fail any
+# test that does not already know the new threshold — it just discloses more.
+/crates/core/src/kanon.rs          @REPLACE-BEFORE-ENABLING-CODEOWNERS
+# Population-field parsing/authority: what counts as AC/AF/AN and which population a count is
+# attributed to; feeds the suppression maths above.
+/crates/core/src/popfield.rs       @REPLACE-BEFORE-ENABLING-CODEOWNERS
+
+# --- Cryptography: at-rest and in-transit ------------------------------------------------
+/crates/core/src/crypt4gh/         @REPLACE-BEFORE-ENABLING-CODEOWNERS
+
+# --- Frozen external contracts: a regression here is a public-API break -------------------
+/conformance/shapes/               @REPLACE-BEFORE-ENABLING-CODEOWNERS
+/conformance/ga4gh-beacon-v2/      @REPLACE-BEFORE-ENABLING-CODEOWNERS
+
+# --- Production deployment ---------------------------------------------------------------
+/deploy/kubernetes/                @REPLACE-BEFORE-ENABLING-CODEOWNERS

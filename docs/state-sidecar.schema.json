@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StateSidecar",
+  "description": "The parsed `{id}.state.json` visibility sidecar: the operator's declarative state\nintent. It is the single model every reader shares, so the wire shape cannot drift\nacross the tool, which writes it and lists it from S3, and the service, which reads it\non S3 reconcile and inbox scan.\n\nParsed leniently, per the forward-compatibility contract: unknown keys are tolerated,\nnotably the writer's `schemaVersion` discriminator, and a missing `force` defaults to\n`false`. Writers emit `{\"schemaVersion\":1,\"state\":\"<state>\"[,\"force\":true]}`. An\nunrecognised `state` is the reader's concern, and every reader maps an unknown or absent\nstate to a fail-safe `hidden`.",
+  "type": "object",
+  "properties": {
+    "force": {
+      "description": "For `deleted` only: bypass the visible-dataset delete guard. Absent means `false`,\nand the field is irrelevant for `visible` and `hidden`.",
+      "type": "boolean",
+      "default": false
+    },
+    "state": {
+      "description": "The declared served state: `visible` | `hidden` | `deleted`.",
+      "type": "string"
+    },
+    "traceparent": {
+      "description": "Optional W3C `traceparent`. When an orchestrator stamps its own trace context here,\nand the node is configured to trust inbound trace context, the node parents the\npackage's `ingest_job` span under it, so a publish can be correlated with its ingest\nacross the S3 handoff, which carries no HTTP headers. Absent means a fresh\nserver-side root.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "state"
+  ]
+}

@@ -1,0 +1,171 @@
+---
+source: crates/gdi-dataset-tool/src/cli.rs
+expression: out
+---
+gdi-dataset-tool
+    config --config <PATH>
+    profile --profile <NAME>
+    quiet -q --quiet <QUIET> values=[true|false]
+    verbose -v --verbose <VERBOSE>
+gdi-dataset-tool build
+    build_epoch --build-epoch <MILLIS>
+    country_code --country-code <CC>
+    dry_run --dry-run <DRY_RUN> values=[true|false]
+    force --force <FORCE> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    header_policy --header-policy <POLICY> values=[minimal|with-identifiers|verbatim]
+    jobs -j --jobs <N> default=0
+    no_headers --no-headers <NO_HEADERS> values=[true|false]
+    out -o --output <DIR> default=build
+    package <PACKAGE> required
+    refresh_catalogs --refresh-catalogs <REFRESH_CATALOGS> values=[true|false]
+    strict --strict <STRICT> values=[true|false]
+gdi-dataset-tool catalogs
+    dry_run --dry-run <DRY_RUN> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    offline --offline <OFFLINE> values=[true|false]
+    sync --sync <SYNC> values=[true|false]
+gdi-dataset-tool check
+    all --all <ALL> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    hidden --hidden <HIDDEN> values=[true|false]
+    id <ID>
+    local --local <PATH>
+    visible --visible <VISIBLE> values=[true|false]
+gdi-dataset-tool completions
+    shell <SHELL> required values=[bash|elvish|fish|powershell|zsh]
+gdi-dataset-tool config
+gdi-dataset-tool config init
+    force --force <FORCE> values=[true|false]
+    output -o --output <PATH>
+gdi-dataset-tool delete
+    dry_run --dry-run <DRY_RUN> values=[true|false]
+    force --force <FORCE> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    id <ID> required
+    inbox --inbox <DIR>
+    local --local <LOCAL> values=[true|false]
+    management_url --management-url <URL>
+    s3 --s3 <S3> values=[true|false]
+gdi-dataset-tool deploy
+    artifact <ARTIFACT> required
+    format --format <FORMAT> default=text values=[text|json]
+    inbox --inbox <DIR>
+    management_url --management-url <URL>
+    replace --replace <REPLACE> values=[true|false]
+    wait --wait <WAIT> values=[true|false]
+    wait_timeout --wait-timeout <SECONDS> default=120
+gdi-dataset-tool diff
+    format --format <FORMAT> default=text values=[text|json]
+    new <NEW> required
+    old <OLD> required
+gdi-dataset-tool doctor
+    format --format <FORMAT> default=text values=[text|json]
+    offline --offline <OFFLINE> values=[true|false]
+    recipient --recipient <PATH>
+gdi-dataset-tool download
+    force --force <FORCE> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    id <ID> required
+    max_size --max-size <BYTES>
+    output -o --output <PATH>
+gdi-dataset-tool init
+    force --force <FORCE> values=[true|false]
+    output -o --output <PATH> default=package.yaml
+gdi-dataset-tool inspect
+    files --files <FILES> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    manifest --manifest <MANIFEST> values=[true|false]
+    order --order <ORDER> default=name values=[name|name-desc|size|size-desc]
+    package <PACKAGE> required
+gdi-dataset-tool keys
+gdi-dataset-tool keys generate
+    force --force <FORCE> values=[true|false]
+gdi-dataset-tool keys pin-recipient
+    file --file <PATH>
+    force --force <FORCE> values=[true|false]
+    output -o --output <PATH>
+    url --url <URL>
+gdi-dataset-tool keys show
+gdi-dataset-tool lint
+    format --format <FORMAT> default=text values=[text|json]
+    path <PATH> required
+gdi-dataset-tool list
+    format --format <FORMAT> default=text values=[text|json]
+    hidden --hidden <HIDDEN> values=[true|false]
+    visible --visible <VISIBLE> values=[true|false]
+gdi-dataset-tool pack
+    force --force <FORCE> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    out -o --output <PATH>
+    recipient --recipient <PATH>
+    staging <STAGING_DIR> required
+gdi-dataset-tool package
+    build_out --build-out <DIR> default=build
+    country_code --country-code <CC>
+    force --force <FORCE> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    header_policy --header-policy <POLICY> values=[minimal|with-identifiers|verbatim]
+    jobs -j --jobs <N> default=0
+    keep --keep <KEEP> values=[true|false]
+    no_headers --no-headers <NO_HEADERS> values=[true|false]
+    out -o --output <PATH>
+    package <PACKAGE> required
+    recipient --recipient <PATH>
+    refresh_catalogs --refresh-catalogs <REFRESH_CATALOGS> values=[true|false]
+gdi-dataset-tool preview
+    assembly --assembly <ASSEMBLY> default=GRCh38
+    block_range --block-range <N> default=10000000
+    floor_impact --floor-impact <FLOOR_IMPACT> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    min_allele_count --min-allele-count <N> default=0
+    vcf <VCF> required
+gdi-dataset-tool profiles
+    format --format <FORMAT> default=text values=[text|json]
+gdi-dataset-tool publish
+    format --format <FORMAT> default=text values=[text|json]
+    id <ID> required
+    inbox --inbox <DIR>
+    local --local <LOCAL> values=[true|false]
+    management_url --management-url <URL>
+    s3 --s3 <S3> values=[true|false]
+gdi-dataset-tool rekey
+    as_writer --as <SECRET_KEY_PATH>
+    force --force <FORCE> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    out -o --output <PATH>
+    package <PACKAGE> required
+    recipient --recipient <PATH>
+gdi-dataset-tool status
+    all --all <ALL> values=[true|false]
+    diff --diff <DIFF> values=[true|false]
+    format --format <FORMAT> default=text values=[text|json]
+    id <ID>
+    management_url --management-url <URL>
+gdi-dataset-tool unpack
+    force --force <FORCE> values=[true|false]
+    output -o --output <DIR> required
+    package <PACKAGE> required
+gdi-dataset-tool unpublish
+    format --format <FORMAT> default=text values=[text|json]
+    id <ID> required
+    inbox --inbox <DIR>
+    local --local <LOCAL> values=[true|false]
+    management_url --management-url <URL>
+    s3 --s3 <S3> values=[true|false]
+gdi-dataset-tool upload
+    format --format <FORMAT> default=text values=[text|json]
+    management_url --management-url <URL>
+    package <PACKAGE> required
+    replace --replace <REPLACE> values=[true|false]
+    wait --wait <WAIT> values=[true|false]
+    wait_timeout --wait-timeout <SECONDS> default=300
+gdi-dataset-tool validate
+    format --format <FORMAT> default=text values=[text|json]
+    target <PATH> required
+gdi-dataset-tool wizard
+    from --from <STAGE> default=setup values=[setup|author|build]
+    output -o --output <PATH> default=package.yaml
+    recipient --recipient <PATH>
+    to --to <STAGE> default=publish values=[setup|author|build|pack|publish]
+gdi-dataset-tool wizard setup

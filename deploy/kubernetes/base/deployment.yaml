@@ -1,0 +1,381 @@
+# Management plane — read before deploying.
+#
+# Kubelet probes come from another network namespace, so they cannot reach the node's
+# default `[service].management_addr = "127.0.0.1:9090"`. Running under Kubernetes
+# therefore requires widening it to "0.0.0.0:9090" (see node.toml) — and that
+# exposes the unauthenticated dataset-state oracle (`GET /datasets/{id}/state`, which
+# reveals hidden and errored dataset ids) to anything that can reach the pod.
+#
+# networkpolicy.yaml is what makes that safe, so it is not optional. The binary's startup
+# INFO line about a wildcard management bind is expected here — it is the trade being made
+# on purpose, not a misconfiguration.
+#
+# strategy: Recreate is required. The ingest path is single-writer against one data
+# volume; RollingUpdate would briefly run two writers.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdi-node-standalone
+  labels:
+    app.kubernetes.io/name: gdi-node-standalone
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gdi-node-standalone
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gdi-node-standalone
+    spec:
+      # Shutdown spends three budgets, back to back (main.rs):
+      #   1. the public listener drains          -- bounded by [service].shutdown_drain_seconds
+      #   2. the management listener is stopped  -- bounded by a hard-coded 2s join
+      #   3. in-flight ingest is awaited         -- bounded by shutdown_drain_seconds again
+      # so the ceiling is 2 x shutdown_drain_seconds + 2s, plus process exit. The management
+      # plane is kept up through step 1, so /health/ready and the kubelet probes
+      # keep answering throughout the public drain -- but it is step 3, the ingest quiesce,
+      # that supplies the second full budget, not the management plane.
+      #
+      # Kubernetes' default here is 30s, which is below that (and equal to a single drain),
+      # so leaving it unset SIGKILLs the pod mid-drain and defeats the design above. Keep
+      # this >= preStop sleep + 2 x shutdown_drain_seconds + slack; test_k8s_manifests.py
+      # pins the relation against the value in node.toml.
+      #
+      # Teardown after `service.drained` is bounded: the process awaits in-flight ingest
+      # (<= shutdown_drain_seconds), logs `service.stopped` with `teardown_ms`, flushes
+      # telemetry, and exits without waiting for detached background work. That last part
+      # matters: waiting on it would scale teardown with the datasets' population count,
+      # which at the 512-population cap is the difference between a sub-second exit and a
+      # minute or more. The whole accounting is
+      #
+      #   grace >= preStop 5s + public drain (<= drain) + management stop 2s + ingest quiesce (<= drain)
+      #
+      # = 67s at the shipped drain of 30, so 75 keeps 8s of slack. Raise this together
+      # with shutdown_drain_seconds; population count does not enter.
+      #
+      # That accounting starts when the node starts serving. The signal handlers are armed
+      # after the secret load and the disk cache re-hydrate but before the first listener
+      # binds, so a SIGTERM delivered from that point on is buffered and honoured at the
+      # serve loop's first poll (earlier, it is still immediately fatal:
+      # nothing is served yet and the offline `verify` path must stay Ctrl-C-killable, see
+      # operating.md §14): a pod terminated mid-boot exits after
+      # the remaining startup -- the work the startupProbe below budgets 5s x 60 = 5min
+      # for -- plus the (empty) accounting above, or at SIGKILL when this grace period
+      # ends, whichever comes first. Nothing is at risk either way: nothing is served
+      # during startup, so there is nothing to drain, and the store is crash-safe. Do not
+      # raise this to cover a worst-case boot -- it would delay every normal termination
+      # by minutes to buy nothing. See operating.md §14.
+      terminationGracePeriodSeconds: 75
+      # The node never calls the Kubernetes API (Vault auth here is AppRole or an agent-
+      # written token file, never the kubernetes auth method), so it has no use for a
+      # projected ServiceAccount token -- and an unused token is only ever an escalation
+      # path out of a pod that otherwise drops all capabilities and runs read-only.
+      automountServiceAccountToken: false
+      securityContext:
+        # fsGroup does not make the node the owner of a mounted PVC, and the node needs
+        # ownership. The kubelet applies `chown -1:65532` plus setgid, so the owner stays
+        # root — and only the owner may `chmod`, so the node's own `chmod 0700` of data_dir
+        # (a shared-volume co-tenant must not be able to traverse into the decrypted
+        # store) fails with EPERM. This holds on a local-path PV and on an emptyDir alike,
+        # the latter being a volume type where the kubelet does
+        # apply fsGroup: identical refusal, `cannot tighten data dir ... to owner-only`.
+        # The fix-permissions init container below is what satisfies the rule; fsGroup is
+        # kept for group access to anything it has not reached.
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      # Two init containers, in this order, and both are what makes a fresh cluster able to
+      # reach Running at all. Without them the pod crash-loops on the first boot: the data
+      # PVC is root-owned (see fsGroup above) and the override store's loader
+      # subdirectories do not exist (see overrides-init below).
+      initContainers:
+        # Ownership, as root. It cannot be the node image: that image is distroless — no
+        # shell, no chown, nothing to run — so this is a second image in the pod and is
+        # pinned by digest like the Dockerfile's own bases. busybox is ~4 MB and does one
+        # thing here.
+        #
+        # A `restricted` Pod Security namespace rejects this container (runAsNonRoot,
+        # CAP_CHOWN). That is the trade: on such a cluster, do the chown storage-side (a
+        # pre-provisioned PV, a StorageClass that sets ownership, or an admin `chown` on
+        # the backing directory) and delete this container. Nothing else in the example
+        # needs an exception.
+        - name: fix-permissions
+          image: busybox:1.38.0@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616
+          # The glob is deliberate: it covers exactly the volumes mounted below, so the
+          # inbox component adds a fourth volume by adding a volumeMount and nothing else —
+          # no second copy of this command to keep in step. test_k8s_manifests.py asserts
+          # every persistent mount of the node container is covered here.
+          #
+          # Conditional on the owner, not unconditional: `chown -R` over a populated 320 GiB
+          # data volume on every boot is minutes of metadata churn for nothing. The node
+          # applies the same rule to itself (a directory already 0700 is left alone).
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              for d in /var/lib/gdi-node-standalone/*; do
+                [ "$(stat -c %u "$d")" = 65532 ] || chown -R 65532:65532 "$d"
+                chmod 0700 "$d"
+              done
+          securityContext:
+            # runAsNonRoot: true is set pod-wide above, and it is an admission check: the
+            # kubelet refuses to start a container whose uid is 0 unless it opts out here.
+            runAsUser: 0
+            runAsNonRoot: false
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              # CHOWN to change the owner; FOWNER to chmod a directory root no longer owns
+              # after the first pass. Everything else stays dropped.
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/gdi-node-standalone/datasets
+            - name: overrides
+              mountPath: /var/lib/gdi-node-standalone/overrides
+        # Creates the override store's loader subdirectories (`suppressions/`,
+        # `overlays/`). Boot creates nothing itself: `override_store::ensure_present` would
+        # otherwise materialise them and then test its own side effect, so a re-provisioned
+        # empty PVC would pass the check and every operator withhold would be silently
+        # lifted. The consequence is that a node setting `require_override_store` before it
+        # has ever recorded an override has no store to assert, and its very first boot
+        # refuses to serve.
+        #
+        # Plain `overrides init` — never `--yes`. That is what makes it safe to run on
+        # every boot: it is a no-op on an intact store, and when this node's used marker
+        # says the store has held overrides (a lost volume until proven otherwise) it
+        # refuses, holding the pod down instead of re-serving every withheld dataset.
+        # `--yes` would attest the empty store as deliberate and destroy that guarantee.
+        # The marker lives under data_dir, which is why this container mounts the data
+        # volume as well as the store.
+        - name: overrides-init
+          # The same image and tag as the node container below — it is the node binary that
+          # creates the store, and a second version would create a store format the serving
+          # binary does not read. Change both at once with
+          # `kustomize edit set image gdi-node-standalone=<registry>/<image>:<tag>` (or the
+          # `images:` transformer in your own overlay) rather than editing two lines;
+          # test_k8s_manifests.py fails if they diverge.
+          image: gdi-node-standalone:latest
+          args:
+            - --config
+            - /etc/gdi-node-standalone/node.toml
+            - overrides
+            - init
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gdi-node-standalone
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/gdi-node-standalone/datasets
+            - name: overrides
+              mountPath: /var/lib/gdi-node-standalone/overrides
+      containers:
+        - name: gdi-node-standalone
+          # No image is published — build from source and push to your own registry.
+          # See docs/deployment.md.
+          image: gdi-node-standalone:latest
+          args: ["--config", "/etc/gdi-node-standalone/node.toml"]
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # Requests only; see docs/deployment.md "Resource baseline".
+          #
+          # Requests are what stops this pod being BestEffort, i.e. the first thing evicted
+          # under node pressure. For a single-replica Recreate deployment whose startup
+          # budget is five minutes, that eviction is straightforward downtime.
+          #
+          # `memory` is a scheduling reservation for the query path (not ingest), in two
+          # terms:
+          #   * Retained scan rows: `datasets matched x max_page_limit x populations x
+          #     ~450 B`, i.e. ~220 MiB per matched dataset at the shipped
+          #     `max_page_limit = 1000` and the 512-population cap, times the concurrency
+          #     the node admits. That product is why node.toml sets
+          #     `[service].max_concurrent_requests = 16` rather than inheriting the
+          #     built-in 64: 16 x 220 MiB = 3.4 GiB, where 64 x 220 MiB would be 13.8 GiB.
+          #     One query is capped at `max_query_bytes` (2 GiB) and the sum across
+          #     everything in flight at `max_total_query_bytes` (8 GiB here, which sheds
+          #     503 past it and is pinned to this pod's memory by test_k8s_manifests.py).
+          #   * The transient parquet decode working set, which that budget never charges:
+          #     the node's boot check computes the floor under a saturated scan pool as
+          #     `(query_concurrency x 4 + 16) x max_parquet_row_group_bytes` =
+          #     32 x 256 MiB = 8 GiB at the defaults this config inherits, and WARNs when
+          #     the budget is below it.
+          # 12Gi is that sum (~11.4 GiB) plus the process baseline; raise either term and
+          # you must raise the request, which test_k8s_manifests.py checks. `cpu` is the
+          # serving floor — raise it toward ~1 core per `ingest_concurrency` worker (~6 at
+          # the default of 4) if ingest runs continuously rather than in bursts.
+          #
+          # Both look large next to the idle footprint, and that is expected: an idle node
+          # measures ~15 MiB RSS and a populated 343 MiB store restarts to 14.7 MiB,
+          # because datasets are read on demand and never held resident. A reservation
+          # describes the burst, not steady state. (Measured: 20 concurrent broad `record`
+          # queries at limit 1000 against a 512-population dataset peak at 2.93 GiB. A node
+          # that serves no portal can set `max_page_limit = 100` instead and divide the
+          # page term by ten.)
+          #
+          # On a small dev cluster a 2-CPU / 12Gi request may simply not schedule — lower
+          # both here rather than deleting them (a pod with no requests is BestEffort and
+          # first-evicted), and lower the two node.toml knobs the memory number is computed
+          # from — `max_total_query_bytes` and `max_parquet_row_group_bytes` — with it, or
+          # test_k8s_manifests.py and the node's own boot check will both say so.
+          #
+          # No memory limit is set: object_store and the runtime sit outside both
+          # accountings, so the headroom is deployment-specific and getting it wrong
+          # OOMKills a legitimate broad query (measured 1.8 GiB for a boolean query, 4.0 GiB
+          # for a record one).
+          # Size one from the node's own ceilings — see the commented block below — never
+          # from the request. Do not set a cpu limit: it throttles ingest and bounds
+          # nothing that matters.
+          resources:
+            requests:
+              cpu: "2"
+              memory: 12Gi
+            # A memory limit, if you want one, is sized from the node's own ceilings — not
+            # from the request above, which reserves the expected peak rather than the
+            # worst case the node permits. Uncomment the block below, keeping it above
+            # `[service].max_total_query_bytes` (8 GiB in node.toml) plus the decode floor
+            # (32 x max_parquet_row_group_bytes = 8 GiB), with headroom for baseline RSS,
+            # object_store and the runtime, which sit outside both accountings:
+            #
+            #   limits:
+            #     memory: 20Gi
+            #
+            # Lower the budget and you must lower the limit with it (and
+            # `max_parquet_row_group_bytes` too, or the node WARNs that the decode floor
+            # exceeds the budget); a limit alone turns a legitimate broad query into an
+            # OOMKill.
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 9090
+          env:
+            # AppRole secret-id from the Secret (see secret.example.yaml). For the
+            # credential-free shape instead, run an agent sidecar that writes a token to
+            # a shared emptyDir and set GDI_NODE__VAULT__TOKEN_FILE to that path — see
+            # the commented block in secret.example.yaml.
+            - name: GDI_NODE__VAULT__SECRET_ID
+              valueFrom:
+                secretKeyRef:
+                  name: gdi-node-standalone-vault
+                  key: secret-id
+                  optional: true
+          # The kubelet holds liveness until this succeeds, which is the only probe that
+          # actually protects a hydrating node (operating.md §1 prescribes it). Without it
+          # the readiness grace below is spent on the probe that cannot kill, while liveness
+          # -- which can -- gets initialDelay 10 + period 10 x default failureThreshold 3,
+          # i.e. ~40s before SIGKILL. That is inside a single Vault connect+request timeout
+          # (10s + 30s) and well inside the PME store self-test the docs call "a non-trivial
+          # window", so a populated node could be killed mid-hydrate, forever.
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            periodSeconds: 5
+            # The kubelet default is 1 s, which a hydrating node answering /health/ready
+            # from a loaded store can miss under contention — and a missed probe here
+            # counts against failureThreshold exactly like a 503. Not tighter than the
+            # period.
+            timeoutSeconds: 5
+            # Generous by design: covers secret load + the store self-test on a populated
+            # node (5s x 60 = 5min). Size it above the Vault timeouts, never below. The
+            # budget is derived from secret load and the local-store self-test, not from a
+            # full S3-bucket hydration: if a node is restart-looped by this probe while its
+            # logs show hydration still running, raise failureThreshold.
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: management
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            # This is the one probe that can kill the pod, so it does not run on the
+            # kubelet defaults: timeoutSeconds 1 and failureThreshold 3 give a ~3s budget
+            # on a pod this same file describes as CPU-under-provisioned for ingest.
+            # /health/live reads an atomic and is exempt from admission control, so it
+            # cannot be shed; the realistic way to miss three consecutive 1s deadlines is
+            # CPU starvation during a heavy ingest, i.e. the probe restarting a node that
+            # is working correctly. ~60s of budget instead. Raising these delays detection
+            # of a genuinely hung process by the same amount, which is the right trade for
+            # a single-replica node whose restart costs a full startup reconcile.
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: management
+            # Generous, but not for cold start -- the startupProbe above already covers
+            # that, and readiness does not even run until it has succeeded. Readiness also
+            # cannot kill: failing it only removes the pod from the Service endpoints (the
+            # comment on startupProbe explains why that distinction matters). This budget
+            # is for a later 503 -- a mid-life reconcile or a Vault re-auth -- where the
+            # cost of being too tight is flapping out of endpoints, not a restart.
+            #
+            # initialDelaySeconds stays at 2. Readiness runs only after the startupProbe
+            # has succeeded -- i.e. after /health/ready has already answered 200 -- so a
+            # delay here re-pays a cold-start cost that has already been paid, and at one
+            # replica under Recreate it is added directly to the restart outage: at 15 the
+            # measured outage was ~18s, ~14s of it this delay.
+            initialDelaySeconds: 2
+            periodSeconds: 10
+            # Unset means the kubelet default of 1s, on the same endpoint this file argues
+            # 1s is too tight for during hydration -- and a timed-out probe counts exactly
+            # like a 503. Kept well under periodSeconds so probes cannot overlap.
+            timeoutSeconds: 2
+            failureThreshold: 12
+          # Endpoint removal is eventually consistent: the kubelet sends SIGTERM and the
+          # endpoints controller withdraws this pod concurrently, so without a pause a
+          # rolling deploy still routes a few requests to a listener that has stopped
+          # accepting (connection-refused blips). operating.md §14 prescribes this hook and
+          # counts it in the grace-period formula above -- `terminationGracePeriodSeconds >=
+          # preStop sleep + 2 x shutdown_drain_seconds + 2s management stop + slack` -- so
+          # 5 + 2x30 + 2 = 67 <= 75.
+          #
+          # The native sleep action, not `exec: ["sleep", "5"]`: the runtime image is
+          # distroless, so there is no `sleep` binary and no shell to run one. An exec hook
+          # here fails with `executable file not found` and the kubelet proceeds straight to
+          # SIGTERM -- a hook that looks present and does nothing.
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
+          volumeMounts:
+            - name: config
+              mountPath: /etc/gdi-node-standalone
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/gdi-node-standalone/datasets
+            - name: overrides
+              # The serving path only reads this store — suppressions and overlays are
+              # re-read declaratively, and reingest markers are matched on their stamp
+              # rather than consumed. Still mounted writable because the operator CLI
+              # (`dataset hide`/`take-down`/`correct`, `overrides import`) writes through
+              # this same mount. Note: boot does not materialise the loader subdirectories —
+              # the overrides-init container above does; see the comment there for why the
+              # boot check creates nothing.
+              # Extra serving replicas can mount it ReadOnlyMany; this one cannot.
+              mountPath: /var/lib/gdi-node-standalone/overrides
+      volumes:
+        - name: config
+          configMap:
+            name: gdi-node-standalone-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: gdi-node-standalone-data
+        - name: overrides
+          persistentVolumeClaim:
+            claimName: gdi-node-standalone-overrides

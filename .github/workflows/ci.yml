@@ -1,0 +1,900 @@
+name: ci
+# Trigger on PRs (the gate) and on pushes to `main` + `v*` tags only. A PR from a
+# branch in this repo would otherwise fire both `push` (ref refs/heads/<branch>) and
+# `pull_request` (ref refs/pull/N/merge); those are different refs, so the
+# concurrency group below cannot dedupe them and the whole matrix would run twice.
+# Scoping `push` to `main`+tags means PR branches run once (via pull_request), `main`
+# keeps a post-merge signal, and `v*` tags still run the tag-gated `semver-checks`
+# job (which lives here, not in release.yml).
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+# Cancel superseded in-flight runs: a new push to the same ref cancels the
+# previous CI run for that ref, so stacked pushes to a PR branch don't queue
+# redundant cold builds. Keyed by workflow and ref. release.yml omits this, because a
+# `v*` tag build must always run to completion.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Default to least-privilege for the automatic GITHUB_TOKEN: every job in this
+# workflow only reads the repo (checkout, build, and upload-artifact via the
+# Actions artifact API — none need repo write). Jobs opt into more explicitly if
+# ever needed. Mirrors release.yml; without this the run inherits the broad
+# repository-default token scope while executing PR-branch code.
+permissions:
+  contents: read
+
+# Disable incremental compilation CI-wide. Incremental only pays off across
+# successive local edit-rebuild cycles; in CI every job is a cold build, so the
+# per-crate `incremental/` artifacts are pure wasted disk and cache weight (and
+# slightly slower clean builds). `Swatinem/rust-cache` already sets this by
+# default, but pinning it here makes the intent explicit and covers any step that
+# runs before the cache action.
+env:
+  CARGO_INCREMENTAL: "0"
+jobs:
+  # `quick` also runs `script-tests`, which is stdlib-only by assertion
+  # (scripts/tests/test_suite_is_stdlib_only.py) precisely so this job needs no Python
+  # provisioning and no third-party install. The one guard that needs PyYAML is the
+  # `k8s-manifests` leg, wired into the promtool job below, which already pins an
+  # interpreter.
+  #
+  # Fast early gate: fmt + clippy-lite + script-tests (ci-local.sh `quick`). The expensive,
+  # build-heavy jobs (cross-compile, e2e-smoke, conformance, crypt4gh-interop)
+  # `needs:` this, so a fmt/clippy slip cancels them up front instead of burning the
+  # cross-builds + the cold Docker e2e build. Kept separate from `rust`
+  # (which also runs the full test suite) so the green path is gated only on the
+  # ~minutes-long lint, not serialized behind the tests.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with: { components: clippy, rustfmt }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: ./scripts/ci-local.sh quick
+
+  # Default (lite) profile: fmt, clippy, test. The `full`-profile build, the second
+  # lite-only clippy pass, and the ring / aws-lc-sys graph assertions live in the
+  # `profiles` job below; the supply-chain scan (`cargo deny` + `cargo machete`)
+  # runs in its own parallel `supply-chain` job below.
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with: { components: clippy, rustfmt }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # CI runs the test suite under cargo-nextest; nextest does not run doctests,
+      # which the dedicated `doctests` job covers.
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: nextest@0.9.143 }
+      # fmt + clippy(lite) + nextest(lite), defined once in scripts/ci-local.sh so
+      # this gate and the local pre-push pipeline cannot drift. The supply-chain gate
+      # (`cargo deny` + `cargo machete`) runs in the separate `supply-chain` job
+      # below, so a fmt/clippy/test failure here no longer hides a deny/machete
+      # failure (and vice-versa).
+      - run: ./scripts/ci-local.sh rust
+
+  # Supply-chain gate, split out of `rust` so it runs in parallel: `cargo deny`
+  # (RustSec advisories + licenses + bans + sources over the feature-independent
+  # Cargo.lock — subsumes a separate `cargo audit`) + `cargo machete` (unused deps).
+  # Neither compiles the workspace, so no rust-cache is needed and a slow or failing
+  # `rust` job cannot delay or mask a supply-chain failure. One ignore-list lives in
+  # deny.toml (`[advisories] ignore`, incl. RUSTSEC-2024-0436 — archived `paste`,
+  # transitive, no fix). Tool versions are pinned (Dependabot's docker/cargo
+  # ecosystems don't track install-action tool versions — bump by hand).
+  supply-chain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cargo-deny@0.20.2 }
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cargo-machete@0.9.2 }
+      # `supply-chain` ends in `pip_audit`, which runs pip-audit through `uvx` and `need`s
+      # `uv`. The GitHub runner image ships Pipx but not uv, and `need` dies rather than
+      # skipping, so without this step the job fails after cargo-deny and cargo-machete
+      # have already passed. `scripts/check-ci-gate.py` asserts this provisioning.
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: uv }
+      - run: ./scripts/ci-local.sh supply-chain
+
+  # Build, lint, and test the lite, full and s3-only feature profiles so no
+  # cfg-gated path rots, plus the no-ring (lite) and no-aws-lc-sys (s3 + full)
+  # graph guarantees. The s3-only profile is the common "S3 ingest, no Vault, no
+  # PME" public-data deployment; it builds nowhere else in CI, so the `profiles`
+  # gate is what keeps that feature combination compiling and tested.
+  profiles:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with: { components: clippy }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: nextest@0.9.143 }
+      # clippy(full) lints the cfg-gated s3/vault/pme paths; clippy(s3) lints the
+      # s3-only combination (no vault/pme) the full pass would mask; clippy(no-default)
+      # lints the lite-only cfg(not(feature)) arms the full pass never compiles;
+      # nextest(full) + nextest(s3) run the suite on those profiles; and the cargo-tree
+      # graph assertions prove the lite graph is ring-free and the s3 + full graphs
+      # link no aws-lc-sys (the C crypto backend the workspace bans in favour of
+      # `ring`). All defined in scripts/ci-local.sh.
+      - run: ./scripts/ci-local.sh profiles
+
+  # FDP conformance — Python (pySHACL + ckanext-dcat), isolated from the Rust
+  # build above and never shipped in the binaries. Builds the crawl producer,
+  # which ingests the fixture
+  # corpus, crawls the live FDP harvester-style, unions the Turtle, and runs
+  # conformance/check_fdp.py + check_ckanext.py (and the dual-encoding agreement
+  # test) over the real emitted output. The gdi-metadata model is pinned at the
+  # build-time constant gdi_metadata_version (see conformance/shapes/gdi-metadata/
+  # VENDORED.md) and the Python deps are pinned in conformance/requirements.txt.
+  conformance:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Read from `.python-version` rather than repeating the number here: that file is
+          # the one place the interpreter version lives (uv selects it locally too), so CI
+          # and a developer box cannot drift.
+          python-version-file: .python-version
+          # Cache the pip wheel download cache (keyed on the hash-locked closure) so the
+          # exact-pinned wheels are not re-fetched every run; the venv install reuses them.
+          cache: pip
+          cache-dependency-path: conformance/requirements.lock
+      - name: Install pinned conformance Python deps
+        # Install from the hash-locked `.lock`, not the `.txt`. `requirements.txt` carries
+        # the reviewed top-level pins but no artifact hashes, so a `-r requirements.txt`
+        # install resolves transitives live and accepts whatever the index serves. The
+        # `.lock` (`uv pip compile --universal --generate-hashes`) pins the full closure by
+        # hash, and `--require-hashes` makes pip refuse the whole install unless every
+        # requirement is hash-pinned — the same thing scripts/ci-local.sh `ensure_venv`
+        # does. scripts/check-ci-gate.py asserts no workflow can regress to
+        # `-r …requirements*.txt`, and that each `.txt` pin actually appears in its `.lock`
+        # (the workflows install the lock, so a `.txt`-only bump would otherwise be inert
+        # here).
+        run: |
+          python -m venv "$RUNNER_TEMP/fdp-venv"
+          "$RUNNER_TEMP/fdp-venv/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/fdp-venv/bin/pip" install --require-hashes -r conformance/requirements.lock
+      - name: Non-triviality tests for the conformance checkers
+        # The checkers are gates, and a SHACL gate fails open: an empty shapes graph
+        # targets no node, so pySHACL reports conforms=True vacuously. These stdlib
+        # unittests assert each checker refuses to emit a `conforms` verdict it cannot
+        # back up. Run before the checkers themselves, so a broken guard fails first.
+        run: |
+          set -o pipefail
+          # `unittest discover` exits 0 when it discovers zero tests, so a renamed file, a
+          # moved directory or a changed `-p` pattern would leave this step green having
+          # asserted nothing — the same vacuous-green trap the two `cargo test -- --ignored`
+          # steps below assert against. A floor (not an exact count) is right here: adding a
+          # checker test is expected and additive, while the failure being guarded is
+          # discovery collapsing toward zero. Raise `min` when you add a test file.
+          min=3
+          "$RUNNER_TEMP/fdp-venv/bin/python" -m unittest discover -s conformance -p "test_*.py" -v 2>&1 | tee discover.log
+          n=$(sed -n -E 's/^Ran ([0-9]+) tests? in .*/\1/p' discover.log | tail -1)
+          if [ "${n:-0}" -lt "$min" ]; then
+            echo "::error::conformance non-triviality suite ran ${n:-0} tests, expected >= $min (renamed/moved test file, or a changed discover pattern?)"; exit 1
+          fi
+          echo "ok: conformance non-triviality suite ran $n tests"
+      - name: pip-audit the conformance dependency closure
+        # Advisory scan for the one Python corner cargo-deny cannot see. Runs in its
+        # own venv and audits the closure via `-r`, so installing pip-audit can't perturb
+        # the conformance test venv (fdp-venv) above. `--strict` fails on any finding; add
+        # `--ignore-vuln <ID>` for a disputed/unfixable advisory (the cargo-deny
+        # `[advisories] ignore` analog).
+        #
+        # Audits the same `.lock` the venv above installs, with `--no-deps`: the lock is
+        # already the complete hash-pinned transitive closure, so there is nothing to resolve
+        # and the audited set is provably the installed set. Auditing the `.txt` instead would
+        # re-resolve and could scan a different closure than the one actually running.
+        run: |
+          python -m venv "$RUNNER_TEMP/audit-venv"
+          # Pinned because the version changes the verdict: unpinned, CI executes whatever
+          # pip-audit PyPI serves that minute, and a release of it reddens the gate with no
+          # reviewed change behind it. (`uv` below is left unpinned for the opposite reason:
+          # it is a runner, not a checker.) The version matches `PIP_AUDIT_VERSION` in
+          # `scripts/ci-local.sh`, and `scripts/check-ci-gate.py` asserts the two agree,
+          # since a workflow cannot read a shell variable out of that script.
+          "$RUNNER_TEMP/audit-venv/bin/pip" install --upgrade pip 'pip-audit==2.10.1'
+          "$RUNNER_TEMP/audit-venv/bin/pip-audit" --strict --no-deps -r conformance/requirements.lock
+      - name: Build the crawl producer + agreement test
+        run: cargo test -p gdi-node-standalone --locked --no-run --test conformance_crawl --test conformance_agreement
+      - name: pySHACL + ckanext-dcat conformance over the crawled-and-unioned FDP graph
+        env:
+          GDI_FDP_PYTHON: ${{ runner.temp }}/fdp-venv/bin/python
+        run: |
+          # Guard against a vacuously-green run: plain `cargo test` exits 0 even when
+          # `--ignored` selects zero tests (e.g. a renamed/un-ignored test). A single
+          # combined run is not enough: `grep -q` matches the first `test result` line,
+          # so a guard over both binaries at once stays green if either reports
+          # `>=1 passed` — letting the must-have pySHACL crawl (conformance_crawl)
+          # silently stop running while conformance_agreement alone satisfies the grep.
+          # Run each binary in its own invocation and assert it selected exactly its
+          # known ignored-test count — a loose `>=1` would stay green if a refactor
+          # un-ignored or filtered some (but not all) of the tests. Bump `expected` when
+          # you add/remove an `#[ignore]`d test in that binary.
+          set -o pipefail
+          : > conformance-out.log
+          expected=1  # conformance_crawl + conformance_agreement each carry 1 #[ignore]d test
+          for t in conformance_crawl conformance_agreement; do
+            log="conformance-$t.log"
+            cargo test -p gdi-node-standalone --locked --test "$t" \
+              -- --ignored --nocapture 2>&1 | tee "$log"
+            cat "$log" >> conformance-out.log
+            n=$(sed -n -E 's/.*test result: ok\. ([0-9]+) passed.*/\1/p' "$log" | tail -1)
+            if [ "${n:-0}" -ne "$expected" ]; then
+              echo "::error::conformance binary $t ran ${n:-0} ignored tests, expected $expected (renamed/un-ignored/added? update the expected count if intended)"; exit 1
+            fi
+          done
+      - name: Upload the unioned FDP graph
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fdp-union-graph
+          path: target/conformance/union.ttl
+          if-no-files-found: ignore
+
+  # Beacon v2 wire-schema conformance is covered in-repo and on every PR by
+  # `crates/gdi-node-standalone/tests/beacon_schema_conformance.rs` (validates the real
+  # /info, /configuration, /g_variants responses + a /map discovery crawl against
+  # the vendored GA4GH framework schemas under `conformance/ga4gh-beacon-v2/`, plus every
+  # `results[]` item against the default-model + VRS 1.3 entity schemas), so there is
+  # no external-`beacon-verifier` job: it adds no coverage the in-repo test lacks, the
+  # tool is unmaintained, and it could only ever run advisory (continue-on-error).
+
+  # MSRV gate: pin the declared minimum-supported Rust (`rust-version` in the
+  # workspace manifest) and `cargo check --all-targets` both profiles — dev-dependencies count — so the MSRV claim is
+  # verified, not aspirational. Uses `--locked` so the committed Cargo.lock is
+  # honoured. Kept as
+  # `check` (not build/test) — it proves the crates compile on the declared MSRV; correctness is
+  # the `rust`/`profiles` jobs' job on stable.
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # `ci-local.sh msrv` installs and pins the MSRV toolchain itself (`rustup
+      # toolchain install $MSRV` + `cargo +$MSRV`), so it does not rely on this
+      # action selecting the version: `cargo +<MSRV>` is rustup precedence #1 and
+      # beats both `rustup default` and the repo's rust-toolchain.toml (the 1.98.0
+      # dev pin). The base `stable` toolchain set up here is only for rustup + cache
+      # warming. The MSRV value is not duplicated here: `ci-local.sh` owns the default
+      # (the `MSRV=${MSRV:-…}` fallback), which tracks `rust-version` in Cargo.toml.
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: ./scripts/ci-local.sh msrv
+
+  # Rustdoc doctests + broken-intra-doc-link gate: the public library crates carry
+  # runnable `///` examples; `cargo test --doc` runs them so documented usage cannot
+  # silently drift from the API (run with `--features full` so the cfg-gated
+  # pme/s3/vault doc examples are exercised too). The `doc` target additionally builds
+  # the docs under `RUSTDOCFLAGS=-D warnings` so a moved/renamed item cannot leave a
+  # dangling `[`path`]` intra-doc link (which `cargo test --doc` does not catch).
+  doctests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: ./scripts/ci-local.sh doctests doc
+
+  # Prometheus rules/config lint: catch alert drift (a renamed metric, bad PromQL,
+  # a malformed rule) before it ships. The rules file claims to mirror docs/operating.md
+  # §3 "verbatim", and nothing else keeps it loadable. Invoked via scripts/ci-local.sh
+  # `promtool` (the digest-pinned prometheus image lives there, shared with local
+  # runs), so the version+digest have one source of truth. The `dashboard` step adds
+  # the two checks promtool structurally cannot do (it validates PromQL syntax, not
+  # metric existence): (1) every gdi_* series the Grafana dashboard charts must still
+  # be a metric declared in metrics.rs, and (2) every declared metric must be
+  # observed somewhere — charted, alerted, or explicitly allowlisted — so a metric is
+  # never emitted-but-unwired.
+  promtool:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # This job runs a pure-Python gate leg, so it must run it on the pinned
+          # interpreter like every other Python job — not on whatever `python3` the runner
+          # image happens to ship (ubuntu-latest is Ubuntu 24.04 => 3.12.3). Without this
+          # the leg runs below the declared syntax floor, silently.
+          python-version-file: .python-version
+      - name: promtool check rules + config
+        run: ./scripts/ci-local.sh promtool
+      - name: grafana dashboard drift + metric coverage
+        run: ./scripts/ci-local.sh dashboard
+      - name: Install the k8s guard's pinned PyYAML
+        # From the hash-locked lock with --require-hashes, so no unverified PyPI artifact
+        # enters the runner. The pin lives in scripts/tests/k8s/requirements.txt (not
+        # inline here) so Dependabot's pip ecosystem and the dependency graph both see it.
+        # This job, not `lint`: keeping the third-party install off the job that runs
+        # `quick` is what lets the pre-commit path stay stdlib-only.
+        run: pip install -r scripts/tests/k8s/requirements.lock --require-hashes
+      - name: deploy/kubernetes contract guard
+        run: ./scripts/ci-local.sh k8s-manifests
+
+  # Workflow lint: actionlint statically checks every file under .github/workflows/ —
+  # YAML structure, `${{ }}` expression typos, bad `runs-on`/`uses` refs, matrix
+  # mistakes, and (via the bundled shellcheck) the shell in every inline `run:` block.
+  # This is the gate over the CI surface itself. Mirrors the promtool job: a
+  # digest-pinned upstream image invoked via scripts/ci-local.sh `actionlint` (the
+  # digest lives there), so no extra third-party Action joins the supply chain.
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # This job runs a pure-Python gate leg, so it must run it on the pinned
+          # interpreter like every other Python job — not on whatever `python3` the runner
+          # image happens to ship (ubuntu-latest is Ubuntu 24.04 => 3.12.3). Without this
+          # the leg runs below the declared syntax floor, silently.
+          python-version-file: .python-version
+      - name: actionlint (workflows + embedded shell)
+        run: ./scripts/ci-local.sh actionlint
+      - name: CI gate-graph integrity (+ toolchain/MSRV coherence)
+        # `ci-success` is the one required check, and this is what backs its promise that
+        # "a gate cannot silently stop being enforced": it asserts every job in
+        # ci.yml is a `ci-success` dependency, and that no gate gains an `if:` or
+        # `continue-on-error` without a reasoned allowlist entry. It also asserts the
+        # declared `rust-version` does not exceed the rust-toolchain.toml pin (a toolchain
+        # file outranks `rustup default`, so the pin is what CI actually builds, and cargo
+        # would refuse the package). An MSRV below the pin is the conservative
+        # configuration and is allowed.
+        run: ./scripts/ci-local.sh ci-gate
+      - name: Release targets are all build-verified (or allowlisted)
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Assert every target release.yml ships is build-verified per-PR (ci
+          # `cross-compile`) or weekly (scheduled `cross-native`), or is on the explicit
+          # allowlist — so a newly-added shipped target can't first-build at tag-cut
+          # unnoticed. Matches the matrix `target:` key (the `targets:` plural toolchain
+          # key is not matched).
+          mtargets() { grep -oE '^[[:space:]]+target:[[:space:]]+[^[:space:]]+' "$1" | awk '{print $2}' | sort -u; }
+          rel="$(mtargets .github/workflows/release.yml)"
+          ver="$( { mtargets .github/workflows/ci.yml; mtargets .github/workflows/scheduled.yml; } | sort -u)"
+          # Shipped targets knowingly left unverified, for native-runner-only cases with
+          # low divergence. It is empty: every shipped target is build-verified. Keep the
+          # mechanism, but adding an entry needs a stated reason.
+          allow=""
+          missing=""
+          while read -r t; do
+            [ -z "$t" ] && continue
+            grep -qxF "$t" <<<"$ver" && continue
+            grep -qxF "$t" <<<"$allow" && continue
+            missing="$missing $t"
+          done <<<"$rel"
+          if [ -n "$missing" ]; then
+            echo "::error::release.yml ships target(s) verified nowhere and not allowlisted:$missing"
+            exit 1
+          fi
+          echo "ok: every release target is build-verified or allowlisted"
+      - name: Release-notes footer names the correct container-image binary
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The image job (release.yml) downloads `artifact-service-x86_64-linux-gnu`
+          # and packages the GNU/glibc binary, so the footer's image sentence must
+          # describe it as the `gnu` binary. Calling it `musl` would offer operators a
+          # byte-identity that does not hold.
+          f=.github/release-notes-footer.md
+          grep -q 'artifact-service-x86_64-linux-gnu' .github/workflows/release.yml \
+            || { echo "::error::image job no longer downloads artifact-service-x86_64-linux-gnu — re-check the footer guard"; exit 1; }
+          grep -qi 'gnu' "$f" \
+            || { echo "::error::$f no longer mentions the gnu image binary (the image ships the x86_64 gnu build)"; exit 1; }
+          # The two placeholders carry the same repository name under opposite case rules:
+          # `--repo` wants the canonical `Owner/Name`, a container reference must be all
+          # lowercase. release.yml substitutes each with the right casing and re-checks the
+          # result, but only on a `v*` tag — a path nothing has ever exercised. Bind the
+          # shipped footer here instead, on every pull request.
+          grep -q 'ghcr\.io/__IMAGE__' "$f" \
+            || { echo "::error::$f must use __IMAGE__ for the ghcr path; it is substituted lowercased, and docker rejects a mixed-case reference"; exit 1; }
+          if grep -q 'ghcr\.io/__REPO__' "$f"; then
+            echo "::error::$f uses __REPO__ in an image path; that substitution keeps the canonical mixed case, which docker rejects. Use __IMAGE__"; exit 1
+          fi
+          grep -q -- '--repo __REPO__' "$f" \
+            || { echo "::error::$f no longer passes __REPO__ to 'gh attestation verify --repo', which needs the canonical mixed-case name"; exit 1; }
+          if grep -qiE 'from the same released[^.]*musl binary' "$f"; then
+            echo "::error::$f still describes the container image as built from the musl binary — it is the x86_64 gnu binary"; exit 1
+          fi
+          echo "ok: release-notes footer describes the gnu image binary"
+      - name: Pinned CLI-tool versions agree across workflows
+        shell: bash
+        # Single-sourced in scripts/ci-local.sh (workflow_tool_pins), invoked here so the
+        # grep is not duplicated inline (and the local `all` gate runs the same check).
+        # Dependabot cannot see install-action `tool:` pins, so this catches a half-applied
+        # bump across ci/release/scheduled (e.g. release Trivy bumped, weekly copy not).
+        run: ./scripts/ci-local.sh workflow-tool-pins
+
+  # Shell lint: shellcheck over the standalone scripts, meaning the ci-local.sh gate
+  # itself, the e2e and load harnesses, and compose setup. actionlint's bundled shellcheck
+  # covers only inline `run:` blocks, not these files. Same single-source pattern as
+  # promtool and actionlint: a digest-pinned image invoked via ci-local.sh.
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: shellcheck scripts/ + compose/
+        run: ./scripts/ci-local.sh shellcheck
+
+  # Ruff over the project's Python (conformance checkers + gate/harness scripts). Same
+  # single-source pattern as promtool/actionlint/shellcheck: the ruff version, the rule
+  # selection and the target-version-vs-pin guard all live in ci-local.sh + ruff.toml, and
+  # this job just invokes the target, so local and CI cannot drift. `uv` comes from the
+  # install-action already pinned for every other tool — no new third-party Action, and
+  # uvx fetches ruff at the exact version ci-local.sh pins.
+  ruff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: uv }
+      - name: ruff lint + format check
+        run: ./scripts/ci-local.sh ruff
+
+  # cargo-semver-checks on the public library crates: surface an accidental breaking
+  # change to `core`/`beacon`/`fairdp`'s public Rust API. The service binary and the
+  # tool are not public-API surfaces, so they are excluded. The crates are
+  # `publish = false`, so there is no crates.io baseline — instead the check diffs
+  # against the PR's base commit via `baseline-rev` (the action builds that revision from
+  # source), so it runs per-PR rather than being a vacuous tag-only
+  # no-op. PR-only: push/tag builds have no base ref to diff against. `fetch-depth: 0`
+  # so the base commit is present in the checkout.
+  #
+  # Advisory (`continue-on-error`): these crates have no external/versioned consumer
+  # yet (an integrating system consumes the .tar.c4gh data format, not these crates), so
+  # a pre-1.0 breaking API change should not force a version bump or block a PR — it
+  # is a review signal, not a gate. Re-arm it (drop `continue-on-error`) if any of
+  # these crates is ever published or consumed as a versioned dependency.
+  semver-checks:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: cargo-semver-checks (core / beacon / fairdp) vs the PR base
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
+        with:
+          package: gdi-node-standalone-core, gdi-node-standalone-beacon, gdi-node-standalone-fairdp
+          feature-group: all-features
+          baseline-rev: ${{ github.event.pull_request.base.sha }}
+
+  # CycloneDX SBOM: produce a CycloneDX software bill of materials over the whole
+  # `Cargo.lock` graph (feature-independent — so `ring`, `zstd-sys`, and any
+  # compiled-in allocator are always covered) and publish it as a build artifact.
+  # The release workflow publishes the same SBOM alongside the binaries.
+  sbom:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      # No rust-cache: `cargo cyclonedx` resolves the graph from Cargo.lock via
+      # `cargo metadata` and does not compile the workspace, so a build cache buys
+      # nothing here. (cargo-cyclonedx has no `--locked` flag; CI checks out a
+      # pristine tree, so the lock it resolves against is the committed one.)
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with:
+          tool: cargo-cyclonedx@0.5.9
+      # `--spec-version 1.5` is set explicitly rather than inheriting cargo-cyclonedx's
+      # implicit default (1.3, a 2021 schema): 1.5 carries the lifecycles / richer
+      # externalReferences / provenance fields modern SBOM scanners key on, and a
+      # pinned explicit version can't shift silently under a tool bump.
+      - run: cargo cyclonedx --all --format json --spec-version 1.5
+      - name: Upload CycloneDX SBOM
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cyclonedx-sbom
+          path: "**/*.cdx.json"
+          if-no-files-found: error
+      # Third-party attribution bundle (GDI NFR IC05 + the binary-redistribution
+      # notice obligation of the permissive licences). The full-text bundle is
+      # generated by `cargo about` and committed at repo root as THIRD-PARTY-LICENSES.md
+      # (so the Dockerfile and the release can ship it verbatim). This job publishes
+      # the committed file as an artifact; it is drift-guarded (regenerated + diffed)
+      # by the weekly scheduled `licenses` job — cargo-about has no install-action
+      # prebuilt, so that from-source install lives off the per-PR path.
+      - name: Upload third-party attribution bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: third-party-licenses
+          path: THIRD-PARTY-LICENSES.md
+          if-no-files-found: error
+
+  # Cross-compilation matrix (Linux-only on PR): compile the release artifacts so a
+  # cross-compile regression, a broken static link, or a C crypto provider sneaking
+  # back in is caught immediately — not only at release.
+  #
+  # * The `gdi-dataset-tool` CLI for Linux gnu via `cross`. (The macOS + Windows-MSVC
+  #   legs need native runners — the priciest minutes, billed 10x/2x — and rarely
+  #   break in a way the Linux build doesn't, so they run weekly in scheduled.yml's
+  #   `cross-native` job, not on every PR; the release workflow still rebuilds all
+  #   platforms on a `v*` tag.)
+  # * The `gdi-node-standalone` service for `x86_64-`/`aarch64-unknown-linux-gnu` (glibc,
+  #   the primary target — the distroless container + bare-metal artifact) and `…-musl`
+  #   (the secondary static fallback), full features (S3 + Vault + PME), via `cross`. Plus
+  #   an `x86_64-musl` build of the s3-only profile (the "S3 ingest, no Vault, no PME"
+  #   public-data deployment):
+  #   a build-verify only — proving that feature combination still links statically —
+  #   not a shipped artifact (the release ships the full binary only; an S3-profile
+  #   node simply runs that binary with `[vault]` omitted, or builds `--features s3`
+  #   from source for a smaller attack surface).
+  #
+  # `cross` provides the per-target C toolchain `ring` and `zstd-sys` need. The
+  # ring / aws-lc-sys graph guarantees live in the `profiles` job (kept).
+  cross-compile:
+    name: cross (${{ matrix.name }})
+    needs: lint
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Platform set — keep in sync with the sibling cross matrices:
+          #   * release.yml `build` (the superset that ships on a `v*` tag),
+          #   * scheduled.yml `cross-native` (the macOS + Windows tool legs, weekly), and
+          #   * scheduled.yml `cross-linux-arm` (the aarch64-linux service legs, weekly).
+          # This is the per-PR Linux x86_64-only subset (build-verify, no artifacts). The
+          # aarch64-linux legs run in the weekly `cross-linux-arm` job to keep the per-PR
+          # matrix light (cross-arch breaks are rare; the shipped targets are still verified,
+          # and the release-target guard below reads both jobs). A Linux target added here
+          # should be mirrored in release.yml `build`.
+          # --- gdi-dataset-tool CLI (Linux gnu + musl; mac/Windows in scheduled cross-native) ---
+          - name: tool-linux-gnu
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            crate: gdi-dataset-tool
+            features: ""
+          # Verify the static-musl CLI build that release.yml ships alongside gnu
+          # (the release-target guard in the `actionlint` job asserts every shipped
+          # target is verified here or weekly).
+          - name: tool-linux-musl
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            crate: gdi-dataset-tool
+            features: ""
+          # --- glibc (gnu) service, x86_64 (full features) — the primary shipped service
+          # artifact + container base; verify it cross-compiles with full features. The
+          # aarch64-gnu leg runs weekly in `cross-linux-arm` (scheduled.yml).
+          - name: service-gnu-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            crate: gdi-node-standalone
+            features: "full"
+          # --- static musl service, x86_64 (full features) — secondary fallback; the
+          # aarch64-musl leg runs weekly in `cross-linux-arm` (scheduled.yml) ---
+          - name: service-musl-x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            crate: gdi-node-standalone
+            features: "full"
+          # S3 profile (s3 only — no Vault/PME): build-verify that this common
+          # public-data feature combination still cross-compiles to a static musl
+          # binary. Not released (see the release workflow / the comment above).
+          - name: service-musl-x86_64-s3
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            crate: gdi-node-standalone
+            features: "s3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Key on the matrix name, not the target: two entries share a target
+          # (service-musl-x86_64 builds `full`, service-musl-x86_64-s3 builds `s3`)
+          # but compile different feature sets, so a target-only key would make them
+          # thrash a single cache slot. Per-name keys give each its own.
+          key: ${{ matrix.name }}
+      - name: Install cross
+        uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cross@0.2.5 }
+      - name: Build (cross, build-verify profile)
+        run: |
+          # `--profile release-verify` (Cargo.toml): inherits release but drops LTO +
+          # raises codegen-units, so these build-verify legs (no artifact is staged)
+          # don't pay full release optimization just to prove the target compiles and
+          # links. The release workflow's `build` job keeps real `--release`.
+          cross build --profile release-verify --locked -p ${{ matrix.crate }} --target ${{ matrix.target }} \
+            ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+      # glibc floor guard: the gnu artifacts (tool download + the deployed service) must keep
+      # running on every still-supported distro. cross's old-glibc image gives a ~2.23 floor;
+      # assert the highest referenced GLIBC symbol stays ≤ 2.28 (RHEL/Rocky 8) so a dependency
+      # bump or a future cross base bump can't silently raise it and break old hosts. `objdump`
+      # reads the dynamic symbol table cross-arch, so this covers the aarch64-gnu leg too.
+      - name: glibc floor guard (gnu targets ≤ 2.28)
+        if: contains(matrix.target, '-gnu')
+        run: |
+          bin="target/${{ matrix.target }}/release-verify/${{ matrix.crate }}"
+          max=$(objdump -T "$bin" | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1)
+          # Fails open without this: with no GLIBC symbols (wrong path, a non-gnu or
+          # stripped binary, objdump erroring) `max` is empty, and `sort -V -C` on an empty
+          # first line sorts it before 2.28 and reports the floor satisfied. The
+          # scripts/ci-local.sh mirror carries the same assert.
+          [ -n "${max#GLIBC_}" ] || { echo "::error::no GLIBC symbols found in $bin — the floor guard verified nothing"; exit 1; }
+          printf '%s\n2.28\n' "${max#GLIBC_}" | sort -V -C \
+            || { echo "::error::glibc floor $max exceeds 2.28 (would drop RHEL8) — a dep pulled a newer symbol or cross's base bumped"; exit 1; }
+          echo "ok: glibc floor ${max#GLIBC_} ≤ 2.28"
+
+  # Compose-based end-to-end smoke test. It builds the service image (glibc on distroless),
+  # brings up the minimal Compose stack, and runs the lite end-to-end script:
+  # build+pack a tiny fixture with `gdi-dataset-tool`, drop it into the inbox,
+  # poll `/datasets/{id}/state` to `visible`, assert the COVID g_variants
+  # `frequencyInPopulations`, crawl `/fairdp`, and a publish->unpublish round-trip.
+  # It is the one test that catches reconcile / routing / config-wiring
+  # regressions the unit + golden suites miss.
+  #
+  # Gated to a Docker-capable runner (ubuntu-latest has Docker + Compose v2). The
+  # multi-stage build is slow, so this is a single job, not a matrix.
+  e2e-smoke:
+    needs: lint
+    runs-on: ubuntu-latest
+    # Boots a Compose stack + builds the service image; cap it so a wedged container or
+    # health-poll fails fast instead of running to the 6h GitHub default.
+    #
+    # 45 rather than 30, because this job builds the service image: a release-profile
+    # compile of the whole dependency graph with `lto = "thin"` and `codegen-units = 1`. No
+    # cache helps a cold run — the Dockerfile's `--mount=type=cache` mounts start empty and
+    # `Swatinem/rust-cache` does not reach inside a BuildKit build. `scheduled.yml`'s
+    # `image-scan` does the same build at the same 45.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - name: Lite end-to-end smoke against the minimal Compose stack
+        run: ./scripts/e2e/run.sh
+
+  # full-stack end-to-end (Garage + OpenBao + PME at-rest + S3 round-trip) does not
+  # run on every PR — it builds the service image and boots Garage/OpenBao, the
+  # heaviest job. It lives in its own `e2e-full.yml` workflow: weekly on a schedule,
+  # on-demand via workflow_dispatch, and on a PR carrying the `full-e2e` label (for
+  # changes that touch the crypt4gh-ingest / at-rest-encryption / S3 path). The lite
+  # `e2e-smoke` above stays blocking on every PR.
+
+  # Crypt4GH Python interop: round-trips Rust↔Python against the reference
+  # `crypt4gh` tool (encrypt-in-Rust→decrypt-in-Python, the reverse, and
+  # header-rotation). The default `cargo test` also carries a reference-authored
+  # decrypt KAT (crates/core/tests/crypt4gh_kat.rs, Python-free frozen vectors), so
+  # decrypt-side conformance is gated without Python; this job is the
+  # authoritative oracle for the encrypt + rewrap directions and the live
+  # cross-implementation round-trips.
+  # Isolated from the pure-Rust jobs — Python only here; the reference
+  # `crypt4gh` (and its PyNaCl/libsodium dependency) are never shipped.
+  # `crypt4gh` version is pinned for reproducibility.
+  crypt4gh-interop:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          # Single-sourced — see the note on the other setup-python step.
+          python-version-file: .python-version
+      - name: Install pinned crypt4gh reference tool
+        # Pin lives in conformance/requirements-crypt4gh.txt (not inline here) so
+        # Dependabot's pip ecosystem + GitHub's dependency-graph advisory alerts can
+        # see it — an inline `pip install "crypt4gh==…"` is invisible to both. The install
+        # then goes through the hash-locked `.lock` compiled from that file (see the
+        # conformance job for the full rationale): the `.txt` carries no artifact hashes.
+        run: |
+          python -m venv "$RUNNER_TEMP/c4gh-venv"
+          "$RUNNER_TEMP/c4gh-venv/bin/pip" install --upgrade pip
+          "$RUNNER_TEMP/c4gh-venv/bin/pip" install --require-hashes -r conformance/requirements-crypt4gh.lock
+      - name: pip-audit the crypt4gh interop tool + its transitive stack
+        # crypt4gh drags in PyNaCl/libsodium bindings; audit the closure in an isolated
+        # venv (via `-r`), so installing pip-audit leaves the interop test venv
+        # (c4gh-venv) above untouched. `--ignore-vuln <ID>` for a disputed/unfixable
+        # advisory. Audits the same `.lock` that was installed, `--no-deps` (the lock is
+        # already the complete pinned closure) so the audited set is the installed set.
+        run: |
+          python -m venv "$RUNNER_TEMP/c4gh-audit-venv"
+          # Pinned for the same reason as the conformance job's audit venv above, and to
+          # the same `PIP_AUDIT_VERSION` that scripts/ci-local.sh uses.
+          "$RUNNER_TEMP/c4gh-audit-venv/bin/pip" install --upgrade pip 'pip-audit==2.10.1'
+          "$RUNNER_TEMP/c4gh-audit-venv/bin/pip-audit" --strict --no-deps -r conformance/requirements-crypt4gh.lock
+      - name: crypt4gh Rust↔Python interop (encrypt→decrypt, reverse, key parse)
+        env:
+          C4GH_VENV: ${{ runner.temp }}/c4gh-venv
+          # Without this, `require_venv()` in crates/core/tests/crypt4gh_interop.rs skips a
+          # test whose venv is missing — and a skip passes, so the `expected=7` assertion
+          # below would be satisfied by seven tests that verified nothing against the
+          # reference implementation. Setting it makes a missing or broken venv a hard
+          # failure instead of a silent green, as scripts/ci-local.sh `crypt4gh` does.
+          # scripts/check-ci-gate.py asserts this stays set.
+          C4GH_INTEROP_REQUIRED: "1"
+        run: |
+          # Guard against a vacuously-green run: plain `cargo test` exits 0 if `--ignored`
+          # matches zero tests, so un-ignoring or renaming a crypt4gh-interop test would
+          # run nothing yet pass.
+          # Assert exactly the known ignored-test count (not merely >=1) so dropping
+          # some but not all of them is caught too. Bump `expected` when you add/remove
+          # an `#[ignore]`d test in crates/core/tests/crypt4gh_interop.rs.
+          set -o pipefail
+          expected=7
+          cargo test -p gdi-node-standalone-core --locked --test crypt4gh_interop \
+            -- --ignored --nocapture 2>&1 | tee c4gh-out.log
+          n=$(sed -n -E 's/.*test result: ok\. ([0-9]+) passed.*/\1/p' c4gh-out.log | tail -1)
+          if [ "${n:-0}" -ne "$expected" ]; then
+            echo "::error::crypt4gh-interop ran ${n:-0} ignored tests, expected $expected (renamed/un-ignored/added? update the expected count if intended)"; exit 1
+          fi
+
+  # Coverage runs weekly in scheduled.yml's `coverage` job rather than per-PR: it is
+  # the single heaviest job (an instrumented `cargo llvm-cov --features full` build with
+  # `--test-threads=1`) and its percentage gates nothing on a PR. The non-advisory half —
+  # the zero-coverage guard (`check-coverage-zero.py`, a file the suite never enters) —
+  # runs locally in `ci-local.sh release`.
+
+  # Dependabot's update PRs for the main workspace are vetted by the existing
+  # `cargo deny check` gate (see the `supply-chain` job + .github/dependabot.yml), so
+  # the pinned Cargo.lock stays current instead of rotting between manual bumps.
+  # The isolated cargo-fuzz crate (crates/core/fuzz) is excluded from this workspace, so
+  # `--workspace` never reaches it. It is covered anyway: the `fuzz-smoke` job below
+  # compile-gates its targets per PR, `deny_fuzz` inside the `supply-chain` leg scans its
+  # separate lock, and the weekly `advisories` job is the between-PR net.
+
+  # Secret scan, the same `secrets` leg the local gate runs, so the repo's own
+  # `.gitleaks.toml` (and its inline `gitleaks:allow` pragmas) govern CI exactly as they
+  # govern a developer machine. GitHub's native secret scanning is free on public repos and
+  # covers full history, but it applies GitHub's ruleset rather than this one and reports
+  # after a push rather than blocking a pull request, so the two are complementary.
+  #
+  # gitleaks is not in install-action's tool list, so it is fetched from its own release and
+  # checksum-verified rather than routed through the cargo-binstall fallback.
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # provides: gitleaks
+      - name: Install gitleaks (pinned, checksum-verified)
+        env:
+          # Keep at or above `GITLEAKS_MIN_VERSION` in scripts/ci-local.sh; the leg
+          # re-checks the floor at runtime, because an older rule set reports clean on
+          # findings it cannot see.
+          GITLEAKS_VERSION: "8.30.1"
+          GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+        run: |
+          set -euo pipefail
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL --retry 3 "$url" -o /tmp/gitleaks.tar.gz
+          echo "${GITLEAKS_SHA256}  /tmp/gitleaks.tar.gz" | sha256sum -c -
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          gitleaks version
+      - run: ./scripts/ci-local.sh secrets
+
+  # Compile-gate the fuzz targets. The fuzz crate is an isolated workspace excluded from
+  # the root one, so `cargo check --workspace` never compiles it and a target that drifts
+  # out of sync with the library API rots silently. This does not fuzz — that needs
+  # nightly and stays weekly in scheduled.yml — so it runs on the ordinary pinned stable
+  # toolchain and costs a compile of core + beacon. It also runs the pin- and
+  # licence-drift comparisons between the fuzz manifest and the root workspace, which
+  # nothing else checks.
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: fuzz-smoke
+          workspaces: "crates/core/fuzz"
+      - run: ./scripts/ci-local.sh fuzz-smoke
+
+  # No `///` doc comment or attribute detached from the item it documents. The pre-commit
+  # hook checks staged changes, but an outside contributor has not installed it, so without
+  # this job the guarantee is unenforced for exactly the changes it is least able to see.
+  #
+  # Diffed against the pull request's base commit rather than the leg's default HEAD~30
+  # window: the base is the honest "before" for the change under review, and it is also the
+  # only correct answer on a repository whose history is a single squashed commit, where
+  # HEAD~30 falls back to the root and compares the tree against itself.
+  doc-attachment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The default shallow clone has no base commit to diff against.
+          fetch-depth: 0
+      - env:
+          GDI_DOC_ATTACHMENT_BASE: ${{ github.event.pull_request.base.sha }}
+        run: ./scripts/ci-local.sh doc-attachment
+
+  # REUSE licensing compliance. Its own job rather than a step in `ruff`, for the same
+  # reason `supply-chain` is split out of `rust`: a lint failure and a licensing failure
+  # must not be able to mask each other. Costs a `uv` install and no compilation.
+  reuse:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: uv }
+      - run: ./scripts/ci-local.sh reuse
+
+  # Single aggregate status for branch protection. `needs:` every per-PR gate, runs
+  # with `if: always()`, then fails if any dependency failed or was cancelled. A
+  # `skipped` dependency is tolerated — `semver-checks` runs only on PRs (skipped on
+  # the push/tag builds where this job also runs). Make this the only required check
+  # in branch protection: a newly-added gate becomes required simply by adding it to
+  # `needs:` here, so a gate cannot silently stop being enforced.
+  ci-success:
+    name: ci-success
+    if: always()
+    needs:
+      - lint
+      - rust
+      - supply-chain
+      - profiles
+      - conformance
+      - msrv
+      - doctests
+      - promtool
+      - actionlint
+      - shellcheck
+      - ruff
+      - semver-checks
+      - sbom
+      - cross-compile
+      - e2e-smoke
+      - crypt4gh-interop
+      - secrets
+      - fuzz-smoke
+      - doc-attachment
+      - reuse
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify no required job failed or was unexpectedly skipped
+        shell: bash
+        env:
+          # `toJSON(needs)` keeps the job names; `join(needs.*.result)` throws them away,
+          # which would make a `skipped` gate indistinguishable from an allowed one.
+          NEEDS: ${{ toJSON(needs) }}
+          # The single source of which jobs may report `skipped`. This step needs it at
+          # runtime, and scripts/check-ci-gate.py reads it back from here to reject an
+          # un-allowlisted job-level `if:` on any gate. Widening the allowlist is this one
+          # edit.
+          #
+          # `semver-checks` is PR-only: cargo-semver-checks needs a base ref to diff
+          # against, so it is skipped on the push/tag builds where this job also runs.
+          ALLOWED_SKIPS: "semver-checks"
+        run: |
+          set -euo pipefail
+          failed=0
+          while read -r job result; do
+            case "${result}" in
+              success)
+                echo "ok: ${job}" ;;
+              skipped)
+                if [[ " ${ALLOWED_SKIPS} " == *" ${job} "* ]]; then
+                  echo "ok: ${job} skipped (allowlisted)"
+                else
+                  echo "::error::required job '${job}' was SKIPPED — a gate that stops matching its \`if:\` stops enforcing. If intended, add it to ALLOWED_SKIPS above (the single source; scripts/check-ci-gate.py reads it from there)."
+                  failed=1
+                fi ;;
+              *)
+                echo "::error::required job '${job}' reported '${result}'"
+                failed=1 ;;
+            esac
+          done < <(echo "${NEEDS}" | jq -r 'to_entries[] | "\(.key) \(.value.result)"')
+          if [ "${failed}" -ne 0 ]; then
+            exit 1
+          fi
+          echo "all required CI jobs passed (or were legitimately skipped)"

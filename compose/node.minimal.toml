@@ -1,0 +1,93 @@
+# Minimal stack config: the simplest runnable node, keyless.
+#
+# Inbox-only ingestion of prepared plaintext staging dirs (the `gdi-dataset-tool build`
+# output) dropped into the inbox. No S3 backend, no secrets backend, and, in the keyless
+# form below, no crypt4gh identity, so only staging dirs are accepted and .tar.c4gh
+# packages are not. At-rest confidentiality is whatever the data volume provides.
+#
+# Keyless is the point of this stack rather than a limitation: a co-located node reading a
+# local inbox has no untrusted channel to protect, so encrypting a package to a key on the
+# same disk buys nothing. Build a staging dir and deploy it:
+#   gdi-dataset-tool build package.yaml --cc EE -o build
+#   gdi-dataset-tool deploy build/<id> --inbox <the inbox volume>
+# The node records such a drop with `Plaintext` writer provenance, which is expected here.
+#
+# For crypt4gh (an S3 bucket, or a node someone else runs) use the S3 stack rather than
+# bolting a keys mount onto this one: a host bind-mount preserves the host file's
+# ownership, so the node (uid 65532) cannot read a 0600 key you own, and relaxing it to
+# 0644 trips `strict_key_perms` and the node refuses to start. The S3 stack solves that
+# with a root init container:
+#   docker compose -f docker-compose.yml -f docker-compose.s3.yml --profile garage up
+
+[service]
+listen = "0.0.0.0:8080"
+# The node's externally reachable base URL. For a local Compose stack this is the
+# published host port; every FDP and beacon URI is built from it. It is not parameterised,
+# so a stack shifted with GDI_HOST_PORT_PUBLIC still mints IRIs naming :8080. The e2e legs
+# compare ids rather than URLs, so that only misleads a human inspecting a port-shifted
+# stack; edit this line when you shift the port and care about the URIs.
+base_url = "http://localhost:8080"
+data_dir = "/var/lib/gdi-node-standalone/datasets"
+inbox = "/var/lib/gdi-node-standalone/inbox"
+ingest_concurrency = 2
+rescan_interval_seconds = 60
+# Management plane (health, dataset state, metrics) on its own port, never the public
+# `listen`. The bind is a hard startup requirement.
+management_addr = "0.0.0.0:9090"
+
+[catalogs]
+gdi-aggregated = "Genome of Europe Aggregated Data"
+synthetic-data = "Synthetic Data"
+
+# FAIR Data Point node identity; omit the whole [fairdp] block for a beacon-only node.
+# The publisher and HDAB contact points are mandatory and the service refuses to start
+# without them.
+[fairdp]
+title = "GDI Local FAIR Data Point"
+description = "Local development FAIR Data Point for gdi-node-standalone"
+issued = "2026-01-01T00:00:00Z"
+license = "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
+theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
+applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
+
+[fairdp.publisher]
+name = "Local Dev Org"
+homepage = "https://example.org"
+mbox = "mailto:dev@example.org"
+[fairdp.publisher.contact_point]
+fn = "GDI Local"
+has_email = "mailto:dev@example.org"
+
+[fairdp.hdab]
+name = "Local HDAB"
+[fairdp.hdab.contact_point]
+fn = "Local HDAB"
+has_email = "mailto:hdab@example.org"
+
+[beacon]
+aggregated_base_path = "/beacon/v2"
+sensitive_base_path = "/beacon/v2"
+id = "org.local.beacon"
+name = "GDI Local Beacon"
+api_version = "v2.2.0"
+environment = "dev"
+# k-anonymity floor for the aggregated plane. The unit is alleles, not individuals
+# (roughly 2*k), so 10 guarantees k = 5 distinct individuals per served cell. 0, the
+# built-in default, disables small-count suppression and the node warns at boot.
+min_allele_count = 10
+# Dev placeholder. Without this and organization.logo_url below, the GDI
+# allele-frequency network's registry has been observed to degrade the whole shared
+# member listing, not just this node's entry;
+# see node.example.toml.
+alternative_url = "https://alt.example.org/beacon"
+
+[beacon.organization]
+id = "org.local"
+name = "Local Dev Org"
+welcome_url = "https://example.org"
+logo_url = "https://example.org/logo.png"
+
+[beacon.configuration]
+production_status = "DEV"
+security_level = "PUBLIC"
+default_granularity = "record"

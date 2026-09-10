@@ -1,0 +1,94 @@
+[package]
+name = "gdi-dataset-tool"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# Set per-crate rather than inherited: the two binaries need distinct SBOM descriptions.
+description = "Provider tool: build, package, ship and manage GDI dataset packages."
+# Distributed as release binaries and container images, not via crates.io; the
+# LICENSE-* texts live at the workspace root and would not travel in a .crate.
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "gdi_dataset_tool"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gdi-dataset-tool"
+path = "src/main.rs"
+
+[dependencies]
+clap = { workspace = true }
+clap_complete = { workspace = true }
+# Progress bars for the long offline streams (build/pack/unpack) and S3 transfers. They
+# draw to stderr and auto-hide off-TTY, so the stdout contract holds.
+indicatif = { workspace = true }
+# Decompresses bgzipped (`.vcf.gz`) input when staging VCF headers, matching the noodles
+# converter, which auto-detects bgzip.
+noodles-bgzf = { workspace = true }
+# Shared compile-time build provenance (git SHA and build epoch) for `--version`, matching
+# the service. Its build.rs is the only place the GDI_* env vars resolve.
+gdi-build-info = { path = "../build-info" }
+# The tool is always networked, so it always enables core's shared S3 builder and the
+# shared HTTPS client builder (`http`: bundled Mozilla roots plus the platform trust
+# store).
+gdi-node-standalone-core = { path = "../core", features = ["s3", "http"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-saphyr = { workspace = true }
+tar = { workspace = true }
+# Zeroizes the provider's secret-key PEM buffers on drop, matching the node-side identity
+# paths.
+zeroize = { workspace = true }
+# --- Always-on networking, not feature-gated. Unlike the service's `s3` and `vault`
+# features, the tool always links object_store (S3), reqwest (the
+# `GET /datasets/{id}/state` deploy guard) and the `ring`/rustls stack, so `ring`, the one
+# C and assembly library, is always present in this binary. ---
+object_store = { workspace = true }
+futures = { workspace = true }
+reqwest = { workspace = true }
+# Async runtime for the S3 and HTTP calls. The tool blocks on a current-thread runtime per
+# operation; there is no `#[tokio::main]`, so the CLI core stays synchronous.
+tokio = { workspace = true }
+# Installs the process-default `ring` rustls crypto provider before any TLS, exactly as the
+# service does. Bundled CA roots come from core's `http` feature.
+rustls = { workspace = true }
+# RFC3339 timestamps for the `_sync_marker.json` write-order bump.
+time = { workspace = true }
+dialoguer = { workspace = true }
+# Colors the severity prefixes in output.rs, gated on the stderr terminal and NO_COLOR by
+# console's own detection — the same gate dialoguer's prompts use.
+console = { workspace = true }
+
+[dev-dependencies]
+test-util = { path = "../test-util" }
+# Golden for the CLI's structural argument surface (`cli_argument_surface_is_pinned` in
+# cli.rs).
+insta = { workspace = true }
+serial_test = { workspace = true }
+# Enables core's `fault-injection` seam for this crate's tests only: dev-dependencies never
+# reach the shipped binary, which builds against the `[dependencies]` core, whose `guard` is
+# an inlined no-op. The durability tests arm the existing `DurableWrite` chokepoint instead
+# of a tool-local fault seam.
+gdi-node-standalone-core = { path = "../core", features = ["fault-injection"] }
+# TOML deserializer for the `cmd_config` template round-trip test. Dev-only: no production
+# code here uses toml directly, since core provides `load_file_only`.
+toml = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+# The read-only `ObjectStore` wrapper behind the `probe_writable` denial and `upload`
+# PUT-failure tests needs `#[async_trait]`.
+async-trait = "=0.1.92"
+
+# cargo-machete (unused-dependency gate) ignores. `time` is not referenced by `use` here;
+# it is declared to hold the exact pin on the version the always-on `reqwest` and
+# `object_store` stack pulls transitively, and dropping it would un-pin that crate.
+[package.metadata.cargo-machete]
+ignored = ["time"]

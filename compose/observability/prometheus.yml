@@ -1,0 +1,72 @@
+# Prometheus config for the local observability overlay.
+#
+# Scrapes the node's management plane (/metrics on :9090 — never the public
+# :8080), the synthetic blackbox probes, Alloy, and Prometheus itself. Rules in
+# ./rules/ (mounted at /etc/prometheus/rules) mirror docs/operating.md §3 and fire
+# into Alertmanager.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+scrape_configs:
+  # The node's management-plane /metrics endpoint (in-process metrics).
+  - job_name: gdi-node-standalone
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - gdi-node-standalone:9090
+
+  # Synthetic HTTP probes via the blackbox-exporter. The probe target is passed
+  # as the `target` param; the standard relabel block rewrites __address__ to the
+  # exporter so Prometheus scrapes blackbox-exporter:9115 with ?target=<url>.
+  - job_name: blackbox-http
+    metrics_path: /probe
+    params:
+      module:
+        - http_2xx
+    static_configs:
+      - targets:
+          - http://gdi-node-standalone:9090/health/ready
+          - http://gdi-node-standalone:9090/health/live
+          # /fairdp returns 2xx only when [fairdp] is configured; on a beacon-only node
+          # (no [fairdp]) it 404s and SyntheticProbeDown would false-fire — drop this
+          # target there. All shipped configs include [fairdp], so the default is fine.
+          - http://gdi-node-standalone:8080/fairdp
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # The telemetry agent's own metrics.
+  - job_name: alloy
+    static_configs:
+      - targets:
+          - alloy:12345
+
+  # Tempo's own metrics + liveness. Scraped so a crash-looping Tempo (e.g. a config/image
+  # schema mismatch) shows as `up{job="tempo"} == 0`. Without it the trace pipeline can be
+  # dead while every other target reads `up`, and traces silently stop reaching Tempo.
+  - job_name: tempo
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - tempo:3200
+
+  # Prometheus self-monitoring.
+  - job_name: prometheus
+    static_configs:
+      - targets:
+          - localhost:9090

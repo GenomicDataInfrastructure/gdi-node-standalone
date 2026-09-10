@@ -1,0 +1,275 @@
+# Optional observability overlay.
+#
+# This file changes nothing by default — it is an overlay, layered onto an
+# existing stack file with a second `-f`. Without it the node runs unchanged;
+# with it you get a self-contained local observability stack
+# (Prometheus + Alertmanager + Blackbox + Loki + Tempo + Grafana Alloy +
+# Grafana), and the node is rebuilt with the `otel` feature so traces flow.
+#
+# It adds to the metrics/health surface the node already exposes on the
+# management plane (:9090 — /metrics, /health/live, /health/ready): the overlay
+# scrapes and visualizes it and adds logs + traces. No service code changes.
+#
+# --- Usage (full stack) ---------------------------------------------------
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.observability.yml up -d --build
+#
+# --- Usage (minimal stack) ------------------------------------------------
+#   docker compose -f docker-compose.minimal.yml \
+#                  -f docker-compose.observability.yml up -d --build
+#
+# Compose merges same-named services across `-f` files, so the `gdi-node-standalone`
+# block below is an override of the base service: it only adds a build arg
+# (FEATURES=full,otel), two env vars, and a dependency on Alloy. Ports,
+# volumes, and security settings come from the base file and are not redefined
+# here — Compose unions them.
+#
+# --- UIs (all on localhost) -----------------------------------------------
+# Every published port below is bound to 127.0.0.1. That is stricter than the base
+# compose file, which publishes the node's public plane (8080) on 0.0.0.0 by design;
+# everything the base binds to loopback stays loopback here. Do not drop the prefix:
+# on Linux, Docker installs its own iptables DNAT rules, and forwarded traffic to a
+# published port never traverses the INPUT chain, so a host firewall (ufw/firewalld)
+# does not block a 0.0.0.0 publish.
+# Prometheus here scrapes the node's loopback-bound management plane and would otherwise
+# re-publish the `gdi_dataset_state` disclosure oracle to the LAN; it also runs with
+# `--web.enable-lifecycle`, so an unbound port would let any subnet peer POST /-/quit.
+# Every in-stack consumer reaches these services by compose DNS, not through the publish.
+#
+#   Grafana       :3000   (anonymous Admin in dev — see GF_AUTH_* below)
+#   Prometheus    :9089   (host 9089 → container 9090: the node holds :9090)
+#   Alertmanager  :9093
+#   Alloy         :12345  (telemetry-agent UI)
+#   Loki          :3100   (queried via Grafana)
+#   Tempo         :3200   (queried via Grafana)
+#
+# Trace path: node --(OTLP/HTTP :4318)--> alloy --(OTLP/gRPC :4317)--> tempo.
+# Log path:   docker container logs --(alloy, via /var/run/docker.sock)--> loki.
+#
+# Every host port above is overridable (GDI_HOST_PORT_*, defaults as shown) so a second
+# stack can coexist — see docs/deployment.md's "Overriding the dev-stack host ports" table.
+#
+# Image tags are pinned (not `latest`) so the dev stack is reproducible and a
+# registry push cannot silently change behaviour. Bump them in a reviewed change.
+
+# Cap container stdout/stderr logs (the json-file driver is unbounded by default).
+x-logging: &obs-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # --- Metrics scraper + alert rule evaluator -------------------------------
+  # Scrapes the node's /metrics (gdi-node-standalone:9090), the blackbox probes, Alloy
+  # and itself; evaluates the docs/operating.md §3 alert rules and forwards firing
+  # alerts to Alertmanager.
+  prometheus:
+    # Digest-pinned to the same image scripts/ci-local.sh runs promtool with, so the rules
+    # are validated against the build that evaluates them.
+    image: prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0
+    logging: *obs-logging
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      # Bound the disposable dev TSDB (default retention is 15d) so prometheus-data stays small.
+      - --storage.tsdb.retention.time=3d
+      - --web.enable-lifecycle
+    depends_on:
+      alertmanager:
+        condition: service_healthy
+    volumes:
+      - ./compose/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./compose/observability/rules:/etc/prometheus/rules:ro
+      - prometheus-data:/prometheus
+    ports:
+      # Host 9089 → container 9090: the node already maps host :9090 (its management
+      # plane), so Prometheus takes the next free one down.
+      # Overridable (GDI_HOST_PORT_PROMETHEUS) — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_PROMETHEUS:-9089}:9090"
+    restart: unless-stopped
+    # The prom image is busybox-based (has wget, no curl); /-/healthy is 200 once ready.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9090/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # --- Alert router ---------------------------------------------------------
+  # Receives firing alerts from Prometheus. In dev it routes everything to a
+  # do-nothing "devnull" receiver — alerts are visible in the Alertmanager UI
+  # (:9093) but no external notifications are sent.
+  alertmanager:
+    image: prom/alertmanager:v0.34.0@sha256:690c7b525f4367aa91f73e2f91c632206d32e97c6384bdbf2fb7a861b420340d
+    logging: *obs-logging
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    volumes:
+      - ./compose/observability/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports:
+      # Overridable (GDI_HOST_PORT_ALERTMANAGER) — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_ALERTMANAGER:-9093}:9093"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9093/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Synthetic HTTP prober ------------------------------------------------
+  # Prometheus drives it (job `blackbox-http`) to probe the node's /health/ready,
+  # /health/live and /fairdp endpoints from the outside, turning each into an
+  # up/down series independent of the in-process metrics.
+  blackbox-exporter:
+    image: prom/blackbox-exporter:v0.28.0@sha256:e753ff9f3fc458d02cca5eddab5a77e1c175eee484a8925ac7d524f04366c2fc
+    logging: *obs-logging
+    command:
+      - --config.file=/etc/blackbox/blackbox.yml
+    volumes:
+      - ./compose/observability/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    ports:
+      # Overridable (GDI_HOST_PORT_BLACKBOX) — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_BLACKBOX:-9115}:9115"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:9115/-/healthy"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # --- Log store (single-binary dev mode) -----------------------------------
+  # Alloy ships container logs here; Grafana queries it as the Loki datasource.
+  loki:
+    image: grafana/loki:3.7.6@sha256:efd47c67f9bac88ca29bcf8cb997d9ab29d1848bd0aff579282295542a745952
+    logging: *obs-logging
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - ./compose/observability/loki-config.yml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      # Overridable (GDI_HOST_PORT_LOKI) — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_LOKI:-3100}:3100"
+    restart: unless-stopped
+
+  # --- Trace store (single-binary dev mode) ---------------------------------
+  # Receives spans from Alloy (and can receive OTLP directly); Grafana queries it
+  # as the Tempo datasource. Exposes its query API on :3200 and OTLP receivers on
+  # :4317/:4318 (the node, however, sends to Alloy, not here directly).
+  tempo:
+    image: grafana/tempo:3.0.3@sha256:0296560ac66f8a3600d7fb3014a52c189d4d9c3549ad6ff441bf2409855d68d5
+    logging: *obs-logging
+    command: -config.file=/etc/tempo.yaml
+    volumes:
+      - ./compose/observability/tempo.yml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      # Both overridable — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_TEMPO:-3200}:3200"   # tempo query (Grafana datasource)
+      - "127.0.0.1:${GDI_HOST_PORT_TEMPO_OTLP:-4319}:4317"   # tempo's own OTLP/gRPC (host-shifted; :4317 is Alloy's)
+    restart: unless-stopped
+
+  # --- Single telemetry agent (logs + traces) -------------------------------
+  # Grafana Alloy is the one agent: an OTLP receiver (the node's trace sink, then
+  # forwarded to Tempo) plus a Docker-log collector (discovers container logs via
+  # the docker socket and ships them to Loki). Its config is River/HCL.
+  alloy:
+    image: grafana/alloy:v1.18.1@sha256:0f4434c92b3e6cdac38bb129b344e1790c246f7b6e2eaffcc16a5fa363240e33
+    logging: *obs-logging
+    # docker.sock access (even :ro) is equivalent to host root, so privilege escalation
+    # inside the agent is blocked. Run this overlay only on a local development host,
+    # never on a shared or public one.
+    security_opt:
+      - no-new-privileges:true
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./compose/observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      # --storage.path above: tail positions + the WAL, so a restart resumes where it
+      # stopped instead of re-shipping (or skipping) whatever was logged meanwhile.
+      - alloy-data:/var/lib/alloy/data
+      # Read-only docker socket: lets `discovery.docker` enumerate containers and
+      # `loki.source.docker` stream their logs. Required for log collection.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      # All three overridable — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_ALLOY:-12345}:12345"   # Alloy UI
+      - "127.0.0.1:${GDI_HOST_PORT_ALLOY_OTLP_GRPC:-4317}:4317"     # OTLP/gRPC receiver
+      - "127.0.0.1:${GDI_HOST_PORT_ALLOY_OTLP_HTTP:-4318}:4318"     # OTLP/HTTP receiver (the node's GDI_NODE__SERVICE__OTLP_ENDPOINT)
+    restart: unless-stopped
+
+  # --- Dashboards -----------------------------------------------------------
+  # Auto-provisions the Prometheus/Loki/Tempo datasources and the starter
+  # gdi-node-standalone dashboard. Anonymous Admin access, for local development only —
+  # never expose this overlay publicly.
+  grafana:
+    image: grafana/grafana:13.2.0@sha256:3fd54ae1214669f8355f065ec9f6445d5279a3d77095ab048ca045685272429b
+    logging: *obs-logging
+    environment:
+      # Development only: no login, everyone is Admin. Do not use outside local dev.
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
+      GF_AUTH_DISABLE_LOGIN_FORM: "true"
+    depends_on:
+      prometheus:
+        condition: service_healthy
+      # loki/tempo run on distroless images with no shell or wget/curl, so they cannot be
+      # cheaply healthchecked — gate on container start only (not readiness).
+      loki:
+        condition: service_started
+      tempo:
+        condition: service_started
+    volumes:
+      - ./compose/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./compose/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      # Loopback: anonymous-Admin Grafana must not be LAN-reachable. Overridable
+      # (GDI_HOST_PORT_GRAFANA) — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_GRAFANA:-3000}:3000"
+    restart: unless-stopped
+    # The grafana image ships curl; /api/health returns 200 once the DB is up. Grafana's
+    # first HTTP bind can take ~60s (provisioning + DB migrate), so start_period is generous;
+    # nothing depends_on grafana, so this only drives its own status display.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  # --- Node override: rebuild with `otel`, point traces at Alloy ------------
+  # Only the delta is here; ports/volumes/security come from the base service (see
+  # the merge/override note in this file's header).
+  gdi-node-standalone:
+    build:
+      args:
+        # The Dockerfile exposes a FEATURES ARG (default `full`); add `otel` so
+        # the image emits OTLP traces. Rebuild is required: `--build`.
+        FEATURES: "full,otel"
+    environment:
+      # The node exports OTLP traces here; Alloy receives on :4318 (HTTP) and
+      # forwards to Tempo. Matches the OTLP/HTTP receiver port above.
+      GDI_NODE__SERVICE__OTLP_ENDPOINT: http://alloy:4318
+      # ECS here, not the base compose's `json`: Alloy
+      # (compose/observability/alloy/config.alloy) derives the `service` stream label from
+      # the line's own `service.name`, so a dev stack and a cluster shipping to an
+      # ECS-consuming backend share one identity. Override with LOG_FORMAT=json/text to
+      # read raw.
+      LOG_FORMAT: ${LOG_FORMAT:-ecs}
+      RUST_LOG: ${RUST_LOG:-info}
+    depends_on:
+      - alloy
+
+# Small named volumes for each store's local state (dev-scale, disposable).
+volumes:
+  prometheus-data:
+  loki-data:
+  tempo-data:
+  alloy-data:
+  grafana-data:

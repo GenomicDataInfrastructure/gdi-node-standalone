@@ -1,0 +1,1195 @@
+# =============================================================================
+# gdi-node-standalone — annotated service configuration reference
+# =============================================================================
+#
+# The complete reference for the service config (`node.toml`). Every option below
+# maps 1:1 to a field of `ServiceConfig` in crates/core/src/config/service.rs.
+#
+# -----------------------------------------------------------------------------
+# START HERE
+#
+# To stand a node up, copy node.quickstart.toml and set the fields it lists: the
+# handful of decisions a deployment has to make. Read this file as the per-field
+# reference for everything else. For a no-S3 local trial, start from
+# compose/node.minimal.toml. Copying a line pins that value against future releases
+# that re-tune a default, so override the knobs you need, not the whole file.
+#
+#   Required. A real node is broken or anonymous without these:
+#     service.base_url .............. public URL every FDP/Beacon URI is built from
+#     service.data_dir .............. absolute dir where ingested datasets live
+#     keys.identities ............... the node's crypt4gh secret key(s); omit for keyless
+#     [[s3.buckets]] name/endpoint/bucket .. a data source (credentials via env or Vault)
+#     beacon.id / beacon.name ....... this Beacon's identity
+#     beacon.organization.id / .name  the operating organization
+#     [fairdp] title/license/publisher/hdab/contact_point .. FDP metadata, DCAT-AP mandated
+#     catalogs ...................... your dataset catalog id -> label map
+#
+#   Recommended. Defaults exist, but each value is a policy decision:
+#     beacon.min_allele_count ....... k-anonymity floor, counted in alleles; 0 disables
+#     beacon.environment + [beacon.configuration].production_status .. deployment stage
+#     [beacon.configuration].default_granularity .. response detail against privacy
+#     service.cors_allowed_origins .. browser origins allowed on the public plane;
+#                                     an empty list means the wildcard `*`
+#     ingest.writer_policy .......... whether a package that cannot be attributed to
+#                                     an allow-listed writer is accepted; the default
+#                                     gates nothing
+#
+#   Advanced. Everything else: resource caps, timeouts, poll intervals, Vault, PME,
+#     observability. Safe built-in defaults; touch only when tuning.
+#
+# Every section header below carries a `TIER:` line naming which of the three it is.
+# The dataset-tool's own config, with root-level keys plus `[keys]` and
+# `[profiles.<name>]`, is a separate schema: see tool.example.toml.
+# -----------------------------------------------------------------------------
+#
+# Config loading, lowest precedence first:
+#   1. this TOML file, located via `--config <path>`, then the GDI_CONFIG env var,
+#      then the default /etc/gdi-node-standalone/node.toml;
+#   2. the environment overlay GDI_NODE__SECTION__KEY, double underscore between
+#      segments, which always wins over the file:
+#        GDI_NODE__SERVICE__INGEST_CONCURRENCY=8        -> [service].ingest_concurrency
+#        GDI_NODE__VAULT__TOKEN=hvs.xxxx                -> [vault].token
+#        GDI_NODE__S3__BUCKETS__0__ENDPOINT=http://...  -> [[s3.buckets]] #0 endpoint
+#   A missing file at the default path is treated as empty, so an env-only load still
+#   works. A missing file at a path you named explicitly is an error.
+#
+# Before binding the listener the service validates the whole resolved config and
+# refuses to start on a contradiction. `check-config` runs that same pass and exits
+# without serving, as a pre-deploy dry run over the live boot's code path.
+#
+# Secrets. The fields marked secret below (vault.token, vault.secret_id, and the S3
+# secret_access_key and access_key_id) do not belong in a committed file. Supply them
+# out of band:
+#   * Vault/OpenBao is the preferred source for the crypt4gh identity and the
+#     per-bucket S3 credentials, and it overrides the inline values here;
+#   * for the Vault bootstrap credential and any inline value, prefer a mounted file
+#     over an env var. A process environment is readable through /proc/<pid>/environ
+#     and is exposed by `docker inspect` and by pod specs; a mounted Secret file is
+#     not.
+# Those fields carry the same "SET ME" placeholder marker node.quickstart.toml uses, and
+# preflight refuses to start while one stands. `check-config` therefore rejects this
+# file as shipped instead of reporting OK on a config whose access key is placeholder
+# text. Replace them at deploy time, never in git.
+#
+# Build features. The default (lite) build omits the `s3`, `vault` and `pme` Cargo
+# features. The `[s3]` / `[[s3.buckets]]` and `[vault]` blocks, and
+# `[vault].transit_key`, take effect only in a `--features full` build. A lite binary
+# rejects a config carrying them, with "rebuild with --features ...", rather than
+# ignoring them silently.
+#
+# Logging is set by environment rather than here. Level: GDI_LOG, else RUST_LOG, else
+# info. Format: LOG_FORMAT=json (the default), text, or ecs, which uses Elastic Common
+# Schema field names and ingests into Elasticsearch/Kibana with no ingest pipeline.
+# Output goes to stderr. At-rest encryption has no toggle here either: optional
+# Parquet Modular Encryption (PME) switches on when `[vault].transit_key` is set.
+# =============================================================================
+
+
+# -----------------------------------------------------------------------------
+# [service] — the HTTP listener, storage paths, and resource bounds.
+# Every field has a default except base_url and data_dir.
+# -----------------------------------------------------------------------------
+[service]
+# TIER: mostly ADVANCED (safe defaults); base_url and data_dir are REQUIRED.
+
+# Address the public HTTP listener binds, as "host:port".
+# Type: string. Default: "0.0.0.0:8080". Optional.
+listen = "0.0.0.0:8080"
+
+# The node's externally reachable base URL: the public Ingress host, not the
+# in-cluster pod or Service address. Every FDP resource URI (distribution,
+# metadataIdentifier, isPartOf, endPointURL) and the beacon welcomeUrl and /map
+# rootUrls are built from it and dereferenced by harvesters and the user portal, so an
+# internal address silently breaks harvesting and beacon registration. A trailing slash
+# is stripped on load. The scheme must be http or https; preflight rejects anything
+# else, and rejects an empty or non-URL value.
+# Type: string (absolute http(s) URL). No default. Required.
+base_url = "https://gdi-ee.example.org"
+
+# Directory holding the ingested `datasets/{id}/` dirs and `datasets/.status.json`.
+# Must be an absolute path, and writable by the container's non-root user. Preflight
+# rejects an empty or relative value, which would root the data tree under the
+# process working directory.
+# Type: absolute path. Default: "" (empty; set it). Required.
+data_dir = "/var/lib/gdi-node-standalone/datasets"
+
+# Optional local drop directory, a "local bucket", for no-S3 use. It holds
+# {id}.tar.c4gh packages or staging directories, consumed on ingest, plus persistent
+# {id}.state.json sidecars that an operator edits to publish, unpublish or delete and
+# that reconcile like an S3 bucket. Omit the line to disable the inbox channel.
+# Type: path. Default: none (disabled). Optional.
+inbox = "/var/lib/gdi-node-standalone/inbox"
+
+# Operator override store: node-local state for operator-authored dataset and channel
+# takedowns and metadata overlays. Unset, and an empty directory under the default,
+# both mean the override features are inactive.
+#
+# Nothing here is reconstructible by re-ingesting, which restores each dataset to the
+# source-resolved state an override exists to countermand. Under the default the store
+# sits inside data_dir and shares the fate of the data volume, so point it at separately
+# backed storage on any node that records overrides (docs/operating.md §17).
+#
+# Changing this path moves nothing: copy the directory across first, then edit this
+# value. A running node that still holds overrides keeps its last-good set and raises
+# gdi_override_store_absent rather than adopt an absent new location, but a new location
+# that exists and is empty is indistinguishable from a store with nothing in it and is
+# adopted as such.
+# Type: path. Default: "<data_dir>/overrides". Optional.
+# override_dir = "…"   # operator override store; default <data_dir>/overrides
+
+# Refuse to serve when the operator-override store does not exist. Leave it false on a
+# node that has never suppressed or corrected anything; set it true once you record your
+# first override. The config is mounted separately from the data volume, so this flag is
+# the only thing that survives that volume's loss and can still testify that a store was
+# meant to be there. Without it, recovery onto a fresh volume (docs/operating.md §17)
+# silently re-serves every withheld dataset.
+#
+# Shown here at true, unlike every other knob in this file: the default is false so a
+# fresh node with no overrides can boot, but true is the value a real deployment wants.
+# Type: boolean. Default: false. Optional.
+require_override_store = true
+
+# Maximum packages ingested in parallel: the node-wide ingest ceiling, shared across
+# every trigger and every [[s3.buckets]] provider, since one node fronts many providers
+# through a single pool. Each ingest is decrypt, validate and encrypt heavy, so this is
+# a throughput ceiling rather than free parallelism. Raise it only with CPU and memory
+# headroom.
+# Type: integer. Default: 4. Optional.
+ingest_concurrency = 4
+
+# Per-job ingest timeout, in seconds. A single ingest that blocks longer than this (a
+# hung Vault mint, a stuck fsync, a pathological decode) frees its worker so the queue
+# keeps draining; otherwise `ingest_concurrency` hung jobs wedge all ingest until a
+# restart. The blocking task cannot be cancelled, so a timed-out ingest runs on in the
+# background: if it completes, the periodic full reload hydrates it and its source drop
+# is left in place rather than reported as rejected; a genuinely hung one is cleared by a
+# restart (docs/operating.md). Size it above your largest expected ingest. 0 disables the
+# timeout and restores the wedge risk.
+# Type: integer (seconds). Default: 3600 (1 h). Optional.
+ingest_timeout_seconds = 3600
+
+# Period of the safety-net full reload and inbox rescan, in seconds. Also the retry
+# cadence for an inbox job left in place after a transient failure, because the notify
+# watcher only fires on new filesystem events. S3 buckets have their own poll intervals.
+# Type: integer (seconds). Default: 600 (10 min). Optional.
+rescan_interval_seconds = 600
+
+# Per-bucket timeout, in seconds, for the startup reconcile that gates readiness. Each
+# [[s3.buckets]] bucket's initial listing and sidecar fetch runs concurrently under a
+# bound; a bucket that exceeds this is logged, marked unhealthy and skipped, so one
+# unreachable or slow provider can never stop the node binding. It keeps retrying on
+# its normal poll cadence. 0 is floored to 1 second.
+# Type: integer (seconds). Default: 30. Optional.
+startup_reconcile_timeout_seconds = 30
+
+# Global request-body cap, in bytes; an oversized request gets 413. Public beacon POSTs
+# are small JSON.
+# Type: integer (bytes). Default: 262144 (256 KiB). Optional.
+max_request_body_bytes = 262144
+
+# Per-request timeout, in seconds; a handler that exceeds it is aborted. Preflight
+# requires it to be at most shutdown_drain_seconds, so no in-flight request is cut off
+# at shutdown.
+# Type: integer (seconds). Default: 30. Optional.
+request_timeout_seconds = 30
+
+# Graceful-shutdown drain budget for in-flight HTTP requests on SIGTERM or SIGINT, in
+# seconds. It is spent twice, back to back: once draining the public listener, then
+# again awaiting in-flight ingest, with a fixed 2 s management-plane stop between them.
+# Under Kubernetes set terminationGracePeriodSeconds to at least the preStop sleep plus
+# twice this value plus slack, not to this value. See docs/operating.md §14.
+# Type: integer (seconds). Default: 30. Optional.
+shutdown_drain_seconds = 30
+
+# Global in-flight request cap; requests over the limit are shed with 503 rather than
+# queued unboundedly.
+#
+# It is a memory knob as well. A broad `record` query retains its page, so the serving
+# budget is `max_concurrent_requests x max_page_limit x populations x ~450 B`: about
+# 220 MiB per matched dataset at the shipped page cap of 1000 and the 512-population cap,
+# and single-digit MiB for a dataset with a dozen populations. At 64 concurrent the first
+# figure is 13.8 GiB, above `max_total_query_bytes` (8 GiB), so such a node sheds 503s
+# under that load. Lower either knob: deploy/kubernetes/base/node.toml ships 16 here, and
+# a page cap of 100 divides the page term by ten. See the resource baseline in
+# docs/deployment.md.
+# Type: integer. Default: 64. Optional.
+max_concurrent_requests = 64
+
+# Aggregate heap ceiling, in bytes, for one g_variants query's retained scan rows,
+# summed across every dataset it fans out over. It bounds the memory a broad or
+# long-allele query can hold at once; max_query_rows below bounds one dataset instead.
+# A query that exceeds it is rejected with 400 (too broad). Must be >= 1.
+# Type: integer (bytes). Default: 2147483648 (2 GiB). Optional.
+max_query_bytes = 2147483648
+
+# Per-dataset row ceiling for one g_variants scan, the companion to max_query_bytes:
+# that one bounds the aggregate across every dataset a query touches, this one bounds a
+# single dataset's contribution. It fails closed during the scan rather than after the
+# rows are materialised, so it is the cheaper of the two to trip and the one to lower on
+# a memory-constrained node.
+#
+# Rows are distinct loci x populations, so the driver is the dataset's population count
+# rather than its size on disk: [beacon] permits up to 512 populations, and a 14 MiB
+# dataset at 101 populations carries about 5.2M rows. Do not size this from the store's
+# disk footprint. See the resource baseline in docs/deployment.md. Must be >= 1.
+# Type: integer (rows). Default: 10000000. Optional.
+max_query_rows = 10000000
+
+# Process-wide heap ceiling, in bytes, for retained scan rows summed across every
+# g_variants query in flight at once. max_query_bytes above is a per-request ceiling, so
+# without this the real exposure is that ceiling times max_concurrent_requests: every
+# concurrent request carries its own full allowance.
+#
+# A query that would push the process past this is shed with 503, not 400: the request is
+# not too broad, the node is momentarily too busy. Rows are charged as they accumulate,
+# from inside the scan. The default is 4x max_query_bytes, a backstop rather than a
+# throttle, and it must be at least max_query_bytes.
+#
+# It does not cover the transient parquet decode working set: each admitted scan
+# materialises a row group before any row is charged here, so a saturated scan pool adds
+# scan_pool_cap x max_parquet_row_group_bytes on top — 32 x 256 MiB at the defaults, and
+# the node warns once at boot if you raise either knob past this value. Size memory for
+# the sum. See the resource baseline in docs/deployment.md.
+# Type: integer (bytes). Default: 8589934592 (8 GiB). Optional.
+max_total_query_bytes = 8589934592
+
+# How many per-dataset Beacon scans one g_variants query may run at once. Commented out
+# because its default is "follow ingest_concurrency", an absent value rather than a
+# number; uncomment it to decouple the two. Leaving them coupled means raising
+# ingest_concurrency for write throughput also widens public query concurrency, which is
+# the axis that multiplies query memory, since each concurrent scan retains its own rows.
+# Must be >= 1 when set. Optional.
+# query_concurrency = 4
+
+# Bound, in seconds, on how long a channel may keep serving at its last known visibility
+# after its S3 bucket becomes unreachable. A bucket that was reached and then went dark
+# fails reconcile open, so a source-side retraction during the outage is not observed and
+# the dataset keeps being served, stale. A channel whose last successful reconcile is
+# older than this has its datasets forced hidden at serve time: a bounded, visible
+# withdrawal that recovers as soon as the bucket answers again, in place of serving a
+# possibly retracted dataset indefinitely. Set 0 to disable it where availability during
+# a long provider outage outweighs retraction freshness.
+# Type: integer (seconds). Default: 86400 (24 h). Optional.
+max_visibility_staleness_seconds = 86400
+
+# Browser origins allowed to call the public data plane (CORS). Empty, the default shown
+# here, serves the permissive wildcard `Access-Control-Allow-Origin: *` this all-public
+# aggregate beacon ships with. To restrict the plane to a known web front end, list exact
+# origins as scheme://host[:port], lowercase, with no path, no trailing slash and no
+# default port:
+#     cors_allowed_origins = ["https://portal.example.org", "http://localhost:5173"]
+# A listed origin is echoed back; every other origin gets no Allow-Origin header and its
+# browser cannot read the response. Use ["*"] to state the wildcard explicitly.
+#
+# This is not an access control. CORS restrains browser JavaScript only, and `curl` or
+# any server-side fetch ignores it, so on an internet-public node it adds no
+# confidentiality. It matters when the data plane is not internet-reachable (intranet or
+# VPN only): there the wildcard lets any site an insider visits use that browser as a
+# read-proxy for the node.
+# Type: array of strings (origins). Default: [] (wildcard). Optional.
+cors_allowed_origins = []
+
+# Reject a single parquet data file larger than this at ingest, in bytes. Bounds the
+# parquet reader's in-memory working set and guards against a decompression bomb.
+# Type: integer (bytes). Default: 1073741824 (1 GiB). Optional.
+max_parquet_file_bytes = 1073741824
+
+# Reject a parquet file whose decompressed working set, per file, would exceed this, in
+# bytes. The on-disk cap above does not bound expanded size, since zstd pages decompress
+# to far more, so this is the actual decompression-bomb guard.
+# Type: integer (bytes). Default: 4294967296 (4 GiB). Optional.
+max_parquet_decompressed_bytes = 4294967296
+
+# Cap the decompressed working set per row group, in bytes; a file that exceeds it is
+# rejected.
+# Type: integer (bytes). Default: 268435456 (256 MiB). Optional.
+max_parquet_row_group_bytes = 268435456
+
+# Reject an encrypted `.tar.c4gh` package whose decrypted `.tar` exceeds this, in bytes.
+# Enforced while the decrypt streams to disk, so an oversized package is rejected before
+# extraction, which bounds the bytes written to the data volume and not only the
+# extracted tree. It also caps the summed regular-file bytes of the extracted staging
+# tree. A `.tar.c4gh` ingest transiently needs roughly 3x this much free scratch, for the
+# decrypted `.tar` plus the extracted staging tree, both under the self-cleaning
+# `.incoming/` work dir. Over-cap is a permanent `unsafe-archive` error and is not
+# retried. 0 is rejected at preflight.
+# Type: integer (bytes). Default: 17179869184 (16 GiB). Optional.
+max_package_bytes = 17179869184
+
+# Reject a package or staging tree with more than this many members, files plus
+# directories. Bounds a many-tiny-files archive. 0 is rejected at preflight.
+# Type: integer. Default: 100000. Optional.
+max_package_members = 100000
+
+# Evict `inbox/.rejected/{id}/` entries older than this on startup and on each full
+# scan, in hours. They can hold plaintext genotype-derived data, so they are not kept
+# forever. 0 disables age-based eviction, leaving `rejected_max_count` as the only bound;
+# preflight rejects setting both to 0, which would leave the quarantine directory
+# unbounded on the volume the served datasets live on.
+# Type: integer (hours). Default: 168 (7 days). Optional.
+rejected_retention_hours = 168
+
+# Cap the number of quarantined `inbox/.rejected/{id}/` entries. When the count exceeds
+# this, the oldest entries are evicted down to the cap on the next collection. Age-based
+# retention alone is not a bound: a producer dropping many distinct bad packages inside
+# the retention window can fill the shared data volume, because per-id quarantine
+# self-bounds only one id. 0 disables the cap, leaving `rejected_retention_hours` as the
+# only bound; preflight rejects both at 0.
+# Type: integer (count). Default: 1000. Optional.
+rejected_max_count = 1000
+
+# Unix only. When true, refuse to start if a crypt4gh key file is group- or
+# other-readable (mode & 0o077 != 0). The node identity decrypts every inbound package,
+# so a world-readable or group-readable key must not boot silently. Set it false only for
+# a relaxed dev setup, where the same condition only warns.
+# Type: bool. Default: true. Optional.
+strict_key_perms = true
+
+# The separate management-plane listener: liveness and readiness probes, the
+# dataset-state oracle (GET /datasets/{id}/state), and the Prometheus /metrics endpoint.
+# It is not served on `listen` and is kept off the public Ingress, so a misconfigured
+# Ingress can expose only the public data plane (beacon and FDP, visible datasets only),
+# never the hidden-dataset oracle or operational metrics.
+#
+# The default binds loopback, because this plane carries the oracle and the metrics.
+# Local and bare-metal deployments probe over localhost and need no change. In a
+# container whose probe or scrape reaches the pod over its IP (Docker `-p`, a kubelet
+# liveness probe), set "0.0.0.0:9090" here and gate it with a NetworkPolicy admitting
+# only the kubelet, the cluster Prometheus and operator tooling. Forgetting that fails
+# loudly rather than exposing anything, because the probe cannot reach the plane and the
+# pod never goes Ready. The bind is a hard startup requirement and the node exits if it
+# fails. Preflight rejects an empty value, or one equal to `listen`.
+# Type: string ("host:port"). Default: "127.0.0.1:9090".
+management_addr = "127.0.0.1:9090"
+
+# Serve GET /datasets on the management plane: the node's whole dataset inventory (id,
+# state, channel, provenance, suppression), the same JSON `dataset list --format json`
+# prints. Turn it on for a dashboard, a runbook or a back office that needs to ask what
+# the node is serving over HTTP instead of `kubectl exec`.
+#
+# It is opt-in because GET /datasets/{id}/state only confirms a guess about an id you
+# already knew, while this enumerates everything the node holds, hidden datasets
+# included. Keep it off unless something consumes it. With it off the route is absent
+# (404) rather than forbidden, so the flag itself cannot be probed for, and
+# GET /datasets/{id}/state stays available either way. Read at startup only, so a restart
+# is needed to apply a change; SIGHUP and POST /reload do not.
+# Type: bool. Default: false. Optional.
+expose_dataset_list = false
+
+# Optional OpenTelemetry export. When set, the service exports its `tracing` spans as
+# OTLP traces (HTTP plus protobuf) to this endpoint: a Grafana Alloy or OpenTelemetry
+# Collector at http://alloy:4318, or an OTLP intake such as Elastic APM. Give the base
+# URL; the node appends `/v1/traces`, and `/v1/metrics` when
+# otlp_metrics_interval_seconds is set. It acts only in a binary built with the `otel`
+# Cargo feature, which is not part of `full`; a binary without `otel` parses this field,
+# ignores it, and warns once at startup. An https:// endpoint is verified against the OS
+# CA bundle in any build carrying the `tls` group (`full,otel`); a lite build with `otel`
+# speaks http:// only. Exported spans carry no query content, matching the /metrics
+# privacy posture. Omit to disable.
+# Type: string ("http(s)://host[:port]"). Default: unset (no export).
+# otlp_endpoint = "http://localhost:4318"
+
+# Optional OTLP metrics push. When set alongside otlp_endpoint, every series /metrics
+# serves is also exported to the endpoint's `/v1/metrics` once per this many seconds, for
+# a store with no Prometheus scraper of its own. /metrics keeps serving regardless, and
+# the series names travel verbatim (histograms keep their bucket table), so the names the
+# alert rules use are the names the store shows. Acts only in an `otel` build with
+# otlp_endpoint set; 0 is rejected at preflight. Omit to disable.
+# Type: integer (seconds, >= 1). Default: unset (no metrics push).
+# otlp_metrics_interval_seconds = 60
+
+# Optional trace sampling: the fraction of new traces exported, 0.0 to 1.0. It is
+# parent-based, so a request carrying a trusted upstream `traceparent` follows its
+# parent's decision and a sampled upstream trace is never cut off here. Unset means 1.0,
+# one exported span per public request, which is what this knob turns down. Only the
+# exported spans are sampled; every log line still carries its trace id. Acts only in an
+# `otel` build with otlp_endpoint set, and a value outside 0.0 to 1.0 is rejected at
+# preflight.
+# Type: float (0.0–1.0). Default: unset (1.0).
+# otlp_trace_sample_ratio = 0.1
+
+# Optional distributed tracing: adopt an inbound W3C `traceparent` as the request span's
+# parent, so this node's spans nest under an upstream trace. An inbound trace context is
+# caller-controlled, so enable it only when the node sits behind a trusted ingress
+# (reverse proxy, gateway, or integrating system) that sets the header and strips any
+# client-supplied one. A malformed header is ignored. Acts only in an `otel` build with
+# otlp_endpoint set.
+# Type: bool. Default: false.
+# trust_inbound_traceparent = true
+
+# Honour a `traceparent` carried in an S3 handoff sidecar ({id}.state.json), parenting
+# that package's ingest span under the orchestrator's trace. It is separate from the
+# header flag above because writing that sidecar means holding write credentials for a
+# configured bucket, while sending a header only means reaching the port. An orchestrator
+# that wants its publishes correlated therefore does not have to make the
+# internet-facing Beacon trust client headers. Acts only in an `otel` build with
+# otlp_endpoint set.
+# Type: bool. Default: false.
+# trust_sidecar_traceparent = true
+
+# Optional auth headers added to every OTLP export request, traces and the metrics push
+# alike: an `Authorization` API key for a token-protected collector or an Elastic APM
+# OTLP intake, for instance. The value is secret, so prefer the
+# GDI_NODE__SERVICE__OTLP_HEADERS__<NAME> env overlay, and send it to an https://
+# endpoint, since over http:// it travels in cleartext (preflight warns in prod). Acts
+# only in an `otel` build with otlp_endpoint set. Being a sub-table it must be the last
+# thing in [service]: TOML scalar keys cannot follow a sub-table.
+# [service.otlp_headers]
+# Authorization = "ApiKey <base64-token>"
+
+
+# -----------------------------------------------------------------------------
+# [catalogs] — catalog name -> display title.
+# key   = the catalog name datasets reference in `metadata.catalog`
+# value = the FDP/UI display title (the FDP catalog description equals the title)
+# A catalog configures only its title. The Catalog record's license and
+# applicableLegislation come from the node-wide [fairdp] block; there is no
+# per-catalog override. Datasets carry their own license and applicableLegislation in
+# package.yaml. The service rejects a dataset naming an unknown catalog.
+# Reloadable without a restart: edit this section and send SIGHUP to the running node.
+# A new catalog is served, and clears an unknown-catalog ingest error, within one
+# reconcile pass. See docs/operating.md §14.
+# Type: table of string->string. Default: empty. Optional (recommended).
+# -----------------------------------------------------------------------------
+[catalogs]
+# TIER: REQUIRED — the dataset catalogs this node advertises (id = human label).
+synthetic-data = "Synthetic Data"
+gdi-aggregated = "Genome of Europe Aggregated Data"
+
+
+# -----------------------------------------------------------------------------
+# [beacon] — static values for the informational endpoints (/info, /service-info,
+# /configuration, /map) plus the query knobs. The query endpoints serve data from the
+# datasets. Every field has a default, some of them empty, but `id` and `name` are
+# hard-required: preflight rejects an empty value for either. The nested
+# `organization.id` and `organization.name` are GA4GH-required yet not enforced here,
+# so a minimal keyless or dev node still boots.
+# -----------------------------------------------------------------------------
+[beacon]
+# TIER: REQUIRED identity (id, name, organization) plus RECOMMENDED privacy knobs
+# (min_allele_count, environment, default_granularity; see START HERE).
+
+# Aggregated mount path (g_variants, datasets); the user portal calls
+# {beaconURL}/g_variants.
+# Type: string. Default: "/aggregated/beacon/v2". Optional.
+aggregated_base_path = "/aggregated/beacon/v2"
+
+# Sensitive mount path (the individuals placeholder). It differs from
+# aggregated_base_path by default, so the node mounts two separate beacons, a split
+# mount; set both equal (say both "/beacon/v2") to serve one combined beacon instead.
+# Type: string. Default: "/sensitive/beacon/v2". Optional.
+sensitive_base_path = "/sensitive/beacon/v2"
+
+# Beacon id. The GDI-harmonized form the User Portal integrates against is
+#   <cc>.<institution>.<af-beacon|sl-beacon>.<staging|production>[.<extra>]
+# for example "es.crg.af-beacon.production.fega-spain". This node serves aggregated
+# allele frequencies (the /individuals mount is a zeros-only placeholder), so the type
+# is `af-beacon`. The environment segment must agree with [beacon].environment below,
+# which spells production as `prod`. A mismatched or non-conformant id is a startup
+# warning rather than an error, so an existing node still boots after an upgrade. The
+# convention governs deployed nodes only: it is checked when environment is "staging"
+# or "prod" and skipped for "dev" and "test", which are never published to the User
+# Portal.
+# Type: string. Default: "" (empty). Required; preflight rejects an empty value.
+id = "ee.example-institution.af-beacon.production"
+
+# Human-readable beacon name.
+# Type: string. Default: "" (empty). Required; preflight rejects an empty value.
+name = "GDI Estonia Beacon"
+
+# GA4GH Beacon schema version served; it drives apiVersion and the schema URLs. Not a
+# free knob: the informational handlers and the vendored framework schemas under
+# conformance/ga4gh-beacon-v2/ are that version, so preflight rejects any other value.
+# Type: string. Default: "v2.2.0". Optional.
+api_version = "v2.2.0"
+
+# Deployment environment.
+# Type: string ("dev" | "test" | "staging" | "prod"). Default: "prod". Optional.
+environment = "prod"
+
+# Optional documentation URL. Omit the line to leave it unset.
+# Type: string (URL). Default: none. Optional.
+documentation_url = "https://docs.genomebeacons.org"
+
+# Reject range and bracket g_variants queries wider than this, in base pairs; 0 means
+# unlimited. A denial-of-service guard for the public read-per-query endpoint.
+# Type: integer (bp). Default: 10000000. Optional.
+max_query_span_bp = 10000000
+
+# Default g_variants and datasets page size applied when the request omits one. Bounds
+# the response of a wide range or bracket query.
+# Type: integer. Default: 10. Optional.
+default_page_limit = 10
+
+# Hard cap on `pagination.limit` for the public read endpoints. A larger explicit limit,
+# or limit:0 ("unbounded" in Beacon v2), is clamped to this, and the clamp is echoed in
+# `meta.receivedRequestSummary.pagination` so a client can tell a capped page from an
+# exhausted one.
+#
+# It is 1000 because the GDI User Portal's position-range search asks for exactly that
+# and never pages, so a lower cap silently truncates every range result. It is also the
+# memory knob: the retained page is `datasets matched x limit x populations x ~450 B`,
+# about 220 MiB per matched dataset at this cap and the 512-population cap, and about
+# 22 MiB at limit 100. `default_page_limit` above still applies when the request omits
+# `limit`, so only a client that asks for a 1000-row page pays for one. Lower this on a
+# memory-constrained node that serves no portal; see the resource baseline in
+# docs/deployment.md.
+# Type: integer. Default: 1000. Optional.
+max_page_limit = 1000
+
+# Aggregated-path small-count suppression floor; 0 turns it off, which is what GoE
+# publishes (raw counts). Above 0, a population entry whose allele count is below the
+# floor is filtered out on the query path. Stored parquet is kept verbatim, so this is
+# serving-time suppression rather than physical removal. When the floor suppresses any
+# population of a variant, the response collapses to the aggregate `Total` alone: the
+# per-sex, per-country and country-by-sex breakdowns are withheld too, so a suppressed
+# cell cannot be recovered by subtraction from its siblings (F = Total - M).
+#
+# The unit is alleles, not individuals. A homozygous carrier contributes 2 to AC, so a
+# variant with AC equal to the floor can be as few as ceil(floor/2) people: a floor of 5
+# yields about 3-individual anonymity. For k distinct individuals set roughly 2*k, so 10
+# for k = 5. The floor bounds singleton and small-cell re-identification only. At no
+# value does it prevent membership inference (Homer, Sankararaman: "is my target in this
+# cohort?"), which operates on the common variants that always clear the floor; for a
+# membership-sensitive cohort use the authenticated record-level tier, coarser population
+# aggregation, or differential privacy. See the k-anonymity material in
+# docs/threat-model.md.
+#
+# There are two floors, and they compose. This is the node's serve-time floor, applied to
+# every beacon response and retunable by restarting. The provider's package.yaml carries
+# a separate build-time `config.minAlleleCount`, applied once at `gdi-dataset-tool build`:
+# rows below it are dropped from the package and never reach this node, so it cannot be
+# lowered later without rebuilding. The effective floor is max(build-time, serve-time),
+# reported per dataset as `gdiDatasetInfo.minAlleleCount`.
+#
+# Restart-only, and not reloadable via SIGHUP as [catalogs] and [ingest] are: a
+# live-lowered floor would re-expose counts a stricter floor had already suppressed, and
+# the effective floor is baked into each manifest at ingest time (docs/operating.md §14).
+# Left at 0 in a `prod` environment the node warns at startup, since exact singleton
+# counts are then served unless each dataset sets its own floor. That is intentional only
+# if your DPIA treats aggregate allele frequencies as non-identifying.
+# Type: integer (u32). Default: 0. Optional.
+min_allele_count = 0
+
+# The following [beacon]-level fields are optional and unset by default; add the lines
+# only if you need them. Each is emitted in /info only when set, and an unset field is
+# absent rather than null. Type: string. Default: none. Optional.
+#   description     = "..."                    # free-text description
+#   version         = "1.0.0"                  # beacon version string
+#   alternative_url = "https://..."            # /info alternativeUrl: the human-facing
+#                                              # entry point for this beacon. Required to
+#                                              # join a Beacon network: the GDI
+#                                              # allele-frequency network's registry reads
+#                                              # it, and organization.logo_url below, and
+#                                              # omitting either has been observed to
+#                                              # degrade the shared member listing, not
+#                                              # just this node's entry. See "Registering
+#                                              # with a Beacon network" in
+#                                              # docs/deployment.md.
+#   created_at      = "2026-01-01T00:00:00Z"   # creation timestamp
+#   updated_at      = "2026-01-01T00:00:00Z"   # last-update timestamp
+
+# [beacon.organization] — nested table.
+[beacon.organization]
+# TIER: REQUIRED — the operating organization (id, name).
+# Organization id (reverse-DNS). Type: string. Default: "" (empty). Optional.
+id = "org.example"
+# Organization name. Type: string. Default: "" (empty). Optional.
+name = "Example Organisation"
+# Optional welcome URL. Omit to unset. Type: string. Default: none. Optional.
+welcome_url = "https://example.org"
+# Optional contact URL. Omit to unset. Type: string (URL, or `mailto:`, the only one of
+# the five /info links that accepts it). Default: none. Optional.
+contact_url = "mailto:gdi@example.org"
+# Further optional fields, unset by default; add the lines only if needed.
+# Type: string. Default: none. Optional.
+#   description = "..."                  # free-text description
+#   logo_url    = "https://.../logo.png" # /info organization.logoUrl. Required to join a
+#                                        # Beacon network, with [beacon].alternative_url
+#                                        # above (see "Registering with a Beacon network"
+#                                        # in docs/deployment.md).
+
+# [beacon.configuration] — nested table.
+# All three fields are closed GA4GH enums, validated at preflight, so a value outside the
+# listed set fails the dry run rather than serving a non-conformant /info and
+# /configuration response.
+[beacon.configuration]
+# TIER: RECOMMENDED — set production_status and default_granularity to match your
+# deployment.
+# Default granularity. Type: string ("boolean" | "count" | "record").
+# Default: "record". Optional.
+default_granularity = "record"
+# Production status. Advertised in /info, and it gates the production Vault-https check:
+# "PROD" makes a plaintext, non-loopback [vault].address fail preflight even when
+# [beacon].environment is not "prod". Keep it in step with [beacon].environment.
+# Type: string ("DEV" | "TEST" | "PROD"). Default: "PROD". Optional.
+production_status = "PROD"
+# Security level for this node, which serves only public aggregated data.
+# Type: string ("PUBLIC" | "REGISTERED" | "CONTROLLED"). Default: "PUBLIC". Optional.
+security_level = "PUBLIC"
+
+
+# -----------------------------------------------------------------------------
+# [keys] — the node's crypt4gh identities as local files, the no-Vault fallback.
+# Omit the whole block, or leave `identities` empty, for a keyless node: crypt4gh
+# decryption and /.well-known/c4gh-recipient are then disabled and only plaintext
+# staging dirs ingest. When [vault] is present it takes precedence over [keys].
+# -----------------------------------------------------------------------------
+[keys]
+# TIER: REQUIRED for crypt4gh ingest (omit the block for a keyless, plaintext-only node).
+
+# Paths to unencrypted crypt4gh secret-key files, tried in order when decrypting an
+# inbound .tar.c4gh. A relative path resolves against the service process's working
+# directory, not the directory holding this config file, so prefer absolute paths.
+# Rotate by prepending a new identity: the recipient public key published at
+# /.well-known/c4gh-recipient is derived from the first entry. These files are secret key
+# material; supply them as mounted Secrets and never commit them.
+# Type: array of paths. Default: [] (empty = keyless). Optional.
+identities = ["keys/node.c4gh", "keys/node-prev.c4gh"]
+
+
+# -----------------------------------------------------------------------------
+# [audit] — the answered-query audit log. The node emits one structured
+# `audit`-target log line per answered Beacon query (g_variants, datasets,
+# individuals) for accountability. It is on by default, and the query content is
+# withheld by default. Each line is emitted inside the per-request span, so it carries
+# the request_id: join that to the fronting proxy's access log for the client IP, and
+# to the authenticated subject once auth lands.
+# -----------------------------------------------------------------------------
+[audit]
+# TIER: ADVANCED — safe defaults (audit on, query detail off).
+
+# Emit the audit trail. This is the master switch for every audit event, not only the
+# per-query line: identity init, rotate, retire and restore; dataset and channel
+# take-down; metadata overlay set and clear; PME reseal and cache flush; keyless
+# degrade; override-store reload; purge-rejected.
+#
+# Setting it false short-circuits each emit site before `tracing` is reached, so it
+# bypasses the audit log-level floor as well, and nothing else records those actions.
+# The node warns at boot when it is false. Turn it off only if your DPIA and retention
+# policy explicitly cover operating with no audit trail.
+# Type: bool. Default: true.
+enabled = true
+
+# Also log the sanitized request parameters: the queried coordinates and filters. Leave
+# it false unless your local DPIA permits recording queried coordinates. With it off,
+# the line records only the query shape (entry type, granularity, exists, count), never
+# which variant was asked about.
+# Type: bool. Default: false.
+query_detail = false
+
+# Audit the management plane's read events (dataset_state_read, dataset_inventory_read,
+# query_stats_read). It is off by default because an orchestrator polls the node's
+# oracle per dataset per tick for reconciliation, which is not a disclosure to a data
+# consumer: at 100 datasets every 60 s that is around 144k synchronous, WORM-retained
+# lines a day, burying the real disclosures. The public-plane trail (beacon_query,
+# fairdp_read) is unaffected, and management request volume stays on
+# gdi_http_requests_total{plane="management"}. Turn it on where a DPIA wants the
+# management-read trail despite the volume.
+# Type: bool. Default: false.
+management_reads = false
+
+
+# -----------------------------------------------------------------------------
+# [stats] — per-dataset query statistics on the management plane. They answer "does
+# anyone actually use this dataset?" without a log pipeline: four counters per dataset
+# (consulted, hit, listed, fairdpReads), served as JSON at `GET /stats/queries` on
+# management_addr. They live in memory and count from process start, so a restart
+# resets them, which is why the response carries `startedAt`. The counts name dataset
+# ids including hidden ones, so they belong on the management plane beside the state
+# oracle and never as a /metrics label.
+# -----------------------------------------------------------------------------
+[stats]
+# TIER: ADVANCED — off by default; turn it on only if something polls it.
+
+# Record the counters and mount `GET /stats/queries`. With it false the route is not
+# mounted at all (404, the same answer a node predating the feature gives) and nothing
+# is counted, so the map and its lock cost nothing on a node that did not opt in. Read
+# at startup only: it decides whether a route is mounted, so SIGHUP does not apply a
+# change here. Restart the node.
+# Type: bool. Default: false.
+enabled = false
+
+
+# -----------------------------------------------------------------------------
+# [control] — operator action endpoints on the management plane. Everything else that
+# plane serves is a read; these make the node do something, so they get their own
+# switch and it is off by default.
+#   POST /reload    — re-read this config file. Identical to SIGHUP, and the only
+#                     non-disruptive way to apply a ConfigMap change in a cluster that
+#                     withholds `pods/exec`; the alternative is restarting the pod,
+#                     which at one replica is a Beacon outage.
+#   POST /reconcile — run the SIGUSR1 pass now: apply a just-written `dataset hide`,
+#                     `take-down` or `correct` override, drain queued reingest markers,
+#                     rescan the inbox, wake the bucket monitors. Without it a withheld
+#                     dataset waits out the periodic reconcile.
+#   POST /log-level — flip diagnostic logging like SIGUSR2, but on a timer (see
+#                     log_level_revert_seconds) so it cannot be left on.
+#   POST /datasets/{id}/reingest — clear one dataset's recorded signature, which is what
+#                     `dataset reingest <id>` queues, and run the pass now, paced on
+#                     /reconcile's clock. 404 for an unseen id, 409 when there is
+#                     nothing to retry.
+# None of them takes a request body, so none can inject configuration: they only tell
+# the node to re-read its own already-trusted sources.
+# -----------------------------------------------------------------------------
+[control]
+# TIER: ADVANCED — off by default; turn it on if you run under Kubernetes without
+# `pods/exec`, or anywhere you want to reload without a restart.
+
+# Mount the operator action routes. With it false they are not mounted at all (404, the
+# same answer a node predating them gives). Read at startup only; restart to apply a
+# change.
+# Type: bool. Default: false.
+enabled = false
+
+# Minimum seconds between two accepted actions; a request inside the window gets 429 and
+# a Retry-After. These do real work, such as a config parse or a full reconcile, so they
+# are paced rather than served on demand. A refused request does not restart the window.
+# `0` is rejected at startup: to switch the endpoints off entirely set `enabled = false`.
+# Read at startup only, like every value in this section: it is read from the boot config
+# on each request, so a reload does not change the pacing. Restart.
+# Type: integer (seconds, >= 1). Default: 10.
+min_interval_seconds = 10
+
+# How long POST /log-level keeps diagnostic (debug) logging on before reverting on its
+# own. The auto-revert is what makes the endpoint safe to expose: `debug` left on in
+# production is both a disk-and-cost problem and a sustained log flood an attacker could
+# hold open, and a bounded window closes both without anyone having to remember. Turning
+# it off by hand still works and cancels the pending revert. `0` is rejected at startup,
+# since it would revert before you could read anything; use `enabled = false` to switch
+# the endpoints off. Read at startup only; restart to apply a change.
+# Type: integer (seconds, >= 1). Default: 900 (15 minutes).
+log_level_revert_seconds = 900
+
+
+# -----------------------------------------------------------------------------
+# [ingest] — the crypt4gh writer-key allow-list policy. The writer key is public
+# proof-of-possession, not an authenticated identity, so gating on it is opt-in and off
+# by default. Fingerprints (sha256:<hex>) are public, so they live here rather than in
+# Vault, and they are per channel, because the trust boundary is the channel: a bucket,
+# or `inbox`. Discover the real per-channel set with `writer_policy = "warn"` plus
+# `gdi-node-standalone dataset list --unverified`, then switch to `enforce`.
+# Reloadable without a restart: writer_policy and every *allowed_writer_fingerprints
+# list (this section's inbox one and each [[s3.buckets]] entry's own, below) reload
+# together on SIGHUP, so you can onboard a new provider's fingerprint, or move from warn
+# to enforce, without restarting. See docs/operating.md §14. Everything else about a
+# bucket (its endpoint, its credentials, whether it exists at all) stays restart-only.
+# -----------------------------------------------------------------------------
+[ingest]
+# TIER: RECOMMENDED — `writer_policy` decides whether the node accepts a package it
+# cannot attribute to an allow-listed writer. It defaults to `off` (record provenance,
+# gate nothing), the right starting point for discovery but not a decision to leave
+# unmade.
+
+# How to treat an artifact whose writer this channel cannot vouch for. Three kinds cannot
+# be vouched for: a `.tar.c4gh` whose recovered writer key is not on the channel's
+# allow-list; one whose header will not parse, so it claims encryption unverifiably; and
+# a plaintext staging-dir drop, which carries no writer key at all and can never appear
+# on any allow-list.
+#
+# off (default): record provenance, gate nothing.
+# warn: publish anyway, but count `gdi_ingest_writer_unknown_total{channel}` and audit
+#       it. This is discovery mode: it shows you everything `enforce` would reject,
+#       including your plaintext droppers, before you switch.
+# enforce: quarantine it as a permanent `writer-rejected` error instead of publishing.
+#
+# Gating plaintext is what makes the allow-list mean anything, so `enforce` requires
+# every ingest channel, the inbox included, to carry a non-empty allow-list. Otherwise
+# anyone who can write to the channel could publish by dropping a directory instead of a
+# package, walking past the control the allow-list exists to impose.
+#
+# A node that legitimately ingests plaintext is a keyless node, with no [keys].identities.
+# `enforce` there is refused at preflight when there is also no [vault], because such a
+# node can never verify a writer key and would reject all of its inputs. A node with no
+# inline identities but a [vault] block is permitted: it resolves its key from Vault.
+#
+# `off` ignores every allow-list, so `off` together with a non-empty
+# `*_allowed_writer_fingerprints` refuses to boot, since the list would give a false
+# sense of gating. Set `warn` or `enforce` to consult the list, or remove the list.
+# Type: "off" | "warn" | "enforce". Default: "off".
+writer_policy = "off"
+
+# Required, and non-empty, to run `enforce` while some channel still has an empty list,
+# which would otherwise reject every encrypted package there. Set it to the reference
+# that records the decision.
+# Type: string. Default: "" (empty; enforce then refuses to boot with an empty-list
+# channel).
+# allow_any_writer_ack = "DPIA-ref: inbox is an internal trusted drop"
+
+# The inbox channel's allow-list; bucket channels carry their own on [[s3.buckets]].
+# Type: array of "sha256:<hex>". Default: [] (no list).
+# inbox_allowed_writer_fingerprints = ["sha256:<writer fingerprint>"]
+
+
+# -----------------------------------------------------------------------------
+# [fairdp] — the FAIR Data Point node identity: the invariant fields the FDP-root and
+# Catalog records carry. Those records are not datasets. Omit the whole block for a
+# beacon-only node, since the FDP is optional and the beacon is the baseline. When the
+# block is present, preflight enforces that title, issued and license are non-empty,
+# that license is a valid IRI, that the publisher and HDAB names are non-empty with
+# complete contact points, that every IRI and email is well-formed, that there is at
+# least one theme and at least one applicable_legislation IRI, and the theme
+# in-scheme rule.
+#
+# The license and applicable_legislation here belong to the FDP-root and Catalog
+# records; they are not applied to datasets, which carry their own in package.yaml.
+# `theme` and `language` are the exception: the node re-emits both on every dataset
+# record as well, and neither has a per-dataset override.
+# -----------------------------------------------------------------------------
+[fairdp]
+# TIER: REQUIRED if you expose a FAIR Data Point (the fields are DCAT-AP mandated);
+# omit the block otherwise.
+
+# FDP-root dct:title. Type: string. Default: "" (empty). Required when [fairdp] present.
+title = "GDI Estonia FAIR Data Point"
+
+# Optional FDP-root dct:description. Omit to unset.
+# Type: string. Default: none. Optional.
+description = "Aggregated genomic metadata for the GDI Estonia node"
+
+# FDP-root fdp-o:metadataIssued (xsd:dateTime). metadataModified is data-derived at
+# render time and falls back to this when nothing has changed.
+# Type: string (xsd:dateTime). Default: "" (empty). Required when [fairdp] present.
+issued = "2026-01-01T00:00:00Z"
+
+# FDP-root and Catalog record license IRI, mandatory on both records. Datasets set their
+# own license in package.yaml.
+# Type: string (IRI). Default: "" (empty). Required when [fairdp] present.
+license = "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
+
+# The language this node publishes in, emitted as dct:language on the FDP root, on every
+# catalog and on every dataset. It is one node-level value and datasets do not override
+# it. Give an EU language-authority IRI (…/authority/language/EST, /FIN, /DEU). The GDI
+# user portal reads it into the harvested dataset's `language` field, so an empty value
+# shows there as blank. Omit to publish in English.
+# Type: string (IRI). Optional.
+# Default: "http://publications.europa.eu/resource/authority/language/ENG".
+language = "http://publications.europa.eu/resource/authority/language/ENG"
+
+# Node-wide dataset and catalog theme concept IRIs. Each dataset record carries these
+# directly as dcat:theme, and the Catalog's dcat:themeTaxonomy is derived from them, as
+# their shared SKOS scheme (the concept IRI minus its final path segment), so a normal
+# vocabulary needs no separate taxonomy config.
+# Type: array of IRI strings. Default: [] (empty). Required when [fairdp] present (at
+# least one theme IRI).
+theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
+
+# Optional override for the SKOS ConceptScheme of `theme`, for a vocabulary whose scheme
+# is not the concept's parent path. When it is set, every theme must be in-scheme, which
+# preflight validates. Omit to derive it from `theme`.
+# Type: string (IRI). Default: none (derived). Optional.
+# theme_taxonomy = "http://publications.europa.eu/resource/authority/data-theme"
+
+# Catalog record dcatap:applicableLegislation IRIs. Node-level, with no per-catalog
+# override; datasets carry their own in package.yaml.
+# Type: array of IRI strings. Default: [] (empty). Required when [fairdp] present (at
+# least one IRI).
+applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
+
+# [fairdp.publisher] — dct:publisher, the node organisation (exactly one).
+[fairdp.publisher]
+# TIER: REQUIRED when [fairdp] is present — DCAT-AP mandates dct:publisher, so the
+# service refuses to start without it. Omit the whole [fairdp] block if this node serves
+# no FAIR Data Point.
+# foaf:name. Type: string. Default: "" (empty). Required when [fairdp] present.
+name = "Example Organisation"
+# foaf:homepage (optional). Omit to unset. Type: string (IRI). Default: none.
+homepage = "https://example.org"
+# foaf:mbox (optional; the Organization's own address, distinct from the contact point
+# below). Omit to unset. Type: string (IRI). Default: none.
+mbox = "mailto:gdi@example.org"
+[fairdp.publisher.contact_point]
+# TIER: REQUIRED when [fairdp] is present — the submission model makes a contact point
+# mandatory on the publisher agent; the service refuses to start if it is missing or
+# incomplete.
+# vcard:fn. The TOML key is `fn`, a Rust keyword internally, so it is serde-renamed.
+# Type: string. Default: "" (empty). Required.
+fn = "GDI Estonia"
+# vcard:hasEmail (must match ^mailto:.+@.+\..+$).
+# Type: string. Default: "" (empty). Required.
+has_email = "mailto:gdi@example.org"
+# vcard:hasURL (optional). Omit to unset. Type: string (URL). Default: none.
+has_url = "https://example.org"
+
+# [fairdp.hdab] — healthdcatap:hdab, the Member-State Health Data Access Body.
+[fairdp.hdab]
+# TIER: REQUIRED when [fairdp] is present — healthdcatap mandates the Member-State
+# Health Data Access Body, and it is the GDI-specific half of the FDP metadata a
+# harvester expects.
+# HDAB name. Type: string. Default: "" (empty). Required when [fairdp] present.
+name = "Estonian HDAB"
+[fairdp.hdab.contact_point]
+# TIER: REQUIRED when [fairdp] is present — likewise mandatory on the HDAB agent.
+# vcard:fn (the TOML key is `fn`). Type: string. Default: "" (empty). Required.
+fn = "Estonian HDAB"
+# vcard:hasEmail (^mailto:.+@.+\..+$). Type: string. Default: "" (empty). Required.
+has_email = "mailto:hdab@example.org"
+# vcard:hasURL (optional). Omit to unset. Type: string (URL). Default: none.
+# has_url = "https://example.org"
+
+
+# =============================================================================
+# [s3] — S3 bucket monitoring.
+# Requires the `s3` Cargo feature (`--features full`); a lite build rejects a config
+# carrying [[s3.buckets]] at the feature preflight. Omit the whole section if you do
+# not use S3.
+# =============================================================================
+
+# Each [[s3.buckets]] entry is one monitored bucket. The service can monitor several;
+# the dataset-tool targets one per profile. The fields are endpoint-agnostic: the same
+# ones drive Ceph+Rook, Garage and minio, differing only by value.
+[[s3.buckets]]
+# TIER: REQUIRED as a data source (omit if you use only the [service].inbox channel).
+
+# Logical channel name: the provenance recorded in the status index, the key the Vault
+# s3_path credentials are stored under, and the `channel` label on the gdi_s3_* metrics.
+# Type: string. Default: "" (empty; set it). Required for a usable channel.
+name = "primary"
+
+# The S3-compatible endpoint URL. There is no AWS-default fallback: the connection
+# params take the endpoint as a plain string, so an entry without one cannot build a
+# client and preflight rejects the config. For AWS S3 proper, give the regional endpoint
+# explicitly, such as https://s3.eu-north-1.amazonaws.com.
+# Type: string (URL). Default: none. Required.
+endpoint = "https://s3.example.org"
+
+# The bucket name on the endpoint. Preflight checks it alongside `endpoint`, rather than
+# leaving it to the first poll.
+# Type: string. Default: none. Required.
+bucket = "gdi-datasets"
+
+# Key prefix this channel is confined to within the bucket. Omit it, the default, to use
+# the whole bucket, which is right when the bucket is the node's alone. Set it when the
+# bucket holds anything else: a second node, a test channel beside a production one, or
+# your own backups. Every key the node touches is then resolved under it (the listing,
+# the packages, the .state.json and .metadata.json sidecars, _sync_marker.json and the
+# _status/ writebacks), so the node neither sees nor requests an object outside it.
+#
+# One node per keyspace. Two nodes sharing a bucket must have different prefixes, and
+# nothing detects the mistake: both poll happily, both write `_status/{id}.json`, and
+# that writeback carries no writer identity, so whichever wrote last is what a provider's
+# `status` reads. A rolling deploy that briefly runs two pods against one bucket reaches
+# the same state.
+#
+# The prefix is what makes a prefix-scoped S3 credential usable: grant the node
+# `…/<prefix>*` plus ListBucket conditioned on the same prefix and it has no read path to
+# the rest of the bucket. Without the prefix set here, such a credential only breaks the
+# channel, because the node's root listing fails with AccessDenied.
+#
+# The writer must agree: `gdi-dataset-tool`'s profile carries the same `prefix` key, and
+# a prefix set on one side only is a silent desync, giving uploads the node never lists,
+# or a `list` that reports an empty bucket the node is serving from.
+#
+# Segments of letters, digits, '-', '_' or '.', separated by '/', with an optional
+# trailing '/'. Anything else is rejected at boot rather than rewritten.
+# Type: string. Default: "" (empty; the whole bucket). Optional.
+# prefix = "gdi-node-storage/"
+
+# The S3 region; some endpoints require it. Omit to use the conventional us-east-1
+# placeholder that Ceph, Garage and minio accept.
+# Type: string. Default: "us-east-1" (when omitted). Optional.
+region = "us-east-1"
+
+# Path-style addressing, required for Garage, minio and most non-AWS endpoints, against
+# virtual-hosted addressing.
+# Type: bool. Default: false. Optional.
+path_style = true
+
+# Allow a plain-HTTP endpoint, for local minio or Garage development. Off by default so
+# a production misconfiguration cannot silently drop TLS.
+# Type: bool. Default: false. Optional.
+allow_http = false
+
+# Inline S3 access key id, the no-Vault fallback. When [vault].s3_path is set, Vault's
+# credentials, keyed by this bucket's `name`, take precedence. Omit for an anonymous or
+# IAM endpoint. Set both credentials, or neither.
+# Type: string. Default: none. Optional. Secret: supply it out of band.
+access_key_id = "<SET ME: EXAMPLE-ACCESS-KEY-ID>"
+
+# Inline S3 secret access key, paired with access_key_id; the no-Vault fallback. Secret:
+# never commit it. Supply it via Vault, a mounted file, or
+# GDI_NODE__S3__BUCKETS__0__SECRET_ACCESS_KEY.
+# Type: string. Default: none. Optional.
+secret_access_key = "<SET ME: EXAMPLE-SECRET-ACCESS-KEY>"
+
+# HeadObject poll interval for `_sync_marker.json`, in seconds.
+# Type: integer (seconds). Default: 30. Optional.
+marker_poll_interval = 30
+
+# Unconditional full-reconcile (ListObjectsV2) interval, in seconds: the safety net for
+# out-of-band additions and changes that did not bump the marker. It does not start a
+# fresh removal on its own. A marker-less bulk delete needs a marker bump, a restart's
+# startup reconcile, or `max_visibility_staleness_seconds` before it is evicted; the
+# timer-only pass merely advances an already-pending removal confirmation, so that a
+# truncated listing cannot false-evict.
+# Type: integer (seconds). Default: 300. Optional.
+full_poll_interval = 300
+
+# Whether the node may publish `_status/{id}.json` ingest results back into this bucket,
+# so a remote provider can read state and error_message through their own S3 access. It
+# is opt-in per bucket and off by default, leaving the node read-only, and it needs a
+# narrow _status/* write grant.
+# Type: bool. Default: false. Optional.
+write_status = false
+
+# The crypt4gh writer-key fingerprints permitted to publish into this channel, consulted
+# under [ingest].writer_policy above. Per channel because the trust boundary is the
+# bucket: a key legitimate for one provider must not publish as another.
+#
+# Reloadable via SIGHUP: adding a [[s3.buckets]] block starts its monitor, and changing
+# an existing block's credentials or connection behaviour restarts that channel's
+# monitor, so a rotated credential applies. Two changes are restart-only and warn
+# instead: removing a bucket, and changing which objects it addresses (endpoint, bucket,
+# prefix, name). Applying either live would point the monitor at an empty keyspace, which
+# the reconcile reads as a mass deletion and evicts on. A rename is a removal plus an
+# addition.
+# Type: array of "sha256:<hex>". Default: [] (no list).
+# allowed_writer_fingerprints = ["sha256:<this provider's writer fingerprint>"]
+
+# -----------------------------------------------------------------------------
+# Several provider buckets: repeat the whole [[s3.buckets]] block, once per provider.
+# The trust boundary is the bucket, so use one provider per bucket, never a shared one;
+# that is what the per-bucket health, per-channel provenance and per-bucket metrics are
+# keyed on.
+#
+#   [[s3.buckets]]
+#   name     = "provider-b"            # channel/provenance label + metric label +
+#                                      #   the Vault credential key (below)
+#   endpoint = "https://s3.provider-b.example.org"
+#   bucket   = "gdi-provider-b"
+#   path_style = true
+#
+# Three things are keyed by that `name`, which is why it must be stable and unique:
+#
+#   1. Credentials. Inline credentials stay out of this file. Supply them per bucket, by
+#      array index in config order, where bucket #0 is the first block above:
+#          GDI_NODE__S3__BUCKETS__1__ACCESS_KEY_ID=...
+#          GDI_NODE__S3__BUCKETS__1__SECRET_ACCESS_KEY=...
+#      Or, with [vault].s3_path, from Vault keyed by name rather than index:
+#          provider-b_access_key_id / provider-b_secret_access_key
+#   2. Health. /health/ready reports each bucket under `s3_buckets.<name>`. A dead bucket
+#      does not 503 the node, since that would drop every other provider; it reports
+#      `ready: true, degraded: true`. Alert on the per-bucket signal, not on overall
+#      readiness. See docs/operating.md §1.
+#   3. Metrics. Every gdi_s3_*{channel="<name>"} series.
+#
+# Cold-start cost of a dead bucket: the startup reconcile waits for every bucket,
+# concurrently, before serving, so one unreachable provider holds the node at 503 for up
+# to [service].startup_reconcile_timeout_seconds. Size a Kubernetes startupProbe above
+# that value, not below.
+# -----------------------------------------------------------------------------
+
+
+# =============================================================================
+# [vault] — the Vault / OpenBao KV v2 and Transit client config.
+# Requires the `vault` Cargo feature (`--features full`); a lite build rejects it.
+# Named for the API rather than the vendor: HashiCorp Vault and OpenBao speak the same
+# KV v2 and Transit API, so this one block points at either unchanged. When it is
+# present, Vault is the source for every secret (the crypt4gh identity, the per-bucket
+# S3 credentials) and takes precedence over the inline [keys] and [[s3.buckets]] values.
+# Omit the whole section if you do not use Vault.
+# =============================================================================
+[vault]
+# TIER: ADVANCED / optional — external secret source; omit it to use the inline
+# [keys] and [[s3.buckets]] values.
+
+# The Vault / OpenBao server base URL.
+# Type: string (URL). Default: "" (empty). Required when [vault] present.
+address = "https://vault.example.org"
+
+# Optional Vault namespace (HCP or Vault Enterprise; sent as X-Vault-Namespace). Omit it
+# for OpenBao and open-source Vault.
+# Type: string. Default: none. Optional.
+# namespace = "admin/gdi"
+
+# Auth: supply exactly one of a static `token`, a `token_file`, or AppRole (`role_id`
+# plus `secret_id`). AppRole is preferred for long-running and Kubernetes deployments,
+# where a static token would expire; the client renews and re-authenticates as needed.
+# `token_file` is the credential-free shape: an external agent sidecar authenticates by
+# whatever method your server supports and keeps the file refreshed, so no static secret
+# is stored here.
+
+# Static auth token, the highest-precedence auth method: a non-empty value here wins over
+# role_id/secret_id and over a bare VAULT_TOKEN env var, which is the lowest-precedence
+# fallback and is consulted only when neither this token nor a complete AppRole is set.
+# To inject the token from the environment, override this field via GDI_NODE__VAULT__TOKEN
+# rather than relying on VAULT_TOKEN, which a non-empty literal here would shadow.
+# Secret: never commit it; prefer env or a mounted file over an inline literal.
+# Type: string. Default: none. Optional (set this, or role_id and secret_id).
+token = "<SET ME: EXAMPLE-VAULT-TOKEN>"
+
+# Path to a file holding the token, re-read when the file changes. Mutually exclusive
+# with `token`: setting both fails preflight rather than resolving it by a silent
+# precedence rule. It must be absolute, because a relative path would resolve against the
+# process working directory, which differs between a systemd unit and a container.
+#
+# This is the credential-free deployment shape: a Vault Agent or Secrets Operator sidecar
+# authenticates by whatever method the server supports (Kubernetes, JWT/OIDC, AWS IAM,
+# TLS cert), renews continuously, and writes the current token here, ideally on an
+# in-memory volume. The node then holds no static credential.
+#
+# The agent owns renewal, so the node does not call renew-self for this token: a file
+# that stops being refreshed is invisible to VaultRenewalFailing, and the TTL gauge stays
+# 0, so VaultTokenLeaseTooShort cannot fire either. Alert on
+# gdi_vault_token_file_age_seconds (VaultTokenFileStale) instead; see docs/operating.md
+# §8. The path is not secret and is logged; its contents are.
+# Type: string (absolute path). Default: none. Optional (set this, or token, or AppRole).
+# token_file = "/run/secrets/vault/token"
+
+# AppRole role id, paired with secret_id. Omit it if you use `token`.
+# Type: string. Default: none. Optional.
+# role_id = "<approle role id>"
+
+# AppRole secret id, paired with role_id. It may instead come from the out-of-band
+# GDI_NODE__VAULT__SECRET_ID. Secret: never commit it.
+# Type: string. Default: none. Optional.
+# secret_id = "<from GDI_NODE__VAULT__SECRET_ID env>"
+
+# KV v2 mount path.
+# Type: string. Default: "secret". Optional.
+kv_mount = "secret"
+
+# KV v2 path holding the node's crypt4gh identities: one KV secret whose values are
+# identity PEMs, each field named `c4gh-<epoch-millis>`. The published recipient is the
+# one with the greatest parsed epoch-millis, not the lexicographically greatest field
+# name; the rest are decrypt-only. Do not rely on the zero-padding that makes the two
+# agree, because a hand-added field such as `node-prev` sorts after `c4gh-` as a raw
+# string and would take the recipient slot under a naive key-max. Mint the secret with
+# `gdi-node-standalone identity init`, and add a key with `identity rotate`.
+# Type: string. Default: none. Required when [vault] present (the identity source).
+kv_path = "gdi-node-standalone/c4gh-identities"
+
+# KV v2 path holding the S3 credentials, keyed by each bucket's `name`. Omit it when you
+# do not use S3, or to keep the inline [[s3.buckets]] credentials.
+# Type: string. Default: none. Optional.
+s3_path = "gdi-node-standalone/s3-credentials"
+
+# Vault Transit mount for the at-rest master key. Used only when transit_key is set.
+# Type: string. Default: "transit". Optional.
+transit_mount = "transit"
+
+# The Transit master-key name for at-rest Parquet Modular Encryption (PME). Its presence
+# is the PME runtime switch, there is no separate flag, and it additionally requires the
+# `pme` Cargo feature, so it needs `--features full`. The key must be an
+# encryption-capable symmetric type (aes256-gcm96); each file's parquet DEK is minted and
+# wrapped under it.
+#
+# Omitting it, or omitting the whole [vault] block, runs without PME. That is not the
+# same as no at-rest encryption: the designed baseline is volume-level (an encrypted PVC
+# or StorageClass, LUKS/dm-crypt, or node full-disk encryption), which is the right
+# posture for public aggregated data. PME only adds an app-level layer whose purpose is
+# to keep a secret-wrapping key off the data volume, which a public-data node does not
+# need. See docs/operating.md §11.
+# Type: string. Default: none. Optional (PME off when absent).
+# transit_key = "gdi-node-standalone-at-rest"
+
+# Connect timeout for the Vault HTTP client, in seconds. Bounds how long a TCP or TLS
+# connect to a dead or black-holed Vault endpoint may hang before failing as a transient
+# error, instead of the OS default of minutes while pinning a worker.
+# Type: integer (seconds). Default: 10. 0 disables (unbounded). Optional.
+connect_timeout_seconds = 10
+
+# Total per-request timeout for the Vault HTTP client, in seconds. Bounds a slowloris or
+# wedged Vault response so it surfaces as a bounded transient error.
+# Type: integer (seconds). Default: 30. 0 disables (unbounded). Optional.
+request_timeout_seconds = 30

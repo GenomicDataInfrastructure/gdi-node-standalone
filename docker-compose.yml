@@ -1,0 +1,446 @@
+# Full dev Compose stack.
+#
+# service + an S3 backend + a secrets backend + a dev setup script — for working on
+# the S3/Vault/PME paths.
+#
+#   * S3 backend:      Garage by default; minio (deprecated) behind the minio
+#                      profile. Ceph RGW is a supported deployment backend but has
+#                      no local Compose service — see the note above `volumes:` at
+#                      the end of this file.
+#   * secrets backend: OpenBao by default; HashiCorp Vault behind the vault profile.
+#
+# minio is deprecated — discouraged for new deployments — but remains fully supported
+# as an external S3 endpoint, so local dev keeps it to mirror that backend. Garage is
+# the lightweight default. HashiCorp Vault is a fully supported alternative, not
+# deprecated.
+#
+# Both S3 backends are S3-compatible (path-style) and both secrets backends speak the
+# same KV v2 + Transit API, so the service config and the dev setup script
+# (compose/setup.sh) run unchanged against either pair. The swap is done with Compose
+# profiles — no duplicated stack file.
+#
+# Every backend is gated behind a profile, and the default pair is selected by
+# `COMPOSE_PROFILES` in the committed .env (= garage,openbao). Selecting a profile
+# means the other backend is not created, started, or pulled — so choosing minio
+# does not also start Garage. Drive the choice through COMPOSE_PROFILES only (not a
+# `--profile` flag): when both are set their union/precedence varies by Compose
+# version, so a backend you meant to drop can stay active.
+#
+# --- Quick start (defaults: Garage + OpenBao, from .env) ---
+#   # 1. Bring up the stack (Garage auto-bootstraps layout+bucket+key via garage-setup):
+#   docker compose up -d --build
+#   # 2. Provision S3 creds + the Transit key — one-shot:
+#   docker compose run --rm setup
+#   # 3. Mint the node crypt4gh identity straight into Vault (in memory, never on disk):
+#   docker compose run --rm gdi-node-standalone identity init
+#
+# Persistent secrets: the bundled OpenBao uses file storage on the `openbao-file`
+#   volume and auto-unseals via a static seal, so the node crypt4gh identity and the
+#   Transit master key survive `down`/`up`, `stop`/`start`, a host reboot, and
+#   `--force-recreate`. Losing the secrets while the `datasets` volume survives leaves
+#   PME data permanently undecryptable (error/scrub-failed), so:
+#   * To start genuinely clean, use `scripts/dev-reset.sh --yes`, which removes the
+#     secrets and data volumes together. Removing only one reintroduces that asymmetry.
+#     (`docker compose down -v` also takes both, since it removes every project volume.)
+#   * Steps 2-3 are still needed after a reset, and are safely re-runnable any time:
+#     `setup` is idempotent and `identity init` refuses to clobber a live identity.
+#   * Dev only: no TLS, a root-policy token with a fixed id, and the seal key stored
+#     beside the data. Do not put anything you actually need in it.
+#
+# --- Alternative backends (override COMPOSE_PROFILES; see .env) ---
+#   # minio (deprecated) instead of Garage — point the node at minio:9000 by
+#   # overriding the bucket endpoint/region (the GDI_NODE__S3__BUCKETS__0__ env
+#   # overlay, symmetric with the VAULT_ADDR switch below):
+#   COMPOSE_PROFILES=minio,openbao GDI_S3_ENDPOINT=http://minio:9000 GDI_S3_REGION=us-east-1 docker compose up -d --build
+#   # HashiCorp Vault instead of OpenBao (point the node at vault:8200, and tell the
+#   # init one-shot which seal flow to drive — SECRETS_BACKEND is required here:
+#   # without it secrets-init sends OpenBao's static-seal init body to Vault, no
+#   # unseal key is ever stored, and the stack comes back sealed after a restart):
+#   COMPOSE_PROFILES=garage,vault VAULT_ADDR=http://vault:8200 SECRETS_BACKEND=vault docker compose up -d --build
+
+x-node-security: &node-security
+  read_only: true
+  user: "65532:65532"
+  security_opt:
+    - no-new-privileges:true
+  # The service binds only ports 8080/9090 (both >1024) as uid 65532, so it needs
+  # no Linux capabilities — drop them all to shrink the blast radius of any future
+  # RCE.
+  cap_drop:
+    - ALL
+  ulimits:
+    core: 0
+
+# Cap container stdout/stderr logs (the json-file driver is unbounded by default) so a
+# long-lived dev stack cannot fill the Docker data root. Merged onto persistent services.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # No chown sidecar is needed: the image pre-creates
+  # /var/lib/gdi-node-standalone/{datasets,inbox} owned by 65532 (see the WORKDIR block in
+  # the Dockerfile), and Docker seeds a fresh named volume with that ownership. A volume
+  # left over from an older image is still root-owned: run `docker compose down -v` once
+  # to recreate it.
+
+  # --- The service (full build) ---------------------------------------------
+  gdi-node-standalone:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Build provenance. Unset, the Dockerfile's build.rs fallback cannot run either
+        # (`.dockerignore` excludes `.git` from the build context), so `/version` and
+        # `gdi_build_info{git_sha}` report "unknown" on every compose-built image —
+        # including this quickstart's. Pass both from the caller's git checkout:
+        #   GITHUB_SHA=$(git rev-parse HEAD) SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
+        #     docker compose up --build
+        # See docs/deployment.md "Building your own image" for the same one-liner.
+        GITHUB_SHA: ${GITHUB_SHA:-}
+        SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-}
+    image: gdi-node-standalone:latest
+    logging: *default-logging
+    <<: *node-security
+    depends_on:
+      # Gate on the secrets backend's listener so the node does not race it on a cold
+      # `up`. If it loses that race (Vault unreachable at startup) it latches
+      # keyless-degraded and does not self-heal — see the KeylessDegraded alert and
+      # docs/operating.md §8. `required: false` keeps this valid under whichever single
+      # secrets profile is active (the other backend service is absent).
+      openbao:
+        condition: service_healthy
+        required: false
+      vault:
+        condition: service_healthy
+        required: false
+      # The backend must also be initialized and hold `dev-root-token` before the
+      # node authenticates against it — healthy alone is not enough.
+      secrets-init:
+        condition: service_completed_successfully
+        required: false
+    environment:
+      GDI_CONFIG: /etc/gdi-node-standalone/node.toml
+      RUST_LOG: ${RUST_LOG:-info}
+      # json (default), text, or ecs (Elastic Common Schema field names — what the
+      # observability overlay's Loki->Tempo trace pivot reads). GDI_LOG also overrides
+      # the level (preferred over RUST_LOG).
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+      # The secrets-backend address is sourced from the same ${VAULT_ADDR} the
+      # `setup` one-shot reads, so a single knob points both the node and the
+      # provisioning steps at the chosen backend (the binary still consumes the
+      # GDI_NODE__VAULT__ADDRESS figment key — only its value comes from VAULT_ADDR).
+      # Switch backends with e.g. VAULT_ADDR=http://vault:8200, set in .env or
+      # exported so every `up`/`run` command sees it (see the switch recipes in the
+      # header of this file and in .env).
+      GDI_NODE__VAULT__ADDRESS: ${VAULT_ADDR:-http://openbao:8200}
+      GDI_NODE__VAULT__TOKEN: ${VAULT_TOKEN:-dev-root-token}
+      # S3 backend switch: Garage by default. To talk to minio (or any external
+      # S3-compatible endpoint, e.g. a real Ceph RGW) instead, override
+      # the bucket [0] endpoint+region via the GDI_NODE__S3__BUCKETS__<i>__<FIELD>
+      # env overlay (index-merged onto node.full.toml's [[s3.buckets]] — the only
+      # fields that differ between backends). Symmetric with the VAULT_ADDR switch
+      # above: one config file, backend chosen at `up` time.
+      #   minio:    GDI_S3_ENDPOINT=http://minio:9000 GDI_S3_REGION=us-east-1
+      #   external: GDI_S3_ENDPOINT=<your endpoint>     GDI_S3_REGION=<your region>
+      GDI_NODE__S3__BUCKETS__0__ENDPOINT: ${GDI_S3_ENDPOINT:-http://garage:3900}
+      GDI_NODE__S3__BUCKETS__0__REGION: ${GDI_S3_REGION:-garage}
+    ports:
+      # Overridable so a second stack (or an e2e run) can coexist — see docs/deployment.md's
+      # "Overriding the dev-stack host ports" table.
+      - "${GDI_HOST_PORT_PUBLIC:-8080}:8080"
+      # Management plane bound to loopback: it serves the dataset-state oracle (reveals
+      # Hidden/Error datasets) + /metrics and must not be LAN-reachable. The overlay's
+      # Prometheus scrapes it over the compose network (gdi-node-standalone:9090), which does
+      # not use this host mapping, so loopback here does not break scraping.
+      - "127.0.0.1:${GDI_HOST_PORT_MANAGEMENT:-9090}:9090"
+    volumes:
+      # Overridable so a harness can point at a config file it owns and may rewrite —
+      # `scripts/e2e/run-full.sh` does, to exercise the SIGHUP bucket reload without
+      # editing a tracked file in a shared working tree. Unset, this is the shipped
+      # config. An absolute path is required when overriding (a relative one resolves
+      # against this file's directory, not the caller's cwd).
+      - ${GDI_NODE_CONFIG:-./compose/node.full.toml}:/etc/gdi-node-standalone/node.toml:ro
+      - datasets:/var/lib/gdi-node-standalone/datasets
+      - inbox:/var/lib/gdi-node-standalone/inbox
+    restart: on-failure
+    # Healthcheck is inherited from the image (Dockerfile HEALTHCHECK, start_period 90s,
+    # set there for the S3/Vault/PME cold reconcile, during which /health/ready is 503).
+    # Not overridden here: a shorter start_period marks the heaviest stack `unhealthy`
+    # mid-reconcile.
+
+  # --- Secrets backend: OpenBao (default; `openbao` profile, active via .env) --
+  openbao:
+    # Persistent: file storage on the `openbao-file` volume + a static seal, so the
+    # node crypt4gh identity and the Transit master key survive restarts.
+    # `scripts/dev-reset.sh` is how you start clean.
+    image: openbao/openbao:2.6.2
+    profiles: ["openbao"]
+    logging: *default-logging
+    # Note the explicit -config here, and its absence on the `vault` service below:
+    # the hashicorp/vault entrypoint auto-appends -config=/vault/config (so passing
+    # it again double-loads the listener), while openbao's does not. See the header
+    # comment in compose/vault.hcl.
+    command: server -config=/openbao/config/openbao.hcl
+    environment:
+      BAO_ADDR: http://127.0.0.1:8200
+    cap_add:
+      - IPC_LOCK
+    ports:
+      # Loopback: this exposes the dev root token surface; keep it off the LAN. Overridable
+      # (GDI_HOST_PORT_OPENBAO) — shared with the `vault` service below, since exactly one
+      # secrets profile is ever active. See docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_OPENBAO:-8200}:8200"
+    volumes:
+      - ./compose/openbao.hcl:/openbao/config/openbao.hcl:ro
+      - openbao-file:/openbao/file
+      - secrets-keys:/openbao/secrets:ro
+    depends_on:
+      # The static seal key must exist before the server starts — secrets-init runs
+      # after the backend is healthy, so it cannot generate its own seal key.
+      secrets-keygen:
+        condition: service_completed_successfully
+    # Seal-aware rather than a TCP probe: a sealed backend still accepts connections,
+    # so `nc -z` exits 0 on one the node cannot use, while `bao status` exits 2. The bao
+    # binary is at /usr/bin/bao (there is no /bin/bao); the image also ships
+    # /usr/bin/wget and /usr/bin/nc, but `bao status` is the only one that reports seal
+    # state, which is what readiness means here.
+    healthcheck:
+      test: ["CMD", "bao", "status"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- Secrets backend: HashiCorp Vault (`vault` profile) -------------------
+  # A fully supported alternative (mirrors the external production Vault); not
+  # deprecated. Select it with COMPOSE_PROFILES=...,vault (see .env).
+  #
+  # Persistent like openbao, but Vault has no static-seal equivalent, so it uses a
+  # 1-of-1 Shamir key that compose/secrets-init.sh stores and replays. This profile
+  # comes back sealed after every restart, which is what the seal-aware healthcheck
+  # below is for.
+  # It publishes the same host port as `openbao` (GDI_HOST_PORT_OPENBAO, default
+  # 127.0.0.1:8200). They are alternatives — exactly one secrets profile is meant to be
+  # active — so enabling both renders fine under `config` and then fails to bind on
+  # `up`. That is the intended reading: pick one backend.
+  vault:
+    image: hashicorp/vault:2.0.4
+    profiles: ["vault"]
+    logging: *default-logging
+    # No -config flag: the entrypoint already appends -config=/vault/config. Passing
+    # it explicitly loads vault.hcl twice and the second tcp listener fails to bind.
+    command: server
+    environment:
+      VAULT_ADDR: http://127.0.0.1:8200
+    cap_add:
+      - IPC_LOCK
+    ports:
+      # Loopback: this exposes the dev root token surface; keep it off the LAN. Overridable
+      # (GDI_HOST_PORT_OPENBAO) — shared with `openbao` above; see the note there.
+      - "127.0.0.1:${GDI_HOST_PORT_OPENBAO:-8200}:8200"
+    volumes:
+      - ./compose/vault.hcl:/vault/config/vault.hcl:ro
+      - vault-file:/vault/file
+    healthcheck:
+      test: ["CMD", "vault", "status"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- Static seal key generation (runs before the backend starts) -----------
+  secrets-keygen:
+    image: alpine/curl:8.21.0
+    profiles: ["openbao"]
+    environment:
+      KEYS_DIR: /keys
+    volumes:
+      - ./compose/secrets-init.sh:/secrets-init.sh:ro
+      - secrets-keys:/keys
+    entrypoint: ["/bin/sh", "/secrets-init.sh", "--genkey"]
+    restart: "no"
+
+  # --- Backend init + stable dev token (idempotent; runs on every `up`) ------
+  # One definition serves both profiles: it is enabled when either is active, and
+  # VAULT_ADDR already selects the target. Mints a token whose id is the fixed
+  # `dev-root-token`, so node.full.toml / setup.sh / the node need no change.
+  secrets-init:
+    image: alpine/curl:8.21.0
+    profiles: ["openbao", "vault"]
+    depends_on:
+      # `service_started`, not `service_healthy`, and the distinction matters.
+      # The backend's healthcheck is seal-aware, and a fresh backend is uninitialized
+      # and therefore sealed, so `bao status` exits 2 and it is never healthy until
+      # something initializes it. That something is this service. Gating it on health
+      # deadlocks every cold `up`: unhealthy -> secrets-init never runs -> never
+      # initialized -> never unsealed -> never healthy.
+      #
+      # This service does not need the health gate anyway: it polls
+      # /v1/sys/seal-status itself (bounded 60x1s), an unauthenticated endpoint that
+      # answers while sealed. The node still gates on `service_healthy` above, by
+      # which point this one-shot has initialized the backend and the static seal has
+      # auto-unsealed it.
+      openbao:
+        condition: service_started
+        required: false
+      vault:
+        condition: service_started
+        required: false
+    environment:
+      VAULT_ADDR: ${VAULT_ADDR:-http://openbao:8200}
+      SECRETS_BACKEND: ${SECRETS_BACKEND:-openbao}
+      KEYS_DIR: /keys
+      DEV_TOKEN_ID: ${VAULT_TOKEN:-dev-root-token}
+    volumes:
+      - ./compose/secrets-init.sh:/secrets-init.sh:ro
+      - secrets-keys:/keys
+    entrypoint: ["/bin/sh", "/secrets-init.sh"]
+    restart: "no"
+
+  # --- S3 backend: Garage (default; `garage` profile, active via .env) -------
+  garage:
+    image: dxflrs/garage:v2.3.0
+    profiles: ["garage"]
+    logging: *default-logging
+    volumes:
+      - ./compose/garage.toml:/etc/garage.toml:ro
+      - garage-meta:/var/lib/garage/meta
+      - garage-data:/var/lib/garage/data
+    ports:
+      # Loopback: the data plane authenticates with the in-repo dev credentials below,
+      # so a LAN-published port lets any subnet peer read/write the dataset bucket. The
+      # node reaches Garage by compose DNS (`garage:3900`), not through this publish.
+      # Both overridable — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_GARAGE:-3900}:3900"   # S3 API — loopback only
+      - "127.0.0.1:${GDI_HOST_PORT_GARAGE_ADMIN:-3903}:3903"   # admin API (dev-admin-token) — loopback only
+    # The Garage image is FROM scratch (no shell), so the healthcheck invokes the
+    # `garage` binary directly; `status` exits 0 once its RPC is reachable.
+    healthcheck:
+      test: ["CMD", "/garage", "status"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- Garage bucket bootstrap (`garage` profile) ---------------------------
+  # The Garage analogue of minio-setup: Garage needs an explicit cluster layout
+  # before it serves S3 and ships no shell, so this drives the admin API from an
+  # alpine/curl sidecar (assign+apply layout, create bucket, import the fixed dev
+  # key, grant access). Idempotent — safe to re-run on `up`.
+  garage-setup:
+    image: alpine/curl:8.21.0
+    profiles: ["garage"]
+    depends_on:
+      garage:
+        condition: service_healthy
+    environment:
+      GARAGE_ADMIN_ADDR: http://garage:3903
+      GARAGE_ADMIN_TOKEN: dev-admin-token
+      S3_BUCKET: ${S3_BUCKET:-gdi-datasets}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-GK0123456789abcdef01234567}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    volumes:
+      - ./compose/garage-setup.sh:/garage-setup.sh:ro
+    entrypoint: ["/bin/sh", "/garage-setup.sh"]
+    restart: "no"
+
+  # --- S3 backend: minio (deprecated; `minio` profile) ----------------------
+  # minio is deprecated (discouraged for new deployments) but stays fully supported as
+  # an external endpoint, so it is kept locally to mirror that. Prefer Garage. Includes
+  # the MinIO console UI on :9001.
+  minio:
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
+    profiles: ["minio"]
+    logging: *default-logging
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-GK0123456789abcdef01234567}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    ports:
+      # Both overridable — see docs/deployment.md's host-port table.
+      - "127.0.0.1:${GDI_HOST_PORT_MINIO:-9000}:9000"   # S3 API — loopback only (in-repo dev credentials)
+      - "127.0.0.1:${GDI_HOST_PORT_MINIO_CONSOLE:-9001}:9001"   # MinIO console UI (deprecated backend) — loopback only
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fq", "http://localhost:9000/minio/health/live"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- minio bucket bootstrap (deprecated; `minio` profile) -----------------
+  minio-setup:
+    image: minio/mc:RELEASE.2025-08-13T08-35-41Z
+    profiles: ["minio"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    # Bounded retry (60 × 1s), matching compose/setup.sh and compose/garage-setup.sh: a
+    # stuck minio that still passes its healthcheck (e.g. a credential mismatch) must
+    # produce a diagnosable non-zero exit, not an unbounded silent hang. `$$` escapes the
+    # `$` so Compose leaves the shell variable alone.
+    entrypoint: >
+      /bin/sh -c "
+      n=0;
+      until mc alias set local http://minio:9000 ${S3_ACCESS_KEY:-GK0123456789abcdef01234567} ${S3_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}; do
+      n=$$((n+1));
+      [ $$n -ge 60 ] && { echo 'minio-setup: mc alias set failed after 60 attempts' >&2; exit 1; };
+      sleep 1;
+      done;
+      mc mb --ignore-existing local/${S3_BUCKET:-gdi-datasets};
+      echo 'minio bucket ${S3_BUCKET:-gdi-datasets} ready';
+      "
+
+  # --- Dev setup: provision S3 creds + Transit key (one-shot) ---------------
+  # Runs unchanged against OpenBao or Vault. Pass S3_BACKEND=minio for minio.
+  # The node crypt4gh identity is provisioned separately by the gdi-node-standalone
+  # `identity init` subcommand — see the quick start at the top of this file.
+  setup:
+    image: alpine/curl:8.21.0
+    profiles: ["setup"]
+    environment:
+      VAULT_ADDR: ${VAULT_ADDR:-http://openbao:8200}
+      VAULT_TOKEN: ${VAULT_TOKEN:-dev-root-token}
+      S3_BACKEND: ${S3_BACKEND:-garage}
+      S3_BUCKET: ${S3_BUCKET:-gdi-datasets}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:-GK0123456789abcdef01234567}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+    volumes:
+      - ./compose/setup.sh:/setup.sh:ro
+    entrypoint: ["/bin/sh", "/setup.sh"]
+
+# --- Why there is no `ceph` service here ------------------------------------------
+# Ceph RGW is a supported S3 backend for deployment, and nothing in the node is Garage-
+# or minio-specific: `object_store` talks to one endpoint-agnostic S3 API, so
+# `[[s3.buckets]].endpoint` is the only thing that changes. Point the stack at a real RGW
+# with GDI_S3_ENDPOINT/GDI_S3_REGION exactly as for any other external endpoint.
+#
+# There is no local all-in-one RGW container because no maintained image offers one:
+# `quay.io/ceph/ceph` has no `demo` mode, so a local RGW means a cephadm bootstrap that
+# wants systemd and privileged mode. Garage (which drives `e2e-full`) and minio already
+# exercise the shared client path. To pin down RGW-specific server behaviour, add such a
+# service against `quay.io/ceph/ceph` + cephadm and wire it into the e2e scripts.
+
+volumes:
+  datasets:
+  inbox:
+  # The secrets backend's durable storage + its seal/root-token state. These are
+  # what make the identity and the Transit key survive a restart; destroy them only
+  # together with `datasets` (scripts/dev-reset.sh), never on their own.
+  #
+  # One volume per backend, and they must stay separate. Both backends are persistent
+  # file storage and switching between them is a one-variable change, so a shared volume
+  # would have the second backend open the first's barrier: Vault fails with
+  # "failed to validate recovery seal configuration: shares must be at least one" — an
+  # error that names a seal migration and gives no hint the cause is a shared volume —
+  # and the only recovery is `down -v`, which also destroys `datasets`.
+  openbao-file:
+  vault-file:
+  secrets-keys:
+  garage-meta:
+  garage-data:
+  minio-data:

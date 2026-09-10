@@ -1,0 +1,67 @@
+/target
+**/*.rs.bk
+.DS_Store
+# generated CycloneDX SBOMs (cargo cyclonedx) + coverage reports — CI artifacts,
+# never committed.
+*.cdx.json
+/lcov.info
+# cargo-mutants local output, written by `scripts/mutants-audit.sh` (on-demand;
+# there is no CI mutation job). Never committed.
+/mutants.out
+/mutants.out.old
+# Python bytecode caches. The gate's own `ci-gate`/`dashboard` legs run
+# `python3 -m unittest`, which writes these; ignoring them keeps the content-hashed
+# gate key (scripts/gate-key.sh hashes tracked + untracked-but-not-ignored files)
+# from being perturbed mid-run, which would otherwise print `NOT RECORDED`.
+__pycache__/
+*.pyc
+
+# The filled bring-your-own-backends env file: it names your endpoints and may carry
+# credentials. The .example template IS committed.
+.env.external
+
+# The operator's filled service and provider configs. These are the default discovery names
+# (`crates/core/src/config/mod.rs`), README and docs/deployment.md tell operators to create
+# them, and they hold a Vault token and S3 access keys by design — the same reasoning that
+# ignores `.env.external` above. Nothing on the commit path scans for secrets (the
+# pre-commit hook runs fmt, clippy and script-tests, not gitleaks), so an unignored
+# `node.toml` is one `git commit -a` away from a committed credential. The shipped templates
+# (`node.example.toml`, `node.quickstart.toml`, `tool.example.toml`) are committed and
+# unaffected: they carry `<SET ME: …>` placeholders, not real values.
+/node.toml
+/tool.toml
+
+# Artifacts the README quickstart writes into the checkout: `gdi-dataset-tool build -o build`
+# and the `{id}.state.json` visibility sidecar. scripts/gate-key.sh content-hashes tracked
+# AND untracked-but-unignored files, so following the quickstart in the repo otherwise
+# perturbs the gate key mid-run and prints `NOT RECORDED` — the same failure the
+# `__pycache__` entry above exists to prevent.
+/build/
+/*.state.json
+
+# local key material / scratch
+*.c4gh
+*.c4gh.pub
+# ...but keep checked-in test fixtures (self-generated / reference-authored
+# known-answer vectors, not real data) for the Python-free crypt4gh regression
+# guards.
+!crates/core/tests/fixtures/crypt4gh/*.c4gh
+!crates/core/tests/fixtures/crypt4gh_kat/*.c4gh
+# ...and the tiny self-generated crypt4gh fuzz seed (not real data).
+!crates/core/fuzz/corpus/crypt4gh_header/*.c4gh
+
+# Editor and tool scratch inside the checkout, and generated fuzz corpora
+.claude/
+corpus/
+
+# The S3 stack node identity is a secret key — never commit it.
+compose/keys/*
+!compose/keys/.gitkeep
+
+# Local developer linker override (mold). Machine-specific: committing it would break any
+# contributor without mold installed, and cargo config has no conditional form. The
+# recommended place for it is the user-level ~/.cargo/config.toml, so worktrees inherit it
+# (scripts/dev-setup.sh); a per-checkout copy stays ignored here so a leftover cannot be
+# committed.
+/.cargo/config.toml
+.worktrees/

@@ -1,0 +1,57 @@
+---
+source: crates/gdi-node-standalone/tests/beacon_info.rs
+expression: v
+---
+{
+  "meta": {
+    "apiVersion": "v2.2.0",
+    "beaconId": "org.example.beacon",
+    "returnedSchemas": []
+  },
+  "response": {
+    "entryTypes": {
+      "dataset": {
+        "defaultSchema": {
+          "id": "ga4gh-beacon-dataset-v2.0.0",
+          "name": "Default schema for a dataset",
+          "referenceToSchemaDefinition": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/v2.2.0/models/json/beacon-v2-default-model/datasets/defaultSchema.json"
+        },
+        "id": "dataset",
+        "name": "Dataset",
+        "ontologyTermForThisType": {
+          "id": "NCIT:C47824",
+          "label": "Data set"
+        },
+        "partOfSpecification": "Beacon v2.2.0"
+      },
+      "genomicVariant": {
+        "defaultSchema": {
+          "id": "ga4gh-beacon-variant-v2.0.0",
+          "name": "Default schema for a genomic variant",
+          "referenceToSchemaDefinition": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/v2.2.0/models/json/beacon-v2-default-model/genomicVariations/defaultSchema.json"
+        },
+        "id": "genomicVariant",
+        "name": "Genomic Variant",
+        "ontologyTermForThisType": {
+          "id": "ENSGLOSSARY:0000092",
+          "label": "Variant"
+        },
+        "partOfSpecification": "Beacon v2.2.0"
+      },
+      "individual": {
+        "defaultSchema": {
+          "id": "ga4gh-beacon-individual-v2.0.0",
+          "name": "Default schema for an individual",
+          "referenceToSchemaDefinition": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/v2.2.0/models/json/beacon-v2-default-model/individuals/defaultSchema.json"
+        },
+        "id": "individual",
+        "name": "Individual",
+        "ontologyTermForThisType": {
+          "id": "NCIT:C25190",
+          "label": "Individual"
+        },
+        "partOfSpecification": "Beacon v2.2.0"
+      }
+    }
+  }
+}

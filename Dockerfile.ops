@@ -1,0 +1,139 @@
+# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+#
+# The ops sidecar image: a shell, `tar`, and the two release binaries. Nothing else.
+#
+# Why it exists. On Kubernetes there is no way to feed the node's local inbox. `kubectl cp`
+# into the service container fails with `exec: "tar": executable file not found in $PATH`
+# (the runtime image is distroless — no shell, no tar), `gdi-dataset-tool deploy --inbox`
+# from a workstation only knows local directories, and a separate helper pod cannot mount
+# the ReadWriteOnce inbox while the node holds it. So the supported ingest channel on
+# Kubernetes is S3 — and for a node that has no object store (the keyless, plaintext-at-rest
+# posture) this image is the alternative: a sidecar in the same pod, running as the same
+# uid, sharing the inbox volume. See `deploy/kubernetes/components/inbox/` and the
+# "Getting a dataset in on Kubernetes" section of `deploy/kubernetes/README.md`.
+#
+# It carries `gdi-node-standalone` too, not just the provider tool: the node binary is also
+# the operator toolbox, and its lock-free verbs (`dataset hide`/`take-down`/`correct`,
+# `overrides export`/`import`, `channel …`, `doctor`) are safe to run against the serving
+# node — from a container that can actually be `exec`'d into.
+#
+# Static musl binaries on Alpine. A static build is insensitive to which libc the base
+# carries, so this image can be rebuilt on a newer Alpine for a CVE fix without
+# recompiling, and the release path can stage the same musl artifacts the release job
+# publishes. The service image stays on glibc and distroless because musl's `mallocng`
+# serialises allocation across the async worker pool and costs Beacon throughput. That
+# argument is about the serving path, and nothing here serves.
+#
+# Two build paths, the same selector the service `Dockerfile` uses, so there is one runtime
+# stage that cannot drift:
+#
+#   * BIN_SOURCE=builder  (default) — recompile both binaries for
+#     `x86_64-unknown-linux-musl` from this workspace.
+#   * BIN_SOURCE=prebuilt — no recompile: the release job stages the already-released
+#     `x86_64-unknown-linux-musl` binaries (plus the attribution bundle) into the build
+#     context and this packages them verbatim.
+#
+# The syntax frontend is digest-pinned like both `FROM` images below, for the reason the
+# service Dockerfile spells out: BuildKit downloads and executes it to build every stage.
+
+ARG BIN_SOURCE=builder
+
+# ---------------------------------------------------------------------------
+# builder — recompile for musl (BIN_SOURCE=builder). The same digest-pinned Rust image
+# the service Dockerfile uses, so both images compile with one toolchain and Dependabot
+# bumps one line per base.
+# ---------------------------------------------------------------------------
+FROM rust:1.98.0-trixie@sha256:7f7a53a25a0319dd8284e279d529d45759cb384d59b14cc6806132910f45522e AS builder
+
+# The musl target's std, plus the musl C toolchain: `ring` and `zstd-sys` compile C, and
+# the stock image has no cross-libc `cc`. (CI cross-compiles the same target through
+# `cross`, whose container image supplies exactly this; there is no `cross` inside a
+# `docker build`, so it is installed here.)
+# hadolint ignore=DL3008
+RUN apt-get update \
+    && apt-get install --no-install-recommends -y musl-tools musl-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add x86_64-unknown-linux-musl
+
+WORKDIR /build
+
+# Whole workspace; `.dockerignore` keeps `target/` and `.git/` out of the context.
+COPY . .
+
+# `full` matches the service image's default (S3 + Vault + PME). It is about what the ops
+# binary can read, not what it serves: a lite build rejects a config carrying `[vault]` or
+# `[[s3.buckets]]` at the feature preflight, so a lite ops binary could not run an operator
+# verb against the node's own config on any node that has either.
+ARG FEATURES=full
+ARG GITHUB_SHA=
+ARG SOURCE_DATE_EPOCH=
+# One RUN so both builds share the cache mounts. `target/` is a cache mount (ephemeral,
+# not a layer), so the binaries must be copied out to a real path in this same step.
+RUN --mount=type=cache,target=/build/target,sharing=locked \
+    --mount=type=cache,target=/root/.cargo/registry,sharing=locked \
+    --mount=type=cache,target=/root/.cargo/git,sharing=locked \
+    CC_x86_64_unknown_linux_musl=musl-gcc \
+    GITHUB_SHA="${GITHUB_SHA}" SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
+    cargo build --release --locked --target x86_64-unknown-linux-musl \
+        --features "${FEATURES}" -p gdi-node-standalone \
+    && CC_x86_64_unknown_linux_musl=musl-gcc \
+       GITHUB_SHA="${GITHUB_SHA}" SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH}" \
+       cargo build --release --locked --target x86_64-unknown-linux-musl \
+        -p gdi-dataset-tool \
+    && mkdir -p /staged/licenses \
+    && cp target/x86_64-unknown-linux-musl/release/gdi-node-standalone /staged/gdi-node-standalone \
+    && cp target/x86_64-unknown-linux-musl/release/gdi-dataset-tool /staged/gdi-dataset-tool \
+    && cp THIRD-PARTY-LICENSES.md LICENSE-APACHE LICENSE-MIT /staged/licenses/ \
+    # Assert the binaries really are static. `ldd` on a static executable reports "not a
+    # dynamic executable" (and exits non-zero), so the check is that it does not name a
+    # shared libc: a dynamically-linked binary here would run on the builder and fail on
+    # Alpine at exec time, which is the one mistake this image cannot afford.
+    && ! ldd /staged/gdi-node-standalone 2>&1 | grep -q 'libc.so' \
+    && ! ldd /staged/gdi-dataset-tool 2>&1 | grep -q 'libc.so' \
+    && echo "ok: both binaries are static musl"
+
+# ---------------------------------------------------------------------------
+# prebuilt — package the already-released musl binaries verbatim (BIN_SOURCE=prebuilt).
+# `FROM scratch` holds no tools: pure file staging, normalised under /staged to match the
+# builder. Unreferenced (and therefore skipped) on a `builder` build, so the release-only
+# context files need not exist for a local recompile.
+# ---------------------------------------------------------------------------
+FROM scratch AS prebuilt
+COPY gdi-node-standalone /staged/gdi-node-standalone
+COPY gdi-dataset-tool /staged/gdi-dataset-tool
+COPY THIRD-PARTY-LICENSES.md LICENSE-APACHE LICENSE-MIT /staged/licenses/
+
+# Resolve BIN_SOURCE to a fixed stage name: ARG expansion works in `FROM` but not in
+# `COPY --from=`. Only the selected upstream stage is built.
+FROM ${BIN_SOURCE} AS binsrc
+
+# ---------------------------------------------------------------------------
+# Runtime: Alpine (a shell + `tar`, which is the entire point) + the two binaries.
+# Pinned by digest as well as tag — the tag is mutable and is re-pushed for CVE fixes, so
+# a digest alone is what fixes the layer. Re-resolve with
+#   docker buildx imagetools inspect alpine:3.24
+# and bump tag+digest together; `ci-local.sh dockerfile-check` reports (without failing)
+# when upstream has moved past this pin.
+# ---------------------------------------------------------------------------
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+
+# The node's numeric uid:gid — numeric, and the same as the service image's, because that
+# is what makes a `kubectl cp` into the shared inbox land owned by the node, the whole
+# reason this runs as a sidecar rather than as a helper pod. Alpine has no such account,
+# which is fine: nothing here reads /etc/passwd. It also satisfies Kubernetes
+# `runAsNonRoot` admission.
+USER 65532:65532
+
+# /usr/local/bin is on PATH, so `kubectl exec -c ops -- gdi-dataset-tool …` works without
+# an absolute path. (In the service container the same command needs
+# `/gdi-node-standalone`, its full path — there is no shell to resolve one.)
+COPY --from=binsrc --chown=65532:65532 /staged/gdi-node-standalone /usr/local/bin/gdi-node-standalone
+COPY --from=binsrc --chown=65532:65532 /staged/gdi-dataset-tool /usr/local/bin/gdi-dataset-tool
+# The attribution bundle under /usr/share/doc discharges the permissive-licence
+# binary-redistribution notice, as in the service image.
+COPY --from=binsrc --chown=65532:65532 /staged/licenses/ /usr/share/doc/gdi-node-standalone-ops/
+
+# No entrypoint, and the command does nothing: this container exists to be `exec`'d into.
+# Giving it the node's entrypoint would start a second node against the same data volume,
+# which the data-dir lock would (correctly) refuse — as a crash-loop beside a healthy node.
+CMD ["sleep", "infinity"]

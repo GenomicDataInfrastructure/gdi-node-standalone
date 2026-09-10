@@ -1,0 +1,39 @@
+# `.expect()` is permitted in test code, so `clippy::expect_used` (denied at the library crate
+# roots) does not fire inside `#[cfg(test)]` modules or integration-test crates. Without this,
+# the rule would need a suppression at every test site, where a panic does not matter.
+#
+# Not paired with `allow-unwrap-in-tests`: `unwrap_used` is already handled by per-site
+# `#[expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]` attributes, and
+# expectations are per-lint, so allowing it here would leave those unfulfilled and hard-error.
+allow-expect-in-tests = true
+
+# Chokepoint enforcement.
+#
+# Each entry names a method whose safe form already exists in this workspace. The lint makes
+# the next site that forgets it a compile error rather than a review responsibility.
+#
+# A path that does not resolve is silently ignored by clippy: no warning, no error. A typo or
+# an upstream rename would therefore disable an entry while the build stays green.
+# `crates/core/src/lint_canary.rs` calls each banned method under
+# `#[expect(clippy::disallowed_methods)]`, so a path that stops matching makes the expectation
+# unfulfilled and fails the build.
+disallowed-methods = [
+  { path = "std::fs::write", reason = "neither atomic nor durable: use core::util::write_durable_atomic" },
+  { path = "std::fs::File::create", reason = "neither atomic nor durable, and 0644: use core::util::write_durable_atomic, or gdi_dataset_tool::Scratch for 0700" },
+  { path = "parquet::arrow::arrow_reader::ArrowReaderBuilder::try_new", reason = "inherits ArrowReaderOptions::default(), i.e. PageIndexPolicy::Skip. That is not a tuning knob but a choice of page-traversal mode: Skip puts SerializedPageReader in `Values` mode, a sequential walk of each column chunk's byte range, while loading the index puts it in `Pages` mode, which follows the OffsetIndex. Every ingest-path reader (validate_parquet's scans and the PME re-encode) must open the file in one mode, so that no page can be decoded by one and not the other; a truncated compressed_size otherwise splits them. Use try_new_with_options with an explicit with_page_index_policy: PageIndexPolicy::Required on the ingest path, matching validate_parquet. The Beacon serve path opens the already-validated store under PageIndexPolicy::Optional, which is a different reader over bytes the gate has passed and not part of this symmetry. In tests, keep it with #[expect(clippy::disallowed_methods, reason = \"...\")]" },
+  { path = "std::fs::copy", reason = "follows a symlink at the destination (it opens O_WRONLY|O_CREAT|O_TRUNC) and carries the source's mode instead of choosing one. For secrets use core::util::write_secret_durable (0600, atomic); for an untrusted tree classify with symlink_metadata and create the destination with create_private_file_new (O_CREAT|O_EXCL), as ingest_runtime::copy_path_recursive does; otherwise keep it with #[expect(clippy::disallowed_methods, reason = \"...\")] stating why the destination cannot be attacker-controlled" },
+  { path = "gdi_node_standalone_core::util::write_durable_atomic", reason = "picks the file mode, and the default is 0644, so every call must state whether the bytes are secret. Use write_durable_atomic_private (0600) for anything that may carry key material or credentials, and #[expect(clippy::disallowed_methods, reason = \"not secret: ...\")] to keep this one" },
+  { path = "tokio::fs::write", reason = "the async sibling of the std::fs::write ban above: neither atomic nor durable, and 0644. Use core::util::write_durable_atomic (or write_durable_atomic_private) from spawn_blocking, and #[expect(clippy::disallowed_methods, reason = \"...\")] where the bytes are ciphertext streamed to a scratch path" },
+  { path = "tokio::fs::File::create", reason = "the async sibling of the std::fs::File::create ban above: neither atomic nor durable, and 0644. Same remedy" },
+  { path = "std::fs::create_dir_all", reason = "creates every component at umask default (0755): use core::util::create_private_dir (0700) for anything on the node's data path. Keep it with #[expect(clippy::disallowed_methods, reason = \"...\")] stating why umask default is right, such as an operator-chosen path on the operator's own machine (the dataset tool), or the provider-writable inbox ingress" },
+  { path = "tokio::fs::create_dir_all", reason = "the async sibling of the std::fs::create_dir_all ban above: umask default. Same remedy, from spawn_blocking" },
+  { path = "std::fs::create_dir", reason = "the non-recursive sibling of the std::fs::create_dir_all ban above: umask default (0755). Use core::util::create_private_dir (0700); keep it with #[expect(clippy::disallowed_methods, reason = \"...\")] where umask default is right, as for create_dir_all" },
+  { path = "tokio::fs::create_dir", reason = "the async sibling of the std::fs::create_dir ban above: umask default. Same remedy, from spawn_blocking" },
+  { path = "std::fs::DirBuilder::create", reason = "the primitive under every directory creator, and what core::util::create_private_dir is built on. It takes a mode, so every direct call must state one. Use create_private_dir (0700), and #[expect(clippy::disallowed_methods, reason = \"...\")] on the chokepoint itself" },
+  { path = "object_store::GetResult::bytes", reason = "unbounded read into memory: check meta.size first, or stream through a capped reader" },
+  { path = "reqwest::Client::builder", reason = "a bare builder inherits reqwest's follow-up-to-10-redirects default, so a URL checked with transport_reason can be followed off to another host: use core::tls::https_client_builder" },
+  { path = "reqwest::ClientBuilder::new", reason = "same permissive default as reqwest::Client::builder: use core::tls::https_client_builder" },
+  { path = "reqwest::get", reason = "builds a default client per call, so it follows up to 10 redirects and bypasses the bundled webpki roots: use core::tls::https_client_builder" },
+  { path = "reqwest::Client::new", reason = "documented as equivalent to Client::builder().build().unwrap(), so it carries the same follow-up-to-10-redirects default and the same bypass of the bundled webpki roots: use core::tls::https_client_builder" },
+  { path = "gdi_node_standalone_core::config::config_dir", reason = "environment-only: it ignores --config, so one invocation's key material ends up split across two roots, and since an unfound pin is trust-on-first-use, that split fails open. Use core::config::config_base_dir(config_path), the rule [keys].identities, node_recipient_file and the pin store already follow. #[expect(clippy::disallowed_methods, reason = \"...\")] only where the environment default is the point: the default tool.toml path, the chokepoint's own no-config arm, the legacy pin location" },
+]

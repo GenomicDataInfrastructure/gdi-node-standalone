@@ -1,0 +1,151 @@
+[package]
+name = "gdi-node-standalone-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "Shared types, config, validation, crypt4gh and ingest logic for gdi-node-standalone."
+# Internal workspace library — the products are the gdi-node-standalone service and the
+# gdi-dataset-tool binaries, so the library crates are not published to crates.io.
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+# At-rest Parquet Modular Encryption: adds the parquet `encryption` feature (and so
+# `ring`) on top of the always-on `arrow` and `zstd` parquet features below. The service
+# enables it transitively via its own `pme`, which implies `vault`. Off by default, so the
+# lite build links no `ring`.
+pme = ["parquet/encryption"]
+# Shared S3 client construction (`s3_conn`): the one `AmazonS3Builder` config both the
+# service and the tool use, kept here so endpoint, path-style and signing settings cannot
+# drift between the two binaries (the connection analog of `s3_layout`'s name contract).
+# Pulls `object_store` and the bundled `webpki-root-certs` roots, fed to its client via
+# `tls::s3_client_options`; the lite service, without `s3`, links none of it.
+#
+# `http` is listed despite looking unrelated: `object_store` calls `reqwest::tls::…`, a
+# module that exists only when reqwest has a TLS feature enabled, while object_store's own
+# `reqwest` feature asks for `stream` alone. The workspace TLS pin (`rustls-no-provider`)
+# reaches reqwest through the `reqwest = { workspace = true }` declaration that `http`
+# activates, so without `http` cargo unifies to a reqwest with no TLS module and
+# object_store does not compile.
+s3 = ["dep:object_store", "dep:webpki-root-certs", "dep:rustls", "http"]
+# Shared HTTPS client construction (`tls::https_client_builder`): the one reqwest
+# `ClientBuilder` the tool and service build every networked client from, pre-seeded with
+# the platform trust store and the bundled Mozilla `webpki-root-certs`. Kept in `core` so
+# the trust policy is defined in one place. Always on for the tool, and enabled for the
+# service by its `tls` group.
+http = ["dep:reqwest", "dep:webpki-root-certs", "dep:rustls"]
+# Test-only deterministic fault injection (`faults`): compiles the arming registry and
+# turns the wired `faults::guard` chokepoints from a no-op into a real check. It adds no
+# dependencies, and only the dev-dependencies of the service and tool crates enable it, so
+# a shipped binary links a `guard` the optimizer removes. See `src/faults.rs`.
+fault-injection = []
+# JSON Schema generation from the manifest model, so the type contract in
+# docs/package-format.md is derived rather than restated. Feature-gated, so no shipped
+# binary links schemars; the `test_schema` leg of scripts/ci-local.sh is the only place it
+# is turned on, and that leg runs the schema freshness test.
+schema = ["dep:schemars"]
+
+[dependencies]
+thiserror = { workspace = true }
+# Per-stage ingest spans (`info_span!`).
+tracing = { workspace = true }
+object_store = { workspace = true, optional = true }
+# HTTP transport for `tls::https_client_builder` (feature `http`).
+reqwest = { workspace = true, optional = true }
+# The `ring` crypto provider that `tls` installs as the process default before any client
+# is built; reqwest's `rustls-no-provider` and object_store both require one.
+rustls = { workspace = true, optional = true }
+# Bundled Mozilla CA roots for `tls` (features `s3` and `http`).
+webpki-root-certs = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+regex = { workspace = true }
+url = { workspace = true }
+time = { workspace = true }
+noodles-vcf = { workspace = true }
+# A transitive dependency of noodles-vcf, declared here only to hold its exact pin, so
+# `cargo update` cannot drift it off the VCF stack. Not referenced in source.
+noodles-bgzf = { workspace = true }
+figment = { workspace = true }
+toml = { workspace = true }
+toml_edit = { workspace = true }
+parquet = { workspace = true }
+arrow-array = { workspace = true }
+arrow-schema = { workspace = true }
+# arrow-buffer, -data and -select are transitive dependencies of parquet and arrow-array,
+# declared here only to hold them in exact lockstep with the rest of the arrow stack. Not
+# referenced in source.
+arrow-buffer = { workspace = true }
+arrow-data = { workspace = true }
+arrow-select = { workspace = true }
+sha2 = { workspace = true }
+x25519-dalek = { workspace = true }
+chacha20poly1305 = { workspace = true }
+blake2 = { workspace = true }
+rand_core = { workspace = true }
+zeroize = { workspace = true }
+tar = { workspace = true }
+schemars = { version = "=1.2.2", default-features = false, features = ["derive"], optional = true }
+
+[dev-dependencies]
+test-util = { path = "../test-util" }
+# Dev-only: the S3 metadata-timeout test drives a stalling TCP endpoint and an async
+# `ObjectStore::head`, the "endpoint accepts, then never answers" wedge that a connect
+# timeout cannot catch.
+tokio = { workspace = true }
+serde-saphyr = { workspace = true }
+tempfile = { workspace = true }
+# Also a normal dependency: repeated here so the crypt4gh front-of-package interop test can
+# assemble a real ordered `.tar` (manifest.json -> headers/ -> parquet) to feed the
+# reference Python `crypt4gh`.
+tar = { workspace = true }
+# Also a normal dependency: repeated here so the `convert` bench can read records directly
+# and separate the noodles parse cost from `process_record`.
+noodles-vcf = { workspace = true }
+figment = { workspace = true, features = ["test"] }
+serial_test = { workspace = true }
+criterion = { workspace = true }
+# Property tests for the pure value paths: crypt4gh round-trip, popfield grammar and id
+# self-consistency.
+proptest = "=1.11.0"
+
+# Criterion benches, each over a fixed checked-in fixture: `crypt4gh` the codec
+# encrypt/decrypt throughput, `parquet_read` the Parquet read and `POS`
+# row-group-pushdown path, `convert` the VCF -> Parquet conversion throughput, and
+# `hydrate` the cold-start `hydrate_from_disk` reload. `harness = false` lets criterion
+# own `fn main`.
+[[bench]]
+name = "crypt4gh"
+harness = false
+
+[[bench]]
+name = "parquet_read"
+harness = false
+
+[[bench]]
+name = "convert"
+harness = false
+
+[[bench]]
+name = "hydrate"
+harness = false
+
+# zstd compression-level sweep: encode time, on-disk size, and that decode is
+# level-independent. Informs whether `ZSTD_LEVEL` should stay at 19.
+[[bench]]
+name = "zstd_level"
+harness = false
+
+# cargo-machete (unused-dependency gate) ignores. None of these are referenced by `use`,
+# so machete's static scan flags them, but each is declared on purpose: arrow-buffer,
+# arrow-data and arrow-select unify and exact-pin the arrow version across parquet and
+# arrow-array, and noodles-bgzf pins the bgzf reader that noodles-vcf uses transitively for
+# `.vcf.gz` auto-detection.
+[package.metadata.cargo-machete]
+ignored = ["arrow-buffer", "arrow-data", "arrow-select", "noodles-bgzf"]

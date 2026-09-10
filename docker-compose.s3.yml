@@ -1,0 +1,122 @@
+# S3 stack with a disk key and no secrets backend — an override of docker-compose.yml.
+#
+# The base stack sources the node identity and the per-bucket S3 credentials from
+# Vault/OpenBao and turns PME on. This override swaps that for the other supported posture,
+# the one node.quickstart.toml calls "a real (S3-backed, crypt4gh) deployment": the
+# identity is a file and the S3 credentials come from the env overlay. No secrets backend
+# runs at all.
+#
+# It is an override, not a fork: it re-declares only what differs. The service definition,
+# security options (read-only rootfs, cap_drop, uid 65532), ports, healthcheck and data
+# volumes are all inherited from docker-compose.yml — there is no second copy to drift.
+#
+# Usage
+#   1. Mint the node's identity into compose/keys/node.c4gh — the node's key is the node's
+#      to generate, never the provider tool's:
+#
+#        gdi-node-standalone --config compose/node.s3.toml identity init \
+#            --file compose/keys/node.c4gh
+#
+#      (`--file` is needed here because the path this config names — /keys/node.c4gh — is
+#      the path inside the container, not on your host.) It writes the secret 0600 and its
+#      public half beside it as node.c4gh.pub: that .pub is what you hand to providers, and
+#      the node also serves it at {base_url}/.well-known/c4gh-recipient once running.
+#      Do not use `gdi-dataset-tool keys generate` — that mints the provider's key.
+#      compose/keys/ is gitignored: the secret key must never be committed.
+#   2. docker compose -f docker-compose.yml -f docker-compose.s3.yml --profile garage up -d
+#      `--profile minio` works too, but it needs the same endpoint/region overlay an
+#      external endpoint does — the node's defaults point at garage:3900/region "garage",
+#      which do not exist in a minio project, so it dials a name that never resolves:
+#        GDI_S3_ENDPOINT=http://minio:9000 GDI_S3_REGION=us-east-1 docker compose \
+#          -f docker-compose.yml -f docker-compose.s3.yml --profile minio up -d
+#   3. Your own bucket, no bundled backend: the same file with no profile, every S3 fact
+#      supplied (endpoint, region, bucket name, credentials), and your own node.toml when
+#      compose/node.s3.toml's `allow_http = true` / `path_style = true` do not fit:
+#        export S3_ACCESS_KEY=... S3_SECRET_KEY=...        # in the shell, never in a file
+#        COMPOSE_PROFILES= GDI_S3_ENDPOINT=https://s3.example.org GDI_S3_REGION=eu-central-1 \
+#          GDI_S3_BUCKET=my-bucket GDI_NODE_CONFIG=/absolute/path/node.toml \
+#          docker compose -f docker-compose.yml -f docker-compose.s3.yml up -d
+#      `COMPOSE_PROFILES=` (empty) overrides the committed .env, which would otherwise
+#      start Garage and OpenBao. The credential defaults below are the dev key, kept so
+#      step 2 stays one command: a forgotten export against a real bucket shows as the S3
+#      subsystem failing in /health/ready, never as the dev key working.
+#
+# Why `keyinit` exists
+#   The node runs as uid 65532 with a read-only root filesystem, and refuses to start on a
+#   group/other-readable key ([service].strict_key_perms, on by default). A host bind-mount
+#   preserves the host file's ownership, so uid 65532 cannot read a 0600 key owned by you —
+#   and relaxing it to 0644 trips strict_key_perms. Docker Compose `secrets:` do not help:
+#   outside Swarm their uid/gid/mode fields are ignored and the host ownership is preserved
+#   verbatim. So a one-shot root container installs the key into a named volume owned by the
+#   run uid, mode 0400: readable by the node, not readable by anyone else. This is the
+#   Compose analogue of a Kubernetes Secret volume with `fsGroup` + `defaultMode: 0400`.
+#
+#   Under Swarm this workaround is unnecessary: there `secrets:` does honour `uid`, `gid`
+#   and `mode`, so the key can be delivered natively (`uid: "65532"`, `gid: "65532"`,
+#   `mode: 0400`) with no root sidecar. No Swarm stack file ships here — a stack file for
+#   a hypothetical user is maintenance surface with nothing validating it — but if you
+#   deploy under Swarm, replace `keyinit` with a native secret rather than porting the
+#   sidecar across.
+
+services:
+  # One-shot, runs as root, exits before the node starts.
+  keyinit:
+    image: busybox:1.38.0
+    user: "0:0"
+    command:
+      - sh
+      - -c
+      - |
+        if [ ! -f /src/node.c4gh ]; then
+          echo "ERROR: no node identity at compose/keys/node.c4gh"
+          echo "       Put the node's crypt4gh SECRET key there, then re-run."
+          exit 1
+        fi
+        install -o 65532 -g 65532 -m 0400 /src/node.c4gh /keys/node.c4gh
+        echo "node identity installed: uid 65532, mode 0400 (readable by the node, nobody else)"
+    volumes:
+      - ./compose/keys:/src:ro
+      - keys:/keys
+    restart: "no"
+
+  gdi-node-standalone:
+    depends_on:
+      # The key must be in place before the node starts, or it boots keyless and silently
+      # ignores every .tar.c4gh it finds.
+      keyinit:
+        condition: service_completed_successfully
+    environment:
+      # No secrets backend. The base stack injects GDI_NODE__VAULT__ADDRESS / __TOKEN, and
+      # on a config with no [vault] block those synthesize a partial vault section — the
+      # node then refuses to boot with "invalid config: vault.kv_path is required". A bare
+      # key inherits from the host environment, which is normally unset — so nothing
+      # reaches the container. That is inheritance, not a guaranteed unset: a shell
+      # `export GDI_NODE__VAULT__TOKEN=...`, or an entry in an `--env-file`, is passed
+      # straight through and reproduces the boot failure described above. If you hit it,
+      # check your environment before your config.
+      GDI_NODE__VAULT__ADDRESS:
+      GDI_NODE__VAULT__TOKEN:
+      # The bucket credentials the base sources from Vault now come from the env overlay.
+      # Defaults match compose/garage-setup.sh's dev key; override for a real bucket, and
+      # keep real credentials out of this file (use a .env or your shell).
+      GDI_NODE__S3__BUCKETS__0__ACCESS_KEY_ID: ${S3_ACCESS_KEY:-GK0123456789abcdef01234567}
+      GDI_NODE__S3__BUCKETS__0__SECRET_ACCESS_KEY: ${S3_SECRET_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      # The bucket, from whichever name is set. Two exist, and this is the one file where
+      # both are live: S3_BUCKET is what the bundled backend creates (compose/garage-setup.sh,
+      # minio-setup, scripts/e2e/run-full.sh), GDI_S3_BUCKET is what the node addresses on an
+      # external endpoint (docker-compose.external.yml requires it). Chained rather than
+      # picking one, so setting either moves both halves of the stack: set S3_BUCKET alone
+      # and the node follows the bucket Garage just made; set GDI_S3_BUCKET alone and the
+      # external spelling still works. Set both and GDI_S3_BUCKET wins. Before this chain,
+      # either one alone pointed the node at a bucket nothing had created.
+      GDI_NODE__S3__BUCKETS__0__BUCKET: ${GDI_S3_BUCKET:-${S3_BUCKET:-gdi-datasets}}
+    volumes:
+      # Same mount point as the base's node.full.toml, so this replaces it (Compose merges
+      # volumes by container path). Overridable like the base's, for a node.toml of your
+      # own; an absolute path is required, a relative one resolves against this file's
+      # directory rather than your cwd.
+      - ${GDI_NODE_CONFIG:-./compose/node.s3.toml}:/etc/gdi-node-standalone/node.toml:ro
+      - keys:/keys:ro
+
+volumes:
+  keys:

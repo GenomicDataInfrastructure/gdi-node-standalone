@@ -1,0 +1,49 @@
+# The scrape-based shape: Prometheus Operator scrape config for the management plane.
+# Ships alongside the NetworkPolicy, because the policy admits the monitoring
+# namespace, and this is what then actually scrapes. Widening management_addr without
+# both gets you the exposure and no metrics.
+#
+# A cluster with an OTLP intake and nothing that scrapes does not want this file at
+# all: the node pushes its own traces and metrics there — see the overlays/push-telemetry/
+# overlay and docs/operating.md §16. Both shapes can coexist (push on, scrape too), but
+# a series that is both pushed and scraped is counted twice.
+#
+# Requires the Prometheus Operator CRDs. If you run plain Prometheus instead, scrape
+# gdi-node-standalone-management:9090/metrics directly.
+#
+# Two things to set on the Prometheus side. Neither is in this file, because neither
+# belongs to this object:
+#
+#   1. `spec.serviceMonitorSelector` on your `Prometheus` CR must match the label this
+#      object carries: `app.kubernetes.io/name: gdi-node-standalone`, written literally in
+#      `metadata.labels` below. This file is not in base/kustomization.yaml's
+#      `resources:`, so the base's `labels:` transformer never touches it — do not delete
+#      the literal as redundant. That is a different label set from the `spec.selector`
+#      below, which matches the management Service.
+#   2. `spec.serviceMonitorNamespaceSelector: {}` — the empty selector means "every
+#      namespace". The operator's default is the Prometheus CR's own namespace, and this
+#      ServiceMonitor is namespaced with the node while the NetworkPolicy story puts
+#      Prometheus in `monitoring`, so with the default the CR never selects this object and
+#      no target is ever discovered — silently, with a healthy-looking Prometheus.
+#
+# With both set, the shipped NetworkPolicy admits the operator-managed Prometheus pod with
+# no edit: its `app.kubernetes.io/name: prometheus` label is the operator's own
+# convention.
+#
+# The alert rules that consume these series are in compose/observability/rules/ — they
+# are backend-agnostic PromQL and translate directly.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gdi-node-standalone
+  labels:
+    app.kubernetes.io/name: gdi-node-standalone
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gdi-node-standalone
+      app.kubernetes.io/component: management
+  endpoints:
+    - port: management
+      path: /metrics
+      interval: 30s

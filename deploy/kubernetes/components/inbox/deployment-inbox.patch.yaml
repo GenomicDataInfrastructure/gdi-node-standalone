@@ -1,0 +1,115 @@
+# Strategic-merge patch: the fourth volume, the env overlay that points the node at it,
+# the ownership fix extended to cover it, and the `ops` sidecar that is the only way to
+# get a package into it on Kubernetes.
+#
+# Merge keys do the work here, which is why this is a strategic merge and not a JSON
+# patch: containers/initContainers merge by `name`, volumes by `name`, volumeMounts by
+# `mountPath`, env by `name`. So `fix-permissions` below adds one mount to the base's init
+# container without restating its command, and `gdi-node-standalone` gains one mount and
+# one variable without restating its probes, resources or security context. Anything that
+# has to be repeated here is a copy that will drift.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gdi-node-standalone
+spec:
+  template:
+    spec:
+      initContainers:
+        # The fresh inbox PVC is root-owned and world-writable exactly like the other two,
+        # and — unlike `data_dir` — the node does not tighten it. It warns instead, twice,
+        # on every boot: "UNSUPPORTED: a group/other-writable inbox is a multi-tenant
+        # plaintext inbox — a co-tenant can hijack an in-flight ingest via a symlink swap
+        # (TOCTOU)" and "a group/other-readable inbox exposes decrypted dataset content".
+        # Under fsGroup alone the directory is `root:65532 2775`, which is still both.
+        # Adding the mount is enough: the base's script globs the mounted paths.
+        - name: fix-permissions
+          volumeMounts:
+            - name: inbox
+              mountPath: /var/lib/gdi-node-standalone/inbox
+      containers:
+        - name: gdi-node-standalone
+          env:
+            # `[service].inbox` as an env overlay rather than a patched node.toml: the path
+            # then exists in exactly two places that Kubernetes itself keeps in step (this
+            # variable and the mountPath below), instead of in a third copy inside a
+            # ConfigMap that no apply can cross-check. A `[service].inbox` pointing at a
+            # path nothing mounts is not an apply error — it is a node that starts and then
+            # cannot write, on a read-only root filesystem.
+            - name: GDI_NODE__SERVICE__INBOX
+              value: /var/lib/gdi-node-standalone/inbox
+          volumeMounts:
+            - name: inbox
+              mountPath: /var/lib/gdi-node-standalone/inbox
+        # The ops sidecar: a small Alpine image carrying the two static musl binaries
+        # (see Dockerfile.ops), doing nothing but `sleep infinity` so there is a container
+        # to exec into. It exists because there is otherwise no way to feed the inbox on
+        # Kubernetes:
+        #
+        #   * `kubectl cp` into the node container fails — `exec: "tar": executable file
+        #     not found in $PATH`. The runtime image is distroless: no tar, no shell.
+        #   * `gdi-dataset-tool deploy --inbox` from a workstation only knows local
+        #     directories; `--management-url` covers `--wait`, not the drop.
+        #   * A separate helper pod cannot mount an RWO inbox while the node holds it, so
+        #     that route means scaling the node to zero — a public Beacon outage per drop.
+        #
+        # Same uid as the node, so a drop lands owned by 65532 with nothing to chown
+        # afterwards. Same pod, so the RWO claim is mounted once.
+        - name: ops
+          # Built from Dockerfile.ops; no image is published. Build and push it to your
+          # own registry alongside the node image, at the same version — it carries the
+          # node binary, whose operator verbs write the override store this node reads.
+          image: gdi-node-standalone-ops:latest
+          # No `command:` here. Dockerfile.ops already ends in
+          # `CMD ["sleep", "infinity"]`, and restating it would be a second copy of the
+          # same fact in a second repository artifact — the kind that drifts silently,
+          # because a container that idles the wrong way looks identical from the outside.
+          # If you build the sidecar from another image, one that has an entrypoint of its
+          # own, set `command:` here to keep it idle: this container must do nothing but
+          # wait to be exec'd into.
+          securityContext:
+            runAsUser: 65532
+            runAsGroup: 65532
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          # Idle: it runs `sleep`. Requests are here so the pod's QoS class does not change
+          # by adding it — a container without them makes the whole pod Burstable at best.
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+          volumeMounts:
+            # The landing area for `kubectl cp`, kept outside the inbox: the
+            # node's watcher would see a half-copied staging dir (`kubectl cp` is a
+            # streaming tar extract, not an atomic rename). Copy here, then let
+            # `gdi-dataset-tool deploy` do the atomic install into the inbox.
+            #
+            # Sized by the node's ephemeral storage. If your packages are large, give this
+            # a `sizeLimit` (and check the node's eviction thresholds) or point the copy at
+            # a second PVC instead.
+            - name: ops-staging
+              mountPath: /tmp
+            - name: inbox
+              mountPath: /var/lib/gdi-node-standalone/inbox
+            # The node's own lock-free operator verbs (`dataset hide/take-down/correct`,
+            # `overrides export/import`, `channel …`, `doctor`) run from here too, and they
+            # need the config, the override store, and `data_dir` — the used marker
+            # (`.override-store-used.json`) lives on the data volume. They take no data-dir
+            # writer lock, so they are safe against the running node; anything that does
+            # take it (`verify`, `identity`) refuses while the node serves, which is the
+            # intended answer, not a bug.
+            - name: config
+              mountPath: /etc/gdi-node-standalone
+              readOnly: true
+            - name: data
+              mountPath: /var/lib/gdi-node-standalone/datasets
+            - name: overrides
+              mountPath: /var/lib/gdi-node-standalone/overrides
+      volumes:
+        - name: inbox
+          persistentVolumeClaim:
+            claimName: gdi-node-standalone-inbox
+        - name: ops-staging
+          emptyDir: {}

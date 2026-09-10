@@ -1,0 +1,36 @@
+---
+source: crates/fairdp/tests/render.rs
+expression: nt
+---
+<https://gdi-ee.example.org/fairdp> <http://purl.org/dc/terms/conformsTo> <https://gdi-ee.example.org/fairdp/profile/service>
+<https://gdi-ee.example.org/fairdp> <http://purl.org/dc/terms/description> "Aggregated genomic metadata for GDI Estonia"
+<https://gdi-ee.example.org/fairdp> <http://purl.org/dc/terms/language> <http://publications.europa.eu/resource/authority/language/EST>
+<https://gdi-ee.example.org/fairdp> <http://purl.org/dc/terms/license> <https://creativecommons.org/licenses/by/4.0/>
+<https://gdi-ee.example.org/fairdp> <http://purl.org/dc/terms/publisher> _:c14n1
+<https://gdi-ee.example.org/fairdp> <http://purl.org/dc/terms/title> "GDI Estonia FAIR Data Point"
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DataService>
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://w3id.org/fdp/fdp-o#FAIRDataPoint>
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://w3id.org/fdp/fdp-o#MetadataService>
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#contactPoint> _:c14n0
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#endpointURL> <https://gdi-ee.example.org/fairdp>
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/ldp#contains> <https://gdi-ee.example.org/fairdp/catalog/empty-cat>
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/ldp#contains> <https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated>
+<https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#conformsToFdpSpec> <https://specs.fairdatapoint.org/v1.2/fdp-specs-v1.2.html>
+<https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#metadataCatalog> <https://gdi-ee.example.org/fairdp/catalog/empty-cat>
+<https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#metadataCatalog> <https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated>
+<https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#metadataIdentifier> <https://gdi-ee.example.org/fairdp>
+<https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#metadataIssued> "2026-01-01T00:00:00Z"^^<http://www.w3.org/2001/XMLSchema#dateTime>
+<https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#metadataModified> "2026-04-09T14:30:52.837Z"^^<http://www.w3.org/2001/XMLSchema#dateTime>
+_:c14n0 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2006/vcard/ns#Kind>
+_:c14n0 <http://www.w3.org/2006/vcard/ns#fn> "GDI Estonia"
+_:c14n0 <http://www.w3.org/2006/vcard/ns#hasEmail> <mailto:gdi@example.org>
+_:c14n0 <http://www.w3.org/2006/vcard/ns#hasURL> <https://gdi.ut.ee/contact>
+_:c14n1 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://xmlns.com/foaf/0.1/Agent>
+_:c14n1 <http://www.w3.org/ns/dcat#contactPoint> _:c14n2
+_:c14n1 <http://xmlns.com/foaf/0.1/homepage> <https://gdi.ut.ee>
+_:c14n1 <http://xmlns.com/foaf/0.1/mbox> <mailto:gdi@example.org>
+_:c14n1 <http://xmlns.com/foaf/0.1/name> "University of Tartu"
+_:c14n2 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/2006/vcard/ns#Kind>
+_:c14n2 <http://www.w3.org/2006/vcard/ns#fn> "GDI Estonia"
+_:c14n2 <http://www.w3.org/2006/vcard/ns#hasEmail> <mailto:gdi@example.org>
+_:c14n2 <http://www.w3.org/2006/vcard/ns#hasURL> <https://gdi.ut.ee/contact>

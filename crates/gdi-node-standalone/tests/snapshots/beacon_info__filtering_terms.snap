@@ -1,0 +1,14 @@
+---
+source: crates/gdi-node-standalone/tests/beacon_info.rs
+expression: v
+---
+{
+  "meta": {
+    "apiVersion": "v2.2.0",
+    "beaconId": "org.example.beacon",
+    "returnedSchemas": []
+  },
+  "response": {
+    "filteringTerms": []
+  }
+}

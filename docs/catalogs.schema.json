@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CatalogList",
+  "description": "The `GET /catalogs` body: every configured catalog, in id order.",
+  "type": "object",
+  "properties": {
+    "catalogs": {
+      "description": "The configured catalogs, sorted by id. Empty when the config declares none.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/CatalogEntry"
+      }
+    }
+  },
+  "required": [
+    "catalogs"
+  ],
+  "$defs": {
+    "CatalogEntry": {
+      "description": "One configured catalog: the `[catalogs]` key and its display title.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "description": "The catalog id: the `[catalogs]` key, which a manifest's `metadata.catalog` must\nmatch for the node to accept the package, and the `{id}` of `/fairdp/catalog/{id}`.",
+          "type": "string"
+        },
+        "title": {
+          "description": "The display title: the `[catalogs]` value, served as the catalog's `dct:title`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "title"
+      ]
+    }
+  }
+}

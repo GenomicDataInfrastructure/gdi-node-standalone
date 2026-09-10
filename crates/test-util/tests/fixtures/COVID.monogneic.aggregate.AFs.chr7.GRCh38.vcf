@@ -1,0 +1,16 @@
+##fileformat=VCFv4.1
+##FILTER=<ID=PASS,Description="All filters passed">
+##reference=GRCh38
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes">
+##INFO=<ID=AC_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes">
+##INFO=<ID=AC_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1)">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in called genotypes">
+##INFO=<ID=AF_FI,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the FI population">
+##INFO=<ID=AC_FI,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the FI population">
+##INFO=<ID=AC_FI_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the FI population">
+##INFO=<ID=AC_FI_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the FI population">
+##INFO=<ID=AN_FI,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the FI population">
+##contig=<ID=7>
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+7	5530601	.	G	A	100	PASS	AF=0.04250;AC=340;AC_Het=300;AC_Hom=20;AN=8000;AF_FI=0.04500;AN_FI=2658;AC_FI=120;AC_FI_Het=104;AC_FI_Hom=8

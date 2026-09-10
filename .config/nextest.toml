@@ -1,0 +1,39 @@
+# nextest configuration. `#[serial]` (serial_test) is the correctness mechanism for
+# env/global-state races, and it holds under plain `cargo test` too; the `heavy` test group
+# below is a resource concurrency cap layered on top, not a replacement.
+#
+# Both real profiles set `slow-timeout`. nextest's default marks a test slow after 60s and
+# then waits indefinitely, so a deadlocked test or a mock that never answers would hang the
+# gate with no output. `period` flags a test as slow; `terminate-after` kills it after that
+# many periods. 30s sits above the slowest tests of a normal run (the tool's
+# stalled-endpoint bound and the crypt4gh round-trip proptest), so neither is flagged, and
+# 4 periods gives a 120s hard kill. A test that legitimately needs longer should carry its
+# own harness timeout rather than raise this.
+[profile.default]
+# Local default: fast feedback.
+fail-fast = false
+slow-timeout = { period = "30s", terminate-after = 4 }
+
+[profile.ci]
+# CI: full signal, machine-readable output, no early exit.
+fail-fast = false
+failure-output = "immediate-final"
+slow-timeout = { period = "30s", terminate-after = 4 }
+[profile.ci.junit]
+path = "junit.xml"
+
+[profile.quick]
+# Fast unit+integration only: `cargo nextest run --profile quick`.
+# (Feature-gated heavy suites are absent without their --features.)
+fail-fast = true
+
+# Cap the resource-heavy feature-gated and real-endpoint suites so they do not contend for
+# sockets or the shared mock backends under --features full.
+[test-groups.heavy]
+max-threads = 2
+
+# Declared on `default` only. A profile's own `overrides` are additive rather than a
+# replacement, so `ci` and `quick` inherit this cap without restating it.
+[[profile.default.overrides]]
+filter = 'test(/s3_reconcile|vault_precedence|pme_roundtrip/)'
+test-group = 'heavy'

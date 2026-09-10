@@ -1,0 +1,195 @@
+[package]
+name = "gdi-node-standalone"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+# Set per-crate rather than inherited: the two binaries need distinct SBOM descriptions.
+description = "Standalone GDI node service: GA4GH Beacon v2.2 and FAIR Data Point endpoints over a local dataset registry."
+# Distributed as release binaries and container images, not via crates.io; the
+# LICENSE-* texts live at the workspace root and would not travel in a .crate.
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+# The default is the lite build: no S3, no Vault and no PME, so no `ring` and no outbound
+# network. `cargo build` and `cargo install` yield this.
+default = []
+
+# S3 bucket monitoring (`[[s3.buckets]]`). Pulls `object_store` with its reqwest/quick-xml
+# stack, and the internal `tls` group.
+s3 = ["tls", "dep:object_store", "dep:futures", "dep:time", "gdi-node-standalone-core/s3"]
+
+# The hand-rolled Vault KV/Transit client (`[vault]`), built on the reqwest/rustls stack
+# the `tls` group brings rather than a separate Vault crate. It pulls `reqwest` directly,
+# because object_store is an `s3`-only dependency and would not bring it under a vault-only
+# build, and `base64` for the KV/Transit JSON payloads. With the feature off, secrets come
+# from local `[keys]` files.
+vault = ["tls", "dep:reqwest", "dep:base64", "dep:thiserror"]
+
+# At-rest Parquet Modular Encryption. It implies `vault`, because PME needs a Vault Transit
+# master key, and turns on core's and beacon's `pme` (so `parquet/encryption`, so `ring`):
+# core mints and writes encrypted parquet, and the beacon scan decrypts through a cached
+# key retriever.
+pme = ["vault", "gdi-node-standalone-core/pme", "gdi-node-standalone-beacon/pme"]
+
+# Internal TLS group, enabled by `s3` or by `vault`; cargo cannot auto-enable from
+# "s3 OR vault", so both list it. It pulls `rustls` with `custom-provider`, which disables
+# the implicit built-in provider so `ring` must be installed explicitly, and the `ring`
+# provider itself. PME needs `ring` but not TLS, so the provider install is gated on `tls`
+# rather than on `ring`. It also pulls `reqwest` (the workspace `rustls-no-provider` pin,
+# no `aws-lc-rs`), since object_store 0.14's transport-agnostic `aws-base` client no longer
+# enables reqwest's TLS itself, and enables `core/http`, whose `tls::https_client_builder`
+# merges the bundled Mozilla `webpki-root-certs` onto the OS platform verifier (reqwest
+# 0.13 dropped its bundled-roots feature) so the static binary verifies TLS on a host with
+# no CA bundle. The Vault client and the S3 client share that one policy.
+tls = ["dep:rustls", "dep:reqwest", "gdi-node-standalone-core/http"]
+
+# The full, networked build: the container and bare-metal release artifacts, and what a
+# deployment runs. A plain `cargo build` is lite; `--features full` is this. `otel` is not
+# included, because trace export is a diagnostic capability rather than part of a shipped
+# artifact (see `.github/workflows/release.yml`).
+full = ["s3", "vault", "pme"]
+
+# Optional OpenTelemetry export, for diagnostics and for a deployment that ships straight
+# to an APM. It turns the existing `tracing` spans into exported OTLP traces when
+# `[service].otlp_endpoint` is set and, with `otlp_metrics_interval_seconds`, pushes the
+# `/metrics` series as OTLP metrics too (`metrics_otel.rs` fans a second recorder out
+# beside the Prometheus one, so `/metrics` stays authoritative). It is a no-op when unset.
+#
+# Export goes over OTLP/HTTP+protobuf through the blocking reqwest client, so the batch span
+# processor and the periodic metrics reader run on their own threads with no tokio-reactor
+# coupling. `otel` selects no TLS feature of its own — no tonic/gRPC and no rustls — so it
+# adds neither a TLS stack nor `aws-lc-rs`. That does not make the transport plain HTTP
+# only: cargo unifies features per crate, so in a build that also carries the `tls` group
+# the exporter's reqwest is the workspace's `rustls-no-provider` reqwest with the `ring`
+# provider installed at startup, and an `https://` endpoint is verified against the OS CA
+# bundle, failing closed on an untrusted CA. A lite build with `otel` has no TLS and is
+# `http://` only. The `profiles` gate leg asserts that the `full,otel` graph links no
+# aws-lc-sys. Exported spans are content-free by construction: the `audit` target is
+# filtered out.
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:tracing-opentelemetry",
+]
+
+[dependencies]
+gdi-node-standalone-core = { path = "../core" }
+gdi-node-standalone-beacon = { path = "../beacon" }
+gdi-node-standalone-fairdp = { path = "../fairdp" }
+# Shared compile-time build provenance (git SHA and build epoch) for `--version`,
+# `GET /version` and the `gdi_build_info` metric. Its build.rs is the only place the GDI_*
+# env vars resolve, and the tool links the same crate.
+gdi-build-info = { path = "../build-info" }
+anyhow = { workspace = true }
+# The operator CLI surface (`src/main.rs`).
+clap = { workspace = true }
+oxrdf = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }
+notify = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+# The public plane is served through a manual hyper accept loop rather than `axum::serve`,
+# so it can set `http1_header_read_timeout` and cap concurrent connections. Both crates are
+# already in the graph via axum; pinned exact, as everything else is.
+hyper = { version = "=1.11.0", default-features = false, features = ["server", "http1"] }
+hyper-util = { version = "=0.1.20", default-features = false, features = [
+  "server",
+  "server-graceful",
+  "service",
+  "tokio",
+] }
+# Operational surface: the metrics facade, the Prometheus recorder/exporter (no
+# HTTP-server features, so no aws-lc-rs) and `rustix` statvfs for disk-free sampling. On in
+# every build, lite included: the recorder installs at startup and `/metrics` is served on
+# the management-plane listener (`[service].management_addr`).
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+rustix = { workspace = true }
+# --- Optional, feature-gated deps (pinned exact). ---
+# S3 client (workspace `aws-base`/`ring`/`reqwest`, no `aws-lc-rs`). CA roots and the
+# process `ring` provider come from `core::tls`, pulled in by the `tls` group's
+# `core/http`; object_store installs no provider of its own and honours that one.
+object_store = { workspace = true, optional = true }
+# Stream combinators for object_store's `list` stream.
+futures = { workspace = true, optional = true }
+# RFC3339 timestamps for the `_status/{id}.json` writeback object; used under `s3` only.
+time = { workspace = true, optional = true }
+# rustls with `custom-provider`, which disables the implicit provider so `ring` must be
+# installed explicitly.
+rustls = { workspace = true, optional = true }
+# Transport for the hand-rolled Vault KV v2 + Transit client. Declared directly so a
+# vault-only build, without `s3`, still has it; CA roots come from
+# `core::tls::https_client_builder`, so one reqwest, one TLS stack and one roots policy
+# resolve across the binary.
+reqwest = { workspace = true, optional = true }
+# base64 for the Transit `datakey`/`decrypt` plaintext and base64-bodied KV values.
+base64 = { version = "=0.23.1", default-features = false, features = ["std"], optional = true }
+# Typed transient-vs-permanent Vault error, pulled in only under `vault`.
+thiserror = { workspace = true, optional = true }
+# zeroize-backed secret holders. Not optional: the file-based identity loader
+# (`identities.rs`, the no-Vault path) zeroizes its secret PEM too, so it is needed without
+# the `vault` feature as well.
+zeroize = { workspace = true }
+# --- Optional OpenTelemetry export (`otel` feature). ---
+# OTLP over HTTP+protobuf through the blocking reqwest client: default features off drops
+# the default `grpc-tonic` transport, so no tonic or h2. No rustls/TLS feature is selected
+# here; under `full` the unified workspace reqwest brings the ring-only rustls, and a lite
+# build with `otel` stays plain HTTP (see the `otel` feature note above).
+# `reqwest-blocking-client` lets the batch span processor and the periodic metrics reader
+# export synchronously off their own threads, and `metrics` on all three carries the OTLP
+# metrics push (`metrics_otel.rs`). None of these compile into the default or `full`
+# builds.
+opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "=0.33.0", default-features = false, optional = true }
+
+[dev-dependencies]
+test-util = { path = "../test-util" }
+# Enables core's `fault-injection` seam for the integration suite only. Dev-dependencies
+# are absent from the release build, so `tests/it` can arm ENOSPC and crash faults at the
+# durable-write and ingest-store chokepoints while every shipped binary keeps them a no-op.
+# See `gdi-node-standalone-core/src/faults.rs`.
+gdi-node-standalone-core = { path = "../core", features = ["fault-injection"] }
+gdi-dataset-tool = { path = "../gdi-dataset-tool" }
+serde-saphyr = { workspace = true }
+# Raw-TOML parse for the config-example completeness guard (tests/it/config_examples.rs).
+# It reads the keys the example actually contains, which parsing into `ServiceConfig` would
+# hide behind serde defaults.
+toml = { workspace = true }
+serial_test = { workspace = true }
+tempfile = { workspace = true }
+tower = { workspace = true }
+tar = { workspace = true }
+oxttl = { workspace = true }
+insta = { workspace = true, features = ["json"] }
+# The S3 reconcile integration tests (gated `#![cfg(feature = "s3")]`) wrap `ObjectStore`,
+# which needs `#[async_trait]`; wiremock serves their HTTP fixtures.
+async-trait = "=0.1.92"
+wiremock = "=0.6.5"
+# GA4GH Beacon wire-schema conformance (`tests/beacon_schema_conformance.rs`): validates
+# the node's real `/info`, `/configuration` and `/g_variants` bodies against the vendored
+# framework JSON Schemas. Default features off drops the `resolve-http` and `resolve-file`
+# retrievers — the test serves the vendored schema tree through its own blocking retriever
+# — so it pulls no TLS stack and keeps the ring-only, no-aws-lc-rs invariant.
+jsonschema = { version = "=0.51.0", default-features = false }
+
+# cargo-machete (unused-dependency gate) ignores. `time` is optional and feature-gated
+# behind `s3`, and machete's default scan does not enable features, so it flags a
+# dependency that is genuinely used under `--features s3`.
+[package.metadata.cargo-machete]
+ignored = ["time"]

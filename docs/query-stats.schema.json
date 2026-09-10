@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "QueryStatsSnapshot",
+  "description": "A point-in-time snapshot of every dataset's counters: the `GET /stats/queries` body.\n\n`startedAt` is the boot identity: it changes exactly when the process restarted and the\ncounters therefore restarted from zero. Entries for erased datasets persist until\nrestart, at four integers per dataset served this boot.",
+  "type": "object",
+  "properties": {
+    "asOf": {
+      "description": "When this snapshot was taken (RFC3339, node clock).",
+      "type": "string"
+    },
+    "datasets": {
+      "description": "Counters keyed by dataset id, including ids that are currently hidden. This is the\nsame disclosure class as the management plane's per-dataset state oracle.",
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/DatasetQueryStats"
+      }
+    },
+    "schemaVersion": {
+      "description": "Discriminator for the response shape; `1` today.",
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "startedAt": {
+      "description": "When the node process started (RFC3339, node clock), not when its config was last\nreloaded. A consumer keys reset detection on this, so a reload must not change it.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "startedAt",
+    "asOf",
+    "datasets"
+  ],
+  "$defs": {
+    "DatasetQueryStats": {
+      "description": "One dataset's usage counters, all counted since the node process started.\n\nMonotonic within a boot: a consumer differencing two snapshots with the same\n`startedAt` may treat `current - previous` as the traffic between them, and a negative\ndifference as a bug rather than a reset.",
+      "type": "object",
+      "properties": {
+        "consulted": {
+          "description": "How often this dataset was in the selection set of an answered `g_variants` query,\nat any granularity. This is the same set the audit line records as its\n`dataset_ids`. A query rejected before dataset resolution carries no attribution and\nis not counted.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "fairdpReads": {
+          "description": "How often this dataset's FAIR Data Point record was read, at `/fairdp/dataset/{id}`\nor `/fairdp/distribution/{id}`. Catalog-level reads are catalog-keyed, not\ndataset-keyed, and are not counted.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "hit": {
+          "description": "How often this dataset itself matched, meaning `exists = true` for this dataset\nrather than for the query as a whole. At `boolean` and `count` granularity the\nper-dataset outcome never reaches the wire, so this is the only place it is visible.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "listed": {
+          "description": "How often this dataset appeared in the served page of a Beacon `/datasets` response.\nA dataset beyond the requested page was not listed, so it is not counted.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "consulted",
+        "hit",
+        "listed",
+        "fairdpReads"
+      ]
+    }
+  }
+}

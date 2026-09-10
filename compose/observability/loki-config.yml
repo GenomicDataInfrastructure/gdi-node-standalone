@@ -1,0 +1,71 @@
+# Minimal single-binary Loki dev config for the observability overlay.
+#
+# auth_enabled: false (single-tenant dev), all state on the local filesystem
+# under /loki (mounted as a named volume), TSDB index with the current v13
+# schema. Not for production — no replication, no object store.
+#
+# Mounted at /etc/loki/local-config.yaml; the service is started with
+# `-config.file=/etc/loki/local-config.yaml`.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+storage_config:
+  tsdb_shipper:
+    active_index_directory: /loki/tsdb-index
+    cache_location: /loki/tsdb-cache
+  filesystem:
+    directory: /loki/chunks
+
+limits_config:
+  reject_old_samples: false
+  # Three days of container logs, then gone. `retention_period` is honoured only while the
+  # compactor's retention loop runs (compactor.retention_enabled below); with that off, this
+  # key is a no-op and the volume grows until `docker compose down -v`. 72h matches the
+  # overlay's Prometheus and Tempo, so a trace and its log lines expire together.
+  retention_period: 72h
+  allow_structured_metadata: true
+  volume_enabled: true
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  # Required alongside retention_enabled on Loki 3.x: retention is implemented as delete
+  # requests, and they need a store. Filesystem, like everything else here.
+  delete_request_store: filesystem
+
+ruler:
+  storage:
+    type: local
+    local:
+      directory: /loki/rules
+
+# Disable usage reporting in local dev.
+analytics:
+  reporting_enabled: false

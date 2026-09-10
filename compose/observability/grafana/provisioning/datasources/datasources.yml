@@ -1,0 +1,58 @@
+# Grafana datasource provisioning for the observability overlay.
+#
+# Three datasources, all resolved by Compose service name on the default network:
+#   * Prometheus (default) — metrics, including the curated gdi_* series.
+#   * Loki                 — container logs shipped by Alloy.
+#   * Tempo                — traces (node -> Alloy -> Tempo), with trace->logs
+#                            correlation back to Loki (trace->metrics / Service Graph
+#                            omitted: this overlay has no span-metrics generator).
+
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    jsonData:
+      # Link a log line's traceID (if present) straight to the Tempo trace view.
+      # The node emits single-line JSON, so the active span's OTel trace id appears
+      # as the span field `"trace_id":"<hex>"` (only under an `otel`-feature build with
+      # an `[service].otlp_endpoint` set). The `[._]` matches both the default json
+      # (`trace_id`) and the ecs (`trace.id`) LOG_FORMAT spellings, so the pivot survives
+      # `LOG_FORMAT=ecs`.
+      derivedFields:
+        - name: TraceID
+          matcherRegex: "\"trace[._]id\":\"(\\w+)\""
+          datasourceUid: tempo
+          url: "$${__value.raw}"
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    jsonData:
+      # Correlate a span to its container logs in Loki (trace -> logs). Best-effort in
+      # dev; safe to ignore if labels do not line up.
+      # tracesToMetrics and serviceMap (Service Graph) are deliberately absent: nothing in
+      # this overlay generates span/service-graph metrics (no Tempo metrics_generator, no
+      # Alloy spanmetrics/servicegraph connector), so those tabs would only render
+      # "No data". The node exports RED metrics natively (gdi_beacon_*, gdi_fairdp_*,
+      # gdi_vault_call_*, gdi_s3_*). Re-add them only if a span-metrics generator is
+      # wired in.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-1h"
+        spanEndTimeShift: "1h"
+        filterByTraceID: true

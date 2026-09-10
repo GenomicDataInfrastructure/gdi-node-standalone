@@ -1,0 +1,97 @@
+# Minimal Compose stack.
+#
+# The simplest runnable deployment: the gdi-node-standalone service only, with `inbox/`
+# and `datasets/` named volumes and plaintext-at-rest. No S3 backend (no Garage/minio)
+# and no secrets backend (no OpenBao/Vault) — the inbox-only workflow.
+#
+# Usage:
+#   docker compose -f docker-compose.minimal.yml up -d --build
+#   # drop a `gdi-dataset-tool build` staging dir + an {id}.state.json sidecar
+#   # into the `inbox` volume, then:
+#   curl http://localhost:9090/health/ready   # management plane (separate listener)
+#   curl http://localhost:8080/beacon/v2/g_variants -d '{...}'
+#
+# The image is the same full-feature binary as the full stack (a single image); the
+# minimal config does not configure S3/Vault, so those code paths stay dormant. (A
+# pure-lite image is the bare-metal `default`-features binary; the container ships the
+# full build.)
+
+# Cap container stdout/stderr logs (the json-file driver is unbounded by default) so a
+# long-lived dev stack cannot fill the Docker data root.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # The service runs as uid 65532 with a read-only root fs, so it cannot chown its own
+  # data volume. Rather than a root chown sidecar, the image pre-creates
+  # /var/lib/gdi-node-standalone/{datasets,inbox} owned by 65532 (see the WORKDIR block in
+  # the Dockerfile); Docker seeds a fresh named volume with that ownership. This is the
+  # Compose analogue of the Kubernetes `fsGroup` requirement — and unlike a PVC, a named
+  # volume needs no external step. A volume created by an older image is still
+  # root-owned: run `docker compose down -v` once to recreate it.
+
+  gdi-node-standalone:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # Build provenance. Unset, the Dockerfile's build.rs fallback cannot run either
+        # (`.dockerignore` excludes `.git` from the build context), so `/version` and
+        # `gdi_build_info{git_sha}` report "unknown" on every compose-built image —
+        # including this quickstart's. Pass both from the caller's git checkout:
+        #   GITHUB_SHA=$(git rev-parse HEAD) SOURCE_DATE_EPOCH=$(git log -1 --format=%ct) \
+        #     docker compose up --build
+        # See docs/deployment.md "Building your own image" for the same one-liner.
+        GITHUB_SHA: ${GITHUB_SHA:-}
+        SOURCE_DATE_EPOCH: ${SOURCE_DATE_EPOCH:-}
+    image: gdi-node-standalone:latest
+    logging: *default-logging
+    # Read-only root filesystem: the static binary needs no
+    # writable system paths; only the mounted data_dir/inbox are writable.
+    read_only: true
+    # Match the Dockerfile's non-root numeric uid:gid (distroless nonroot).
+    user: "65532:65532"
+    security_opt:
+      - no-new-privileges:true
+    # The service binds only :8080/:9090 (both >1024) as uid 65532, so it needs no
+    # Linux capabilities — drop them all to shrink the blast radius of any RCE.
+    cap_drop:
+      - ALL
+    # Disable core dumps (key-spill guard: the crypt4gh identity lives in memory).
+    ulimits:
+      core: 0
+    environment:
+      GDI_CONFIG: /etc/gdi-node-standalone/node.toml
+      # Quiet, structured logs by default; override for debugging.
+      RUST_LOG: ${RUST_LOG:-info}
+      # json (default), text, or ecs (Elastic Common Schema field names). GDI_LOG also
+      # overrides the level (preferred over RUST_LOG).
+      LOG_FORMAT: ${LOG_FORMAT:-json}
+    ports:
+      # Overridable so a second stack (or an e2e run) can coexist — see docs/deployment.md's
+      # "Overriding the dev-stack host ports" table.
+      - "${GDI_HOST_PORT_PUBLIC:-8080}:8080"   # public beacon/FDP
+      - "127.0.0.1:${GDI_HOST_PORT_MANAGEMENT:-9090}:9090"   # management plane (oracle + /metrics) — loopback, never public
+    volumes:
+      # The minimal sample config (keyless, inbox-only, plaintext-at-rest).
+      - ./compose/node.minimal.toml:/etc/gdi-node-standalone/node.toml:ro
+      # Durable state: named volume, never ephemeral — local-only inbox
+      # datasets have no other source of truth.
+      - datasets:/var/lib/gdi-node-standalone/datasets
+      - inbox:/var/lib/gdi-node-standalone/inbox
+      # No keys mount. This stack is keyless (see the header): a co-located node reading a
+      # local inbox has no untrusted channel to protect, so crypt4gh here buys nothing.
+      #
+      # For crypt4gh in Compose, do not hand-roll a keys mount here — a host bind-mount
+      # keeps the host file's ownership, so the node (uid 65532) cannot read your 0600 key,
+      # and loosening it to 0644 trips `strict_key_perms` and the node refuses to start.
+      # Use the S3 stack instead, which solves that with a root init container:
+      #   docker compose -f docker-compose.yml -f docker-compose.s3.yml --profile garage up
+    restart: on-failure
+
+volumes:
+  datasets:
+  inbox:

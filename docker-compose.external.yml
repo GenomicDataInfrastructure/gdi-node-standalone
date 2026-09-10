@@ -1,0 +1,67 @@
+# Bring-your-own backends — an override of docker-compose.yml that starts only the node.
+#
+# The base stack bundles a secrets backend (OpenBao/Vault) and an S3 backend
+# (Garage, or minio behind its profile) for development. This override runs the node against
+# infrastructure YOU already operate: your Vault or OpenBao, your S3-compatible object
+# store. No backend container is started, and no dev credential is defaulted.
+#
+# Usage
+#   1. cp .env.external.example .env.external   # then fill every <SET ME: ...> value
+#   2. docker compose --env-file .env.external \
+#        -f docker-compose.yml -f docker-compose.external.yml up -d
+#
+# Every backend in the base file is gated behind a Compose profile, and this override
+# selects none of them, so nothing else is created, started, or pulled. Do not set
+# COMPOSE_PROFILES alongside this override — the committed .env sets garage,openbao,
+# which would start the very backends you are replacing (pass --env-file as shown, which
+# supersedes it).
+#
+# No defaults are provided, on purpose. Every value below is `${VAR:?...}`, so Compose
+# fails loudly on an unset variable rather than silently falling back to the dev
+# credentials the base stack ships — a fallback that would point a real node at a
+# throwaway key, or worse, appear to work.
+#
+# The node's capabilities need nothing new for this: `[vault]` already takes any
+# address/namespace/auth, and `[[s3.buckets]]` already takes any endpoint/region/
+# path-style/credentials. This file is packaging, not a feature.
+
+services:
+  gdi-node-standalone:
+    # Drop the dev backends' start-ordering gates: none of those services exist here.
+    #
+    # Merge semantics: `depends_on` is a mapping, and Compose merges mappings by key
+    # rather than replacing them, so `depends_on: []` is inert — rendering base+external
+    # yields byte-identical `depends_on` to the base alone. It is harmless under the
+    # documented `--env-file .env.external` usage, because the base's entries are all
+    # `required: false` and profile-gated, so nothing starts. But it is not the safety net
+    # it looks like: with `COMPOSE_PROFILES` leaking in from a shell export, the node still
+    # gates on the very backends this overlay exists to replace. It is kept as the
+    # statement of intent; do not rely on it to override the base.
+    depends_on: []
+    environment:
+      # --- Secrets backend (yours) --------------------------------------------
+      GDI_NODE__VAULT__ADDRESS: ${GDI_VAULT_ADDR:?set GDI_VAULT_ADDR, e.g. https://vault.example.org}
+      # Supply exactly one auth method. AppRole is the norm for a long-running node;
+      # token_file is the credential-free shape (an agent sidecar refreshes the file, so
+      # no static secret is stored). Leave the ones you are not using unset: a bare key
+      # inherits from the host environment, where an unset variable passes nothing to the
+      # container. Setting both token and token_file is a preflight error.
+      GDI_NODE__VAULT__TOKEN:
+      GDI_NODE__VAULT__TOKEN_FILE:
+      GDI_NODE__VAULT__ROLE_ID:
+      GDI_NODE__VAULT__SECRET_ID:
+      # --- Object store (yours) -----------------------------------------------
+      GDI_NODE__S3__BUCKETS__0__ENDPOINT: ${GDI_S3_ENDPOINT:?set GDI_S3_ENDPOINT, e.g. https://s3.example.org}
+      GDI_NODE__S3__BUCKETS__0__REGION: ${GDI_S3_REGION:?set GDI_S3_REGION, e.g. us-east-1}
+      GDI_NODE__S3__BUCKETS__0__BUCKET: ${GDI_S3_BUCKET:?set GDI_S3_BUCKET}
+      # Omit these two when [vault].s3_path supplies the bucket credentials — but see the
+      # precedence trap in deployment.md: a stale value here wins silently unless s3_path
+      # is set. The startup log line `s3 credential source` reports which source won, per
+      # bucket (vault | config | anonymous).
+      GDI_NODE__S3__BUCKETS__0__ACCESS_KEY_ID:
+      GDI_NODE__S3__BUCKETS__0__SECRET_ACCESS_KEY:
+    volumes:
+      # Your own node.toml. Start from node.example.toml (annotated, exhaustive) or
+      # node.quickstart.toml (short) — not from the compose/ dev configs, which point at
+      # the bundled dev backends and set allow_http = true.
+      - ${GDI_NODE_CONFIG:?set GDI_NODE_CONFIG to the host path of your node.toml}:/etc/gdi-node-standalone/node.toml:ro

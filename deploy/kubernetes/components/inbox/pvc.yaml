@@ -1,0 +1,28 @@
+# The inbox: the drop directory the node watches for locally-installed packages, for a
+# node with no S3 channel (the "keyless, plaintext at rest" posture — see the README
+# section "Getting a dataset in on Kubernetes").
+#
+# Its own claim, not a subdirectory of the data volume: the inbox holds plaintext staging
+# material until ingest moves it, `.rejected/` retains failed drops for
+# `rejected_retention_hours`, and a drop is sized like a package rather than like a
+# dataset — so its capacity, its backup policy and its blast radius are all different
+# from `data_dir`'s.
+#
+# ReadWriteOnce, like the other two. That is node-scoped — "mountable read-write by pods
+# on one node" — so it does not by itself stop a second pod from writing here; it stops the
+# claim being spread across nodes. The sidecar shares it by being in the same pod, which is
+# what makes the drop path work without co-scheduling games or a scale to zero; anything
+# writing here from another pod races the node's inbox watcher whatever the access mode
+# says.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gdi-node-standalone-inbox
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      # Size from the drops you intend to make, not from the store: >= the largest package
+      # plus the one being ingested, plus whatever `.rejected/` retains. This is scratch,
+      # not durable state — everything here is either consumed by ingest or rejected.
+      storage: 50Gi

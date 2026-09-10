@@ -1,0 +1,87 @@
+##fileformat=VCFv4.1
+##FILTER=<ID=PASS,Description="All filters passed">
+##reference=GRCh38
+##INFO=<ID=AC,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes">
+##INFO=<ID=AC_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes">
+##INFO=<ID=AC_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes">
+##INFO=<ID=AC_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes">
+##INFO=<ID=AF,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1)">
+##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of samples with data">
+##INFO=<ID=AN,Number=1,Type=Integer,Description="Total number of alleles in called genotypes">
+##INFO=<ID=DP,Number=1,Type=Integer,Description="Total read depth; only low coverage data were counted towards the DP, exome data were not used">
+##INFO=<ID=MQ,Number=1,Type=Float,Description="RMS Mapping Quality">
+##INFO=<ID=AA,Number=1,Type=String,Description="Ancestral Allele. Format: AA|REF|ALT|IndelType. AA: Ancestral allele, REF:Reference Allele, ALT:Alternate Allele, IndelType:Type of Indel (REF, ALT and IndelType are only defined for indels)">
+##INFO=<ID=VT,Number=.,Type=String,Description="indicates what type of variant the line represents">
+##INFO=<ID=MULTI_ALLELIC,Number=0,Type=Flag,Description="indicates whether a site is multi-allelic">
+##contig=<ID=3>
+##bcftools_mergeVersion=1.14+htslib-1.14
+##bcftools_viewVersion=1.21+htslib-1.21
+##bcftools_mergeVersion=1.21+htslib-1.21
+##INFO=<ID=AC_EE_M_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the EE_M population">
+##INFO=<ID=AC_EE_M_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the EE_M population">
+##INFO=<ID=AC_EE_F_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the EE_F population">
+##INFO=<ID=AC_EE_F_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the EE_F population">
+##INFO=<ID=AC_LV_M_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the LV_M population">
+##INFO=<ID=AC_LV_M_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the LV_M population">
+##INFO=<ID=AC_LV_F_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the LV_F population">
+##INFO=<ID=AC_LV_F_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the LV_F population">
+##INFO=<ID=AC_FI_M_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the FI_M population">
+##INFO=<ID=AC_FI_M_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the FI_M population">
+##INFO=<ID=AC_FI_F_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the FI_F population">
+##INFO=<ID=AC_FI_F_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the FI_F population">
+##INFO=<ID=AC_EE_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the EE population">
+##INFO=<ID=AC_LV_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the LV population">
+##INFO=<ID=AC_FI_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the FI population">
+##INFO=<ID=AC_EE_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the EE population">
+##INFO=<ID=AC_LV_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the LV population">
+##INFO=<ID=AC_FI_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the FI population">
+##INFO=<ID=AC_EE_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the EE population">
+##INFO=<ID=AC_LV_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the LV population">
+##INFO=<ID=AC_FI_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the FI population">
+##INFO=<ID=AC_EE_M_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the EE_M population">
+##INFO=<ID=AC_EE_F_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the EE_F population">
+##INFO=<ID=AC_LV_M_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the LV_M population">
+##INFO=<ID=AC_LV_F_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the LV_F population">
+##INFO=<ID=AC_FI_M_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the FI_M population">
+##INFO=<ID=AC_FI_F_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the FI_M population">
+##INFO=<ID=AF_LV,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the LV population">
+##INFO=<ID=AC_LV,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the LV population">
+##INFO=<ID=AN_LV,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the LV population">
+##INFO=<ID=AF_FI,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the FI population">
+##INFO=<ID=AC_FI,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the FI population">
+##INFO=<ID=AN_FI,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the FI population">
+##INFO=<ID=AF_EE,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the EE population">
+##INFO=<ID=AC_EE,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the EE population">
+##INFO=<ID=AN_EE,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the EE population">
+##INFO=<ID=AC_M_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the M population">
+##INFO=<ID=AC_F_Het,Number=A,Type=Integer,Description="Total number of alternate alleles (type Het) in called genotypes for the F population">
+##INFO=<ID=AC_M_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the M population">
+##INFO=<ID=AC_F_Hom,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hom) in called genotypes for the F population">
+##INFO=<ID=AC_M_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the M population">
+##INFO=<ID=AC_F_Hemi,Number=A,Type=Integer,Description="Total number of alternate alleles (type Hemi) in called genotypes for the F population">
+##INFO=<ID=AF_F,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the F population">
+##INFO=<ID=AC_F,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the F population">
+##INFO=<ID=AN_F,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the F population">
+##INFO=<ID=AF_M,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the M population">
+##INFO=<ID=AC_M,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the M population">
+##INFO=<ID=AN_M,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the M population">
+##INFO=<ID=AF_EE_M,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the EE_M population">
+##INFO=<ID=AC_EE_M,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the EE_M population">
+##INFO=<ID=AN_EE_M,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the EE_M population">
+##INFO=<ID=AF_EE_F,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the EE_F population">
+##INFO=<ID=AC_EE_F,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the EE_F population">
+##INFO=<ID=AN_EE_F,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the EE_F population">
+##INFO=<ID=AF_FI_M,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the FI_M population">
+##INFO=<ID=AC_FI_M,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the FI_M population">
+##INFO=<ID=AN_FI_M,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the FI_M population">
+##INFO=<ID=AF_FI_F,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the FI_F population">
+##INFO=<ID=AC_FI_F,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the FI_F population">
+##INFO=<ID=AN_FI_F,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the FI_F population">
+##INFO=<ID=AF_LV_M,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the LV_M population">
+##INFO=<ID=AC_LV_M,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the LV_M population">
+##INFO=<ID=AN_LV_M,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the LV_M population">
+##INFO=<ID=AF_LV_F,Number=A,Type=Float,Description="Estimated allele frequency in the range (0,1) for the LV_F population">
+##INFO=<ID=AC_LV_F,Number=A,Type=Integer,Description="Total number of alternate alleles in called genotypes for the LV_F population">
+##INFO=<ID=AN_LV_F,Number=1,Type=Integer,Description="Total number of alleles in called genotypes for the LV_F population">
+#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO
+3	45823240	.	T	C	100	PASS	DP=21;MQ=59;AA=T|||;VT=SNP;AF_FI_M=0.08500;AN_FI_M=1400;AC_FI_M=119;AC_FI_M_Het=111;AC_FI_M_Hom=8;AF_EE=0.07143;AN_EE=2632;AC_EE=188;AC_EE_Het=168;AC_EE_Hom=20;AF_EE_M=0.07112;AN_EE_M=1392;AC_EE_M=99;AC_EE_M_Het=85;AC_EE_M_Hom=14;AF_LV_F=0.07230;AN_LV_F=1314;AC_LV_F=95;AC_LV_F_Het=83;AC_LV_F_Hom=11;AC_LV_F_Hemi=1;AF_FI=0.08427;AN_FI=2658;AC_FI=224;AC_FI_Het=208;AC_FI_Hom=16;AF_F=0.07581;AN_F=3812;AC_F=289;AC_F_Het=263;AC_F_Hom=26;AC_F_Hemi=0;AF_LV=0.07601;AN_LV=2710;AC_LV=206;AC_LV_Het=176;AC_LV_Hom=29;AC_LV_Hemi=1;AF_FI_F=0.08347;AN_FI_F=1258;AC_FI_F=105;AC_FI_F_Het=97;AC_FI_F_Hom=8;AF_M=0.07856;AN_M=4188;AC_M=329;AC_M_Het=289;AC_M_Hom=40;AC_M_Hemi=0;AF_LV_M=0.0791;AN_LV_M=1396;AC_LV_M=111;AC_LV_M_Het=93;AC_LV_M_Hom=18;AF_EE_F=0.07177;AN_EE_F=1240;AC_EE_F=89;AC_EE_F_Het=83;AC_EE_F_Hom=6;AF=0.07725;AC=618;AC_Het=552;AC_Hom=65;AC_Hemi=1;AN=8000;NS=4008

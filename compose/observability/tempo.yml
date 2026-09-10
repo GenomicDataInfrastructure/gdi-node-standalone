@@ -1,0 +1,57 @@
+# Minimal single-binary Tempo dev config for the observability overlay.
+#
+# Query API on :3200 (the Grafana datasource + Prometheus scrape), OTLP receivers on
+# :4317 (gRPC) and :4318 (HTTP). Traces are stored on the local filesystem under
+# /var/tempo (mounted as a named volume). Not for production — no object store, no HA.
+#
+# In the overlay, the node sends OTLP to Alloy and Alloy forwards to Tempo's
+# gRPC receiver (:4317). Tempo's own OTLP receivers are still enabled so a client
+# can send to it directly if desired.
+#
+# Mounted at /etc/tempo.yaml; started with `-config.file=/etc/tempo.yaml`.
+#
+# Schema: this matches the pinned `grafana/tempo:3.0.3` image. Tempo 3.0 removed the
+# top-level `ingester:` and `compactor:` blocks (the write path is live-store +
+# block-builder, and a backend-scheduler replaces the compactor) — a 2.x config carrying
+# them crash-loops the container on "field ingester/compactor not found". Keep this
+# config and the image version in step: bumping the image to a new major may require
+# another schema change here (see the Tempo migrate-to-<N> guide).
+#
+# Retention: Tempo 3.0 moved `compactor.compaction.block_retention` under the backend
+# scheduler, which decides what to delete, and the backend worker, which does it. Both are
+# set below to the 72h the overlay's Prometheus keeps, so a stack left running for weeks
+# does not grow without bound. A top-level `compaction:` is rejected; check any change with
+# `-config.verify=true`.
+
+server:
+  http_listen_port: 3200
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+backend_scheduler:
+  provider:
+    compaction:
+      compaction:
+        block_retention: 72h
+
+backend_worker:
+  compaction:
+    block_retention: 72h
+
+usage_report:
+  reporting_enabled: false

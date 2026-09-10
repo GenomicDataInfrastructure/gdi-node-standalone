@@ -1,0 +1,21 @@
+# The push-based shape, ready to apply:
+#
+#   kubectl apply -k deploy/kubernetes/overlays/push-telemetry
+#
+# Thin on purpose. Everything it does lives in ../../components/push-telemetry, so an
+# operator with their own overlay can list that component instead of copying anything.
+# Add your own customisations by writing your overlay with the same two lines plus your
+# patches, rather than editing this file.
+#
+# `../../base` is a sibling of this directory. Not `../../` (the alias) or `../`:
+# kustomize rejects a resource that is an ancestor of the kustomization loading it, and
+# rejects a file outside its own directory — so an overlay inside the base tree can never
+# render. That is why the base lives in its own subdirectory.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/push-telemetry

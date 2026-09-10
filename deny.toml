@@ -1,0 +1,84 @@
+# Scan the graph the project ships. Without `all-features`, cargo-deny resolves the default
+# feature set, while the released service binary and the container image are both built
+# `--features full` (Dockerfile, release.yml). Crates that enter only under the wider
+# resolve go unscanned then — including `base64`, a direct runtime dependency the `vault`
+# feature activates, and the whole opentelemetry/prost and schemars subtrees — so the
+# `[bans]` deny list below would not be enforced over them and an advisory against any of
+# them would be invisible to the gate.
+[graph]
+all-features = true
+
+[advisories]
+db-urls = ["https://github.com/rustsec/advisory-db"]
+yanked = "deny"
+# Declare the informational-advisory posture explicitly rather than inheriting cargo-deny's
+# built-in default, which has changed across releases. `all` means an `unmaintained` or
+# `unsound` RustSec advisory against any crate in the graph, first-party or transitive, is
+# an error. The other values are `workspace`, `transitive` and `none`.
+unmaintained = "all"
+unsound = "all"
+# An ignore here claims something about the outside world: that no upstream fix exists yet.
+# Every dependency carries an exact `=` pin, so nothing proposes the bump that would make
+# such a claim false, and a mute written once would read as true forever. The `deny` leg in
+# scripts/ci-local.sh therefore runs `-D advisory-not-detected`: the moment an ignored
+# advisory stops matching any crate, the mute has expired and the gate fails until it is
+# deleted. Do not add an ignore without a reason a future reader can re-check. The list is
+# empty.
+ignore = []
+
+[licenses]
+# Beyond the plain permissive set, each licence below is allowed because a named crate in
+# the shipped graph carries it. All are permissive or public-domain and OSI/FSF-acceptable.
+#
+#   CC0-1.0              notify, the inbox watcher. tiny-keccak is CC0 too, but reaches the
+#                        graph only through a build-only proc-macro path, and about.toml
+#                        ignores build dependencies, so it is absent from the shipped
+#                        THIRD-PARTY-LICENSES.md.
+#   Zlib                 zlib-rs, via noodles-bgzf, and foldhash, via hashbrown into
+#                        arrow-array and metrics-util.
+#   CDLA-Permissive-2.0  webpki-root-certs, the Mozilla CA root bundle data. It is in the
+#                        default resolve because the always-networked gdi-dataset-tool links
+#                        object_store and reqwest unconditionally; the service pulls it only
+#                        under its `tls` feature.
+#   Unicode-3.0          the ICU4X stack (icu_*, tinystr, zerovec, litemap, …) and
+#                        unicode-ident, pulled transitively via idna and url.
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "Zlib",
+]
+
+[bans]
+# `warn`, not `deny`, is a deliberate tradeoff. The duplicate versions in this tree are
+# upstream-driven and cannot be collapsed at this pin layer: the cross-platform
+# windows_*/r-efi shims, never linked on the deployed Linux targets; three RustCrypto/rand
+# generations that cannot be unified — crypt4gh's stable 0.10/0.6 line (`digest 0.10`,
+# `rand_core 0.6`, `getrandom 0.2`), object_store 0.14's newer line (`digest 0.11` via
+# `md-5`, `rand 0.10` with its `chacha20`/`cpufeatures`/`getrandom 0.4`) and metrics/otel's
+# `rand 0.9`, with crypt4gh unable to advance while `blake2 0.11` and `x25519-dalek 3.0`
+# are pre-release only; and the `tower-http` 0.6.11 that `reqwest` pulls alongside the
+# service's own `=0.7.0`. A hard `deny` would need a hand-maintained `skip`/`skip-tree`
+# list enumerating every one of those, plus care that never-linked shims do not
+# false-positive. `warn` keeps the count visible on every reviewed dependency bump; move to
+# `deny` plus a curated `skip-tree` if an unexpected new duplicate that a pin could collapse
+# starts appearing.
+multiple-versions = "warn"
+# `aws-lc-rs` and `aws-lc-sys` are banned outright, so the TLS stack stays on `ring` alone.
+# `ring` below 0.17.14 is denied because the 0.17.13 AVX2 regression breaks Windows
+# cross-compiles.
+deny = [{ name = "ring", version = "<0.17.14" }, { name = "aws-lc-rs" }, { name = "aws-lc-sys" }]
+
+# Pin where crates may come from: the public crates.io registry only, and no git
+# dependencies. A direct or transitive dependency pulled from another registry or a git URL
+# is then a hard `cargo deny` failure, which closes a supply-chain vector the advisory,
+# licence and ban scans do not cover. There are no git dependencies in the tree, so no
+# `allow-git` entry is needed.
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

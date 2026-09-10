@@ -1,0 +1,764 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Manifest",
+  "description": "The full generated manifest.",
+  "type": "object",
+  "properties": {
+    "config": {
+      "description": "Processing options.",
+      "$ref": "#/$defs/ManifestConfig"
+    },
+    "files": {
+      "description": "Inventory of the provider's source inputs, the VCF and BAM files the dataset was\nbuilt from, with their checksums and sizes. This is upstream provenance, not the\nParquet payload the node serves. Non-public: the node strips this section at\ningest, and only an integrating system's registry reads it.",
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/FileGroup"
+      }
+    },
+    "internal": {
+      "description": "Non-public bookkeeping (node-opaque).",
+      "$ref": "#/$defs/Internal",
+      "default": {}
+    },
+    "metadata": {
+      "description": "FDP-public, per-dataset metadata.",
+      "$ref": "#/$defs/ManifestMetadata"
+    },
+    "payload": {
+      "description": "Digests of the packaged payload: the TAR members the package carries.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Payload"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "metadata",
+    "config"
+  ],
+  "$defs": {
+    "Agent": {
+      "description": "An agent (creator / contributor). Maps to `foaf:Agent`.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "`foaf:name`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "Assembly": {
+      "description": "The dataset assembly the node reads (`config.assembly`): just the build `reference`.",
+      "type": "object",
+      "properties": {
+        "reference": {
+          "description": "Assembly build, e.g. `GRCh38`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference"
+      ]
+    },
+    "ContactPoint": {
+      "description": "A vCard-style contact point (`vcard:Kind`).",
+      "type": "object",
+      "properties": {
+        "fn": {
+          "description": "`vcard:fn` (required when a contact point is present).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasEmail": {
+          "description": "`vcard:hasEmail` (required when a contact point is present).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasURL": {
+          "description": "`vcard:hasURL` (optional; recommended sub-field).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "ConversionDiscarded": {
+      "description": "What the projection discarded. Only the four `records_*` counts are whole records.",
+      "type": "object",
+      "properties": {
+        "alleles": {
+          "description": "ALT alleles dropped from records that survived on another ALT. These are invisible\nin the two counts above, because those records were published.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "ignoredInfoFields": {
+          "description": "INFO field IDs that looked like AF/AC/AN metrics but did not match the population\ngrammar (`EUR_AF`, `AF_nfe`, …). Their columns are gone.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "populationsWithoutAf": {
+          "description": "Populations carrying `AC` and `AN` but no `AF`. They emit no rows, and are the only\nexplanation for a non-zero `suppressed.variantsCollapsedToTotal` when the floor is\nzero.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "recordsAllRowsWithheld": {
+          "description": "Records that survived both filters but emitted no row because the k-anonymity floor\nwithheld every one of them (including its coherence collapse).\n\nAbsent on a manifest written before this counter existed; such a manifest simply\ncannot close the record identity documented on `output`.\n\nFloor-attributable only. A record that emitted nothing because the input carried no\nallele frequency is counted in `recordsNoAf` instead, so a build with the floor\nswitched off cannot report records here.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
+        },
+        "recordsNoAf": {
+          "description": "Records that survived both filters but emitted no row because no population had an\nallele frequency to emit (the input carried no usable `AF`).\n\nAbsent on a manifest written before this counter existed. On such a manifest these\nrecords are folded into `recordsAllRowsWithheld`, so the identity still closes, with\nthe older and coarser attribution.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
+        },
+        "recordsNoSupportedAlt": {
+          "description": "Records with no supported ALT left (symbolic, breakend, `*`, or ALT == REF).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "recordsUnsupportedContig": {
+          "description": "Records on a non-primary-assembly contig (decoy, `_alt`, `chrUn_`, `HLA-`).",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "recordsUnsupportedContig",
+        "recordsNoSupportedAlt",
+        "alleles",
+        "ignoredInfoFields",
+        "populationsWithoutAf"
+      ]
+    },
+    "ConversionInput": {
+      "description": "Facts about the source VCF. Nothing here was discarded.",
+      "type": "object",
+      "properties": {
+        "gvcfReferenceBlocks": {
+          "description": "Records carrying a gVCF `<NON_REF>` reference block. Non-zero means the input was a\ngVCF rather than a sites or allele-frequency VCF. A subset of\n`discarded.recordsNoSupportedAlt`, not a peer of it.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "nonPassRecords": {
+          "description": "Records whose `FILTER` was neither `PASS` nor missing. They were converted anyway:\nthe converter does not gate on `FILTER`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "populationsRecognized": {
+          "description": "Population labels the header declared, including `AC`/`AN`-only ones. A superset of\n`output.populations`.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "records": {
+          "description": "Records read: the denominator for every drop count.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "records",
+        "nonPassRecords",
+        "gvcfReferenceBlocks",
+        "populationsRecognized"
+      ]
+    },
+    "ConversionOutput": {
+      "description": "What reached parquet. `rows + suppressed.rowsBelowFloor + suppressed.rowsCollapsedToTotal`\nequals the rows that would exist at `minAlleleCount = 0`.\n\n# The record identity\n\n`output.recordsEmitted` closes the loop that `output.records` cannot:\n\n```text\ninput.records == discarded.recordsUnsupportedContig\n               + discarded.recordsNoSupportedAlt\n               + discarded.recordsAllRowsWithheld\n               + discarded.recordsNoAf\n               + output.recordsEmitted\n```\n\nIt is stated over records, not loci, because no identity can link `output.records` to\n`input.records`. `output.records` counts distinct `(chr, POS, REF, ALT)` alleles, so\nmulti-allelic splitting inflates it, and loci shared across a dataset's VCFs deflate it.\nWithout the identity a manifest can report an input count, every `discarded` counter at\nzero, and a smaller output count, losing real variants with nothing to account for them.",
+      "type": "object",
+      "properties": {
+        "populations": {
+          "description": "Population labels that actually reached parquet.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "records": {
+          "description": "Distinct `(chr, POS, REF, ALT)` loci this VCF produced.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "recordsEmitted": {
+          "description": "Input records that emitted at least one row: the term that closes the record\nidentity above. Absent on manifests written before it existed.",
+          "type": "integer",
+          "format": "uint64",
+          "default": 0,
+          "minimum": 0
+        },
+        "rows": {
+          "description": "Total parquet rows written.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "records",
+        "rows",
+        "populations"
+      ]
+    },
+    "ConversionStats": {
+      "description": "What `build` discarded when projecting one source VCF into the 11-column parquet\nschema, ordered along the pipeline: input, then what the projection discarded, then\nwhat disclosure control withheld, then output.\n\n# Trust\n\nThis is an unverified provider claim. The source VCFs are not shipped in the package,\nso the sibling `sha256` is already a digest of a file no consumer receives, and these\ncounters are the same trust class: a claim by the provider's own tool about a\ntransformation nobody downstream can re-run. The node strips the whole `files` section\nat ingest, so it never influences serving.",
+      "type": "object",
+      "properties": {
+        "discarded": {
+          "description": "What the projection threw away.",
+          "$ref": "#/$defs/ConversionDiscarded"
+        },
+        "input": {
+          "description": "Observations about the VCF as read. Its records were kept.",
+          "$ref": "#/$defs/ConversionInput"
+        },
+        "output": {
+          "description": "What reached parquet.",
+          "$ref": "#/$defs/ConversionOutput"
+        },
+        "suppressed": {
+          "description": "What the `min_allele_count` floor and its coherence collapse withheld.",
+          "$ref": "#/$defs/ConversionSuppressed"
+        }
+      },
+      "required": [
+        "input",
+        "discarded",
+        "suppressed",
+        "output"
+      ]
+    },
+    "ConversionSuppressed": {
+      "description": "What the k-anonymity floor withheld. The floor itself is recorded in `config`.",
+      "type": "object",
+      "properties": {
+        "rowsBelowFloor": {
+          "description": "Population rows whose `AC` was below `config.minAlleleCount`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "rowsCollapsedToTotal": {
+          "description": "Further rows removed by the coherence collapse: siblings of a withheld row,\ndiscarded regardless of their own `AC`.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        },
+        "variantsCollapsedToTotal": {
+          "description": "Variant/allele groups that lost at least one row to the collapse.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "rowsBelowFloor",
+        "rowsCollapsedToTotal",
+        "variantsCollapsedToTotal"
+      ]
+    },
+    "DatasetMode": {
+      "description": "The kind of genomic data a dataset package carries (`config.mode`).\n\nThis is the data-content axis, distinct from the Beacon request granularity (boolean,\ncount or record) and from the `individuals` entry-type endpoint name. Only `aggregated`\nis implemented. `individual` is reserved for the individual-level record tier, and both\npackage validation and ingest reject it.",
+      "oneOf": [
+        {
+          "description": "Aggregated allele frequencies, or cohort summary statistics. The only mode built.",
+          "type": "string",
+          "const": "aggregated"
+        },
+        {
+          "description": "Individual-level genotypes, one record per sample. Reserved, not yet supported.",
+          "type": "string",
+          "const": "individual"
+        }
+      ]
+    },
+    "FileEntry": {
+      "description": "A manifest file entry: always the object form, with `sha256` and `size` computed.",
+      "type": "object",
+      "properties": {
+        "conversion": {
+          "description": "What the VCF to parquet projection discarded when building from this file. Present\nonly on entries the converter processed; a `BAM` group's entries omit it.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ConversionStats"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "description": "The source input's path, relative to the `package.yaml` directory, or the operator's\ndeclared string when the file lives outside it. This is not an in-package member\nname: the source files are never shipped in the package.",
+          "type": "string"
+        },
+        "sha256": {
+          "description": "SHA-256 checksum (64 hex chars).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "File size in bytes.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "FileGroup": {
+      "description": "A group of files of one category (e.g. `VCF`, `BAM`).",
+      "type": "object",
+      "properties": {
+        "category": {
+          "description": "File category; `VCF` is the one reserved value (case-insensitive).",
+          "type": "string"
+        },
+        "files": {
+          "description": "The files in this group (manifest form: all checksums/sizes computed).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/FileEntry"
+          }
+        },
+        "preciseReference": {
+          "description": "Patch-level provenance (not used for matching).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reference": {
+          "description": "Assembly build (required on the VCF group, optional otherwise).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "category",
+        "files"
+      ]
+    },
+    "HeaderPolicy": {
+      "description": "What the packaged `headers/{vcfId}.vcf` members contain.\n\nRecorded in the non-public `internal` section, which the node strips at ingest and an\nintegrating system reads, so a consumer knows what it holds without re-deriving it and a\npackage claiming a restrictive policy can be checked rather than trusted.\n\nEvery value names something checkable. There is no \"mostly full\" middle value: a\nsanitiser whose output cannot be characterised is worse than none, because the consumer\ncannot know what was removed and a reviewer cannot check the claim.",
+      "oneOf": [
+        {
+          "description": "No `headers/` member at all (`--no-headers`).",
+          "type": "string",
+          "const": "none"
+        },
+        {
+          "description": "Structural keys only (`fileformat`, `INFO`, `FORMAT`, `FILTER`, `contig`,\n`reference`, `assembly`), with `#CHROM` truncated to the eight fixed columns.\n\nThe default. An allow-list, not a deny-list: every mainstream toolchain stamps its\nown command line into the header (`##bcftools_viewCommand`, `##GATKCommandLine`,\n`##DRAGENCommandLine`, `##source`), each carrying whatever was on that command line,\nincluding sample identifiers and internal filesystem paths. A deny-list needs an\nentry per tool and fails open for the key nobody has invented yet.",
+          "type": "string",
+          "const": "minimal"
+        },
+        {
+          "description": "`Minimal` plus the structured subject identifiers: the `#CHROM` sample columns and\nthe `##SAMPLE` and `##PEDIGREE` lines. Free-text command lines are still dropped.\n\nOpt-in. Whether subject identifiers may travel in a package is a data-protection\ndecision, not an engineering one.",
+          "type": "string",
+          "const": "with-identifiers"
+        },
+        {
+          "description": "The source header byte-for-byte, including command lines, filesystem paths and\nanything else the producing toolchain stamped in. Verifiable by comparing against\nthe source; opt-in for the same reason as `WithIdentifiers`, and then some.",
+          "type": "string",
+          "const": "verbatim"
+        }
+      ]
+    },
+    "Internal": {
+      "description": "Non-public bookkeeping (node-opaque; stripped at ingest; read only by an integrating\nsystem, if one is run).",
+      "type": "object",
+      "properties": {
+        "headerPolicy": {
+          "description": "What the packaged `headers/` members contain. Absent on packages built before the\npolicy existed, which a consumer must treat as unknown rather than as any particular\npolicy. Those packages were effectively `verbatim` apart from the `#CHROM` line.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HeaderPolicy"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "internalId": {
+          "description": "Optional organisation-internal handle. The node assigns it no meaning; it travels in\nthe non-public section for whoever consumes that section to interpret.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pastVersion": {
+          "description": "Optional single dataset ID this one supersedes (immediate predecessor).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "LocalizedText": {
+      "description": "Either a plain string or a BCP-47 language map (e.g. `{en: \"...\", et: \"...\"}`).\n\nUsed for the localized `title` and `description` fields.",
+      "anyOf": [
+        {
+          "description": "Single untagged value.",
+          "type": "string"
+        },
+        {
+          "description": "Language-tagged values, keyed by BCP-47 tag.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "ManifestConfig": {
+      "description": "The `config` section of a manifest: the node-visible processing and provenance fields.\n\nUnlike the rest of the manifest, `config` rejects unknown keys. It is a small,\ncontrolled set of security-relevant knobs, notably `minAlleleCount`, so a mistyped key\nsuch as `minAlleleCnt` fails loudly at ingest instead of dropping to the default. The\n`metadata` and `files` sections stay lenient, so the DCAT-style `metadata` can grow\nadditive fields without an older node rejecting the package. An additive `config` field\nrequires a coordinated tool and node deploy.",
+      "type": "object",
+      "properties": {
+        "afSource": {
+          "description": "Allele-frequency provenance source (free text).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "afSourceReference": {
+          "description": "Allele-frequency provenance source reference (URL).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "assembly": {
+          "description": "Dataset assembly the node reads (promoted from the VCF group).",
+          "$ref": "#/$defs/Assembly"
+        },
+        "blockRange": {
+          "description": "Position-based block range in bases (0 = single file per chromosome).",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0
+        },
+        "generatedBy": {
+          "description": "Tool identity that produced the manifest.",
+          "type": "string"
+        },
+        "hideLowerCounts": {
+          "description": "Declared sensitive-tier individual-match-count floor (recorded, not applied here).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "manifestVersion": {
+          "description": "Manifest schema version (bumped only on a backwards-incompatible change). This\nbuild of the tool writes, and this build of the node accepts, exactly the value the\nschema bounds it to.",
+          "type": "integer",
+          "format": "uint32",
+          "maximum": 1,
+          "minimum": 1
+        },
+        "minAlleleCount": {
+          "description": "AC floor applied at build (0 = off). Counts alleles, not individuals: a homozygote\ncontributes 2 to AC, so use about 2k for k distinct people, for example 10 for\nk = 5. It bounds singleton and small-cell re-identification only. No floor value\nprevents multi-variant membership inference, which operates on the common variants\nthat always survive.",
+          "type": "integer",
+          "format": "uint32",
+          "default": 0,
+          "minimum": 0
+        },
+        "mode": {
+          "description": "Data-content mode; `aggregated` = allele frequencies (the only mode implemented).",
+          "$ref": "#/$defs/DatasetMode"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "blockRange",
+        "assembly",
+        "manifestVersion",
+        "generatedBy"
+      ]
+    },
+    "ManifestMetadata": {
+      "description": "The `metadata` section of a manifest.",
+      "type": "object",
+      "properties": {
+        "accessRights": {
+          "description": "Access rights authority IRI (`PUBLIC` / `RESTRICTED` / `NON_PUBLIC`).",
+          "type": "string"
+        },
+        "applicableLegislation": {
+          "description": "Legislation mandating the dataset (EU ELI IRIs, >= 1).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "catalog": {
+          "description": "Catalog name; must match a catalog defined in the service config.",
+          "type": "string"
+        },
+        "conformsTo": {
+          "description": "Standards-compliance IRIs.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "contactPoint": {
+          "description": "Dataset-level contact point.",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ContactPoint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "creator": {
+          "description": "Creating agents (>= 1).",
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Agent"
+          }
+        },
+        "datasetId": {
+          "description": "Generated dataset ID (replaces `prefix`/`org`).",
+          "type": "string"
+        },
+        "description": {
+          "description": "Free-text description (plain string or language map). Required.",
+          "anyOf": [
+            {
+              "description": "Single untagged value.",
+              "type": "string"
+            },
+            {
+              "description": "Language-tagged values, keyed by BCP-47 tag.",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
+          ]
+        },
+        "healthCategory": {
+          "description": "GDI health category IRIs (>= 1).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "isReferencedBy": {
+          "description": "Publication DOI IRIs.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "keywords": {
+          "description": "Tags for discovery (recommended).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "legalBasis": {
+          "description": "DPV legal basis IRIs (for real personal data).",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "license": {
+          "description": "Reuse license for this dataset (IRI).",
+          "type": "string"
+        },
+        "numberOfRecords": {
+          "description": "Computed: distinct `(chromosome, POS, REF, ALT)` variants the dataset serves.\n\nOptional in this schema, but required by the node at ingest. It is served verbatim\nin the public FDP and DCAT records and cross-checked against the parquet data, so a\npackage that omits it or miscounts is rejected.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "numberOfUniqueIndividuals": {
+          "description": "Distinct sequenced subjects across the whole dataset (recommended).",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "otherIdentifier": {
+          "description": "Secondary identifiers.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/OtherIdentifier"
+          }
+        },
+        "populations": {
+          "description": "Computed: the sorted population labels the dataset serves, the union of every source\nVCF's emitted set after the build-time `minAlleleCount` floor.\n\nIt sits in `metadata` rather than `files` because the node strips `files` at ingest,\nso the per-VCF conversion statistics never reach serve time. Without this field a\nBeacon client can only union the labels that happen to come back from variant\nqueries, which suppression can truncate.\n\nAbsent on a manifest written before the field existed. The node then advertises no\npopulation set rather than an empty one.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "title": {
+          "description": "Dataset title (plain string or language map).",
+          "$ref": "#/$defs/LocalizedText"
+        },
+        "type": {
+          "description": "Dataset type IRI, set only for synthetic datasets.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "datasetId",
+        "catalog",
+        "title",
+        "description",
+        "accessRights",
+        "applicableLegislation",
+        "license",
+        "creator",
+        "healthCategory"
+      ]
+    },
+    "OtherIdentifier": {
+      "description": "A secondary identifier (`adms:identifier`).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Optional human-readable name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notation": {
+          "description": "`skos:notation` (required within the identifier).",
+          "type": "string"
+        },
+        "schemaAgency": {
+          "description": "`adms:schemaAgency` (recommended within the identifier).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "notation"
+      ]
+    },
+    "Payload": {
+      "description": "The `payload` section: what the package ships, as opposed to what it was built from.",
+      "type": "object",
+      "properties": {
+        "algorithm": {
+          "description": "Digest algorithm; `sha256` is the only value this tool writes or accepts.",
+          "type": "string",
+          "enum": [
+            "sha256"
+          ]
+        },
+        "members": {
+          "description": "Every packaged member except `manifest.json` itself, keyed by TAR member name\n(`headers/{vcfid}.vcf`, `allele-freq.*.parquet`) and sorted by key. These are the\npackaged bytes. The provider's source inventory is the manifest's top-level\n`files`.",
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PayloadEntry"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "members"
+      ]
+    },
+    "PayloadEntry": {
+      "description": "One packaged member's digest and size.",
+      "type": "object",
+      "properties": {
+        "sha256": {
+          "description": "SHA-256 of the member's bytes as packed (64 lowercase hex chars).",
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size": {
+          "description": "The member's size in bytes.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "size"
+      ]
+    }
+  }
+}

@@ -1,0 +1,184 @@
+---
+source: crates/beacon/tests/it/assemble.rs
+expression: resp
+---
+{
+  "meta": {
+    "beaconId": "ee.ut.af-beacon.production",
+    "apiVersion": "v2.2.0",
+    "returnedGranularity": "record",
+    "returnedSchemas": [
+      {
+        "entityType": "genomicVariant",
+        "schema": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/v2.2.0/models/json/beacon-v2-default-model/genomicVariations/defaultSchema.json"
+      }
+    ],
+    "receivedRequestSummary": {
+      "apiVersion": "v2.2.0",
+      "requestedGranularity": "record",
+      "testMode": false,
+      "includeResultsetResponses": "HIT",
+      "requestedSchemas": [],
+      "pagination": {
+        "skip": 0,
+        "limit": 10
+      }
+    }
+  },
+  "responseSummary": {
+    "exists": true,
+    "numTotalResults": 1
+  },
+  "response": {
+    "resultSets": [
+      {
+        "beaconId": "ee.ut.af-beacon.production",
+        "id": "GDI-EE-UTARTU-20260409143052837",
+        "setType": "dataset",
+        "exists": true,
+        "resultsCount": 1,
+        "results": [
+          {
+            "variantInternalId": "2acafa5856c6047cf9e1ca0321d6098bddac28ae596b46eee4b2eccd50d5cf2c",
+            "variation": {
+              "location": {
+                "type": "SequenceLocation",
+                "sequence_id": "refseq:NC_000003.12",
+                "interval": {
+                  "type": "SequenceInterval",
+                  "start": {
+                    "type": "Number",
+                    "value": 45823239
+                  },
+                  "end": {
+                    "type": "Number",
+                    "value": 45823240
+                  }
+                }
+              },
+              "referenceBases": "T",
+              "alternateBases": "C",
+              "variantType": "SNP"
+            },
+            "identifiers": {
+              "genomicHGVSId": "NC_000003.12:g.45823240T>C"
+            },
+            "frequencyInPopulations": [
+              {
+                "source": "The Genome of Europe",
+                "sourceReference": "https://gdi-ee.example.org",
+                "frequencies": [
+                  {
+                    "population": "EE",
+                    "alleleFrequency": 0.07143,
+                    "alleleCount": 188,
+                    "alleleNumber": 2632,
+                    "alleleCountHomozygous": 20,
+                    "alleleCountHeterozygous": 168
+                  },
+                  {
+                    "population": "EE_F",
+                    "alleleFrequency": 0.07177,
+                    "alleleCount": 89,
+                    "alleleNumber": 1240,
+                    "alleleCountHomozygous": 6,
+                    "alleleCountHeterozygous": 83
+                  },
+                  {
+                    "population": "EE_M",
+                    "alleleFrequency": 0.07112,
+                    "alleleCount": 99,
+                    "alleleNumber": 1392,
+                    "alleleCountHomozygous": 14,
+                    "alleleCountHeterozygous": 85
+                  },
+                  {
+                    "population": "F",
+                    "alleleFrequency": 0.07581,
+                    "alleleCount": 289,
+                    "alleleNumber": 3812,
+                    "alleleCountHomozygous": 26,
+                    "alleleCountHeterozygous": 263,
+                    "alleleCountHemizygous": 0
+                  },
+                  {
+                    "population": "FI",
+                    "alleleFrequency": 0.08427,
+                    "alleleCount": 224,
+                    "alleleNumber": 2658,
+                    "alleleCountHomozygous": 16,
+                    "alleleCountHeterozygous": 208
+                  },
+                  {
+                    "population": "FI_F",
+                    "alleleFrequency": 0.08347,
+                    "alleleCount": 105,
+                    "alleleNumber": 1258,
+                    "alleleCountHomozygous": 8,
+                    "alleleCountHeterozygous": 97
+                  },
+                  {
+                    "population": "FI_M",
+                    "alleleFrequency": 0.085,
+                    "alleleCount": 119,
+                    "alleleNumber": 1400,
+                    "alleleCountHomozygous": 8,
+                    "alleleCountHeterozygous": 111
+                  },
+                  {
+                    "population": "LV",
+                    "alleleFrequency": 0.07601,
+                    "alleleCount": 206,
+                    "alleleNumber": 2710,
+                    "alleleCountHomozygous": 29,
+                    "alleleCountHeterozygous": 176,
+                    "alleleCountHemizygous": 1
+                  },
+                  {
+                    "population": "LV_F",
+                    "alleleFrequency": 0.0723,
+                    "alleleCount": 95,
+                    "alleleNumber": 1314,
+                    "alleleCountHomozygous": 11,
+                    "alleleCountHeterozygous": 83,
+                    "alleleCountHemizygous": 1
+                  },
+                  {
+                    "population": "LV_M",
+                    "alleleFrequency": 0.0791,
+                    "alleleCount": 111,
+                    "alleleNumber": 1396,
+                    "alleleCountHomozygous": 18,
+                    "alleleCountHeterozygous": 93
+                  },
+                  {
+                    "population": "M",
+                    "alleleFrequency": 0.07856,
+                    "alleleCount": 329,
+                    "alleleNumber": 4188,
+                    "alleleCountHomozygous": 40,
+                    "alleleCountHeterozygous": 289,
+                    "alleleCountHemizygous": 0
+                  },
+                  {
+                    "population": "Total",
+                    "alleleFrequency": 0.07725,
+                    "alleleCount": 618,
+                    "alleleNumber": 8000,
+                    "alleleCountHomozygous": 65,
+                    "alleleCountHeterozygous": 552,
+                    "alleleCountHemizygous": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "gdiDatasetInfo": {
+          "assembly": "GRCh38",
+          "minAlleleCount": 0
+        }
+      }
+    ]
+  }
+}

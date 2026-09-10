@@ -1,0 +1,28 @@
+---
+source: crates/gdi-node-standalone/tests/beacon_info.rs
+expression: v
+---
+{
+  "meta": {
+    "apiVersion": "v2.2.0",
+    "beaconId": "org.example.beacon",
+    "returnedSchemas": []
+  },
+  "response": {
+    "$schema": "https://raw.githubusercontent.com/ga4gh-beacon/beacon-v2/v2.2.0/framework/json/configuration/beaconMapSchema.json",
+    "endpointSets": {
+      "dataset": {
+        "entryType": "dataset",
+        "rootUrl": "https://beacon.example.org/beacon/v2/datasets"
+      },
+      "genomicVariant": {
+        "entryType": "genomicVariant",
+        "rootUrl": "https://beacon.example.org/beacon/v2/g_variants"
+      },
+      "individual": {
+        "entryType": "individual",
+        "rootUrl": "https://beacon.example.org/beacon/v2/individuals"
+      }
+    }
+  }
+}

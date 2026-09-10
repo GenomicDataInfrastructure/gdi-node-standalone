@@ -1,0 +1,274 @@
+[workspace]
+resolver = "3"
+members = [
+  "crates/build-info",
+  "crates/core",
+  "crates/beacon",
+  "crates/fairdp",
+  "crates/gdi-node-standalone",
+  "crates/gdi-dataset-tool",
+  "crates/test-util",
+]
+# The cargo-fuzz crate is its own isolated workspace (it carries an empty
+# `[workspace]` table and its own Cargo.lock, built only via `cargo +nightly
+# fuzz` on nightly). Exclude it explicitly so the stable `--workspace` gates and
+# `cargo deny` never try to compile or scan it.
+exclude = ["crates/core/fuzz"]
+
+[workspace.package]
+# The exact version being shipped, pre-release suffix and all: this is what the binary
+# reports as `CARGO_PKG_VERSION`, and `version-guard` in release.yml compares the tag to it
+# with no stripping. So this tree tags `v1.0.0-rc.1`, and the final release means setting
+# `1.0.0` here and tagging `v1.0.0`.
+version = "1.0.0-rc.1"
+edition = "2024"
+rust-version = "1.96"
+license = "MIT OR Apache-2.0"
+# Source provenance for the CycloneDX SBOM: cargo-cyclonedx records these in each
+# component's metadata, so the generated SBOM points back at the canonical repo
+# instead of leaving the source/homepage fields blank. Cargo field inheritance is
+# opt-in, so every member must carry `repository.workspace`/`homepage.workspace`;
+# without them cargo-cyclonedx emits no externalReferences for that component.
+repository = "https://github.com/GenomicDataInfrastructure/gdi-node-standalone"
+homepage = "https://github.com/GenomicDataInfrastructure/gdi-node-standalone"
+# Supplier identity for that same SBOM: cargo-cyclonedx maps `authors` onto a component's
+# `author` field, which is where an SBOM consumer looks for who supplies this software.
+# Without it every first-party component in the shipped `*.cdx.json` had none. Inheritance
+# is opt-in, so every member carries `authors.workspace = true`. The fuzz crate does not:
+# it is its own workspace root and generates no SBOM, so an `authors` there would just be a
+# second copy of this fact with nothing keeping the two in step.
+authors = ["Erik Jaaniso <erik.jaaniso@ut.ee>"]
+
+# Release profile: smaller, faster binaries for the downloadable per-platform
+# `gdi-dataset-tool` artifacts and the static `musl` service binary.
+#
+# `panic` is pinned to `unwind` rather than left to the default, because this profile is
+# workspace-wide and the service relies on unwinding: the `CatchPanicLayer`
+# request-isolation envelope and `core::validate_parquet`'s `catch_unwind` net both turn a
+# crafted provider parquet into a clean `Err`. Under `abort` each becomes a process kill,
+# and so a denial of service.
+[profile.release]
+panic = "unwind"
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+
+# Build-verify only (CI cross-compile legs): inherits release but drops LTO + raises
+# codegen-units so a compile/link check doesn't pay full release optimization. The
+# shipped release artifacts still use [profile.release].
+[profile.release-verify]
+inherits = "release"
+lto = false
+codegen-units = 16
+
+# Dev and test profile: keep only line tables instead of full DWARF. Backtraces still
+# carry file and line, so panics, `assert!` and test failures stay readable, while the
+# large `.debug_info` and `.debug_str` sections are dropped. The integration suite links
+# dozens of test binaries that each statically embed the full dependency closure, and at
+# the default `debug = 2` that debug info dominates the size of `target/debug`. The only
+# thing lost is step-debugger variable inspection. `[profile.test]` inherits from
+# `[profile.dev]`, so this covers the test binaries too.
+[profile.dev]
+debug = "line-tables-only"
+
+# Optimize the CPU-bound dependencies under test, and only those.
+#
+# `[profile.test]` inherits `[profile.dev]`, which sets only `debug`, so every dependency
+# would otherwise run at `opt-level = 0` in the test suite. That includes the crypto
+# primitives the crypt4gh round-trip proptest drives over payloads up to 200 KB, and the
+# zstd encoder every VCF-to-parquet conversion pays at level 19.
+#
+# Targeted rather than `[profile.dev.package."*"]`: these eleven crates are where the time
+# goes, and a blanket rule pays a full rebuild of every dependency for the rest. Workspace
+# crates stay at opt-level 0, so incremental rebuilds and backtraces are unaffected; only
+# third-party code nobody steps through is optimized. The cost is a one-off rebuild of
+# these crates, which are exact-pinned and change rarely.
+[profile.dev.package.curve25519-dalek]
+opt-level = 3
+[profile.dev.package.x25519-dalek]
+opt-level = 3
+[profile.dev.package.chacha20poly1305]
+opt-level = 3
+[profile.dev.package.chacha20]
+opt-level = 3
+[profile.dev.package.poly1305]
+opt-level = 3
+[profile.dev.package.blake2]
+opt-level = 3
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.zstd-sys]
+opt-level = 3
+
+# The VCF read path, for the same reason. `noodles-bgzf` inflates via `zlib-rs`, a
+# pure-Rust zlib, so unlike `zstd-sys` there is no optimized C object to fall back on, and
+# at opt-level 0 it is the whole cost of reading a bgzipped VCF; `noodles-vcf` then
+# tab-indexes every record. Every `preview`, `build` and VCF test in the tree pays both.
+[profile.dev.package.zlib-rs]
+opt-level = 3
+[profile.dev.package.noodles-bgzf]
+opt-level = 3
+[profile.dev.package.noodles-vcf]
+opt-level = 3
+
+[workspace.lints.rust]
+# `deny`, not `forbid`: `forbid` cannot be overridden in source, so `test-util` — the one
+# crate that needs `unsafe`, for the `std::env` mutators Rust 2024 requires — would have to
+# opt out of `[lints]` entirely, dropping `pedantic`, `unwrap_used`, `todo`, `dbg_macro`
+# and `unreachable_pub` for exactly the crate carrying the workspace's only `unsafe`. Under
+# `deny` it inherits the whole set and annotates its two blocks with
+# `#[expect(unsafe_code, reason = ...)]`, which is self-expiring and sits on the `unsafe`
+# itself.
+#
+# What `deny` gives up is that any crate could re-allow it. `test-util`'s
+# `unsafe_code_is_allowed_only_in_the_audited_crate` guard recovers that: it fails if an
+# allow or expect of this lint appears outside `test-util`, which is stronger than
+# `forbid` because it names the one legitimate site.
+unsafe_code = "deny"
+# `pub` in a library target is exempt from `dead_code`, so an unused `pub` item that no
+# other crate, integration test or doctest reaches hides indefinitely. `unreachable_pub`
+# fires only when the item is already crate-unreachable by its module path, so narrowing
+# each hit to `pub(crate)` is lossless and re-subjects it to `dead_code`. It does not catch
+# `pub` in a `pub` module, which is legitimately-reachable API; that class has no lint and
+# stays a review concern.
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+unwrap_used = "warn"
+# No placeholders and no debug artifacts in committed code. All three are at zero sites,
+# so these are ratchets: they cost nothing and cannot be reintroduced silently.
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+
+# Shared dependencies, exact-pinned so the committed `Cargo.lock` is authoritative.
+[workspace.dependencies]
+anyhow = "=1.0.104"
+thiserror = "=2.0.20"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.151"
+serde-saphyr = "=1.1.0"
+regex = "=1.13.1"
+url = "=2.5.8"
+time = { version = "=0.3.55", features = ["formatting", "macros", "parsing"] }
+noodles-vcf = "=0.93.0"
+noodles-bgzf = "=0.51.0"
+parquet = { version = "=59.2.0", default-features = false, features = ["arrow", "zstd"] }
+arrow-array = { version = "=59.2.0", default-features = false }
+arrow-schema = { version = "=59.2.0", default-features = false }
+arrow-buffer = { version = "=59.2.0", default-features = false }
+arrow-data = { version = "=59.2.0", default-features = false }
+arrow-select = { version = "=59.2.0", default-features = false }
+sha2 = "=0.10.9"
+# crypt4gh codec: the pure-Rust RustCrypto stack, so nothing here needs `unsafe` or C.
+x25519-dalek = { version = "=2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
+chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
+blake2 = { version = "=0.10.6", default-features = false }
+rand_core = { version = "=0.6.4", default-features = false, features = ["getrandom"] }
+zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
+tempfile = "=3.27.0"
+# tar assembly for the `.tar.c4gh` package; default features off, so no xattr support.
+tar = { version = "=0.4.46", default-features = false }
+clap = { version = "=4.6.6", features = ["derive"] }
+# Shell-completion generator for the `gdi-dataset-tool completions <shell>` verb. Same
+# release train as `clap`, but patched independently, so the two pins differ; it adds no
+# crate beyond `clap` itself.
+clap_complete = "=4.6.9"
+# Progress bars for the tool's long offline streams (build/pack/unpack) and S3 transfers.
+# They draw to stderr and auto-hide off-TTY, so the stdout result / `--format json`
+# contract is untouched. Default features off drops the wasm-only `wasmbind`/`web-time`;
+# `unicode-width` stays for correct width math and is already in the tree via `console`.
+indicatif = { version = "=0.18.6", default-features = false, features = ["unicode-width"] }
+figment = { version = "=0.10.19", features = ["toml", "env"] }
+# TOML serialization for writing the tool config (`config init`, `catalogs --sync`, the
+# wizard). Pinned to the version figment already brings, so no duplicate crate enters.
+toml = "=0.8.23"
+# Format-preserving TOML editing, already in the tree via `toml`. A tool config is updated
+# in place rather than re-serialised, so operator comments and inline credentials survive.
+toml_edit = "=0.22.27"
+# S3 client: endpoint-agnostic object_store, shared so the always-networked
+# `gdi-dataset-tool` and the service's `s3` feature resolve one pinned version.
+# `aws-base` is the transport-agnostic S3 client (the umbrella `aws` feature would force
+# the banned `aws-lc-rs`), `ring` is object_store's own SigV4/checksum crypto, and
+# `reqwest` is the HTTP transport. CA roots are supplied explicitly via
+# `core::tls::s3_client_options()`; see the `webpki-root-certs` note below.
+object_store = { version = "=0.14.1", default-features = false, features = ["aws-base", "ring", "reqwest"] }
+# Stream combinators for object_store's `list`/`get` streams (already in tree).
+futures = { version = "=0.3.34", default-features = false, features = ["std"] }
+# HTTP client for the tool's `GET /datasets/{id}/state` probe and the service's Vault
+# client. `rustls-no-provider` gives the rustls stack without bundling a provider (`ring`
+# is installed explicitly at startup) and without `aws-lc-rs`, which the umbrella `rustls`
+# feature would pull. Roots come from `core::tls`: the OS platform verifier merged with the
+# bundled Mozilla `webpki-root-certs`.
+reqwest = { version = "=0.13.4", default-features = false, features = ["json", "charset", "http2", "rustls-no-provider"] }
+# rustls with `custom-provider`, which disables the implicit provider so one must be
+# installed explicitly. Shared by the service's `tls` group and the tool's startup
+# crypto-provider install; this is the surface that keeps the build on `ring` alone.
+rustls = { version = "=0.23.43", default-features = false, features = ["ring", "custom-provider", "logging", "tls12"] }
+# Mozilla CA roots as full DER certificates: `webpki-root-certs`, not the trust-anchor
+# `webpki-roots`, which reqwest 0.13 no longer consumes. Merged on top of the host platform
+# trust store, via reqwest's `tls_certs_merge` and object_store's `with_root_certificate`,
+# so a self-contained binary verifies public TLS on any host — distroless, bare-metal
+# glibc, or a musl/scratch/HPC node with no system CA bundle. Centralized in `core::tls`.
+webpki-root-certs = "=1.0.9"
+tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "signal", "net"] }
+notify = "=8.2.0"
+tracing = "=0.1.44"
+# `json` for the service's structured single-line stderr logs.
+tracing-subscriber = { version = "=0.3.23", features = ["env-filter", "json"] }
+# `matched-path` exposes the route template a request matched (`/fairdp/dataset/{id}`), so
+# the request-span factories can name the exported span `METHOD route` with no id in it. An
+# internal axum feature, not an additional crate.
+axum = { version = "=0.8.9", default-features = false, features = ["json", "query", "tokio", "http1", "matched-path"] }
+tower = { version = "=0.5.3", default-features = false, features = ["limit", "load-shed", "util"] }
+# `request-id` (server-side X-Request-Id) + `trace` (per-request span) for request
+# correlation.
+#
+# `cargo tree -d` also shows a second tower-http (0.6.x), which this workspace does not
+# declare and cannot switch off: `reqwest` depends on it for `follow-redirect` as a
+# non-optional dependency, not through the optional decompression features. Collapsing it
+# would mean pinning this direct dependency back to 0.6 to suit a transitive one, so the
+# duplicate stays until reqwest moves to 0.7. It costs compile time only: no runtime or
+# advisory impact, and the `cargo deny` bans pass.
+tower-http = { version = "=0.7.0", default-features = false, features = ["limit", "timeout", "catch-panic", "cors", "request-id", "trace"] }
+# Prometheus / OpenMetrics instrumentation. `metrics` is the pure-Rust facade; the exporter
+# takes default features off, so it pulls no HTTP server stack and not its `push-gateway`
+# default, which would bring in `aws-lc-rs` (banned in deny.toml). The crate's
+# `PrometheusHandle::render()` output is served over an axum route on the separate metrics
+# listener instead of the crate's built-in HTTP exporter.
+metrics = "=0.24.6"
+metrics-exporter-prometheus = { version = "=0.18.3", default-features = false }
+# Disk-free sampling for `gdi_disk_free_bytes` via `statvfs`. Already in the tree via
+# tempfile; `fs` adds the syscall wrapper and `param` (an empty feature) adds
+# `clock_ticks_per_second` for the `gdi_process_cpu_seconds` gauge — the kernel CLK_TCK
+# without the `unsafe` `libc::sysconf` the workspace's `unsafe_code` lint rules out. Both
+# are pure-Rust raw syscalls, with no libc linkage.
+rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "param"] }
+serial_test = { version = "=4.0.1", default-features = false }
+# FAIR Data Point RDF stack: the oxigraph split-out crates. oxttl 0.2.x and oxjsonld 0.2.x
+# both pin `oxrdf =0.3.x`, so exactly one oxrdf version resolves. The 0.2.x serializers
+# require rustc 1.87, comfortably below the workspace MSRV.
+oxrdf = "=0.3.3"
+oxttl = "=0.2.3"
+oxjsonld = "=0.2.5"
+insta = "=1.48.0"
+# Performance benchmarks. Default features off drops the heavy `plotters`/`html_reports`
+# graph; `rayon` parallelises sample collection and `cargo_bench_support` wires
+# `cargo bench`.
+criterion = { version = "=0.8.2", default-features = false, features = ["cargo_bench_support", "rayon"] }
+# Interactive prompts for the `wizard` command, confined behind the wizard's `Prompter`
+# trait. `completion` adds Tab-completion on the path prompts and pulls in no crate, so
+# this adds only dialoguer and shell-words to the lock.
+dialoguer = { version = "=0.12.0", features = ["completion"] }
+# Severity-prefix colors on the tool's stderr messages (error/warning/note/✔) and the
+# wizard path-prompt's wrap-aware redraw (Term cursor ops + `measure_text_width`). Already
+# in the lock at exactly this version via dialoguer and indicatif, so this adds no crate.
+# `ansi-parsing` is required for correctness rather than inherited from feature
+# unification: `measure_text_width` strips ANSI only with it, and the ColorfulTheme prompt
+# it measures carries ANSI when colors are on.
+console = { version = "=0.16.4", default-features = false, features = [
+    "ansi-parsing",
+    "unicode-width",
+] }

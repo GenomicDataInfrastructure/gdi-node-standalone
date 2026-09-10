@@ -1,0 +1,1100 @@
+# promtool unit tests for ../gdi-node-standalone.yml — one firing case per rule, and a
+# non-firing case wherever a rule carries a guard (a traffic floor, a `> 0` "unknown"
+# sentinel, a `for` window, a job matcher) that the firing case alone would not prove.
+#
+# `promtool check rules` proves the file parses; only this proves a threshold points the
+# right way. Run: `scripts/ci-local.sh promtool` (the overlay's own pinned image), or
+#   docker run --rm --entrypoint promtool -v "$PWD/compose/observability:/obs:ro" \
+#     prom/prometheus:<the digest in docker-compose.observability.yml> \
+#     test rules /obs/rules/tests/gdi-node-standalone.test.yml
+#
+# Conventions: 1m scrape/eval interval; time starts at epoch 0, so a `time() - X`
+# rule is exercised by holding X at 0 and evaluating once the gap exceeds its threshold
+# plus its `for`. Other rules firing at the same instant (NodeMetricsAbsent after 10m of
+# no gdi_build_info, Watchdog always) are irrelevant: a case asserts one alertname.
+# Annotations are asserted verbatim — promtool compares them, so a reworded summary
+# needs its case updated (a one-line change, and the reminder is the point).
+
+rule_files:
+  - ../gdi-node-standalone.yml
+
+evaluation_interval: 1m
+
+tests:
+
+  # --- NodeMetricsAbsent ---
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: NodeMetricsAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+            exp_annotations:
+              summary: 'No gdi_build_info series at all — nothing is scraping the node, and every other alert here is blind'
+
+  # --- NodeMetricsAbsent --- (must not fire: the series is present)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_build_info{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x12'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: NodeMetricsAbsent
+        exp_alerts: []
+
+  # --- WedgedIngestPool ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_queue_depth{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '3x10'
+      - series: 'gdi_ingest_inflight{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: WedgedIngestPool
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Ingest pool wedged: queue non-empty but no worker processing for >5m'
+
+  # --- WedgedIngestPool --- (must not fire: inside the 5m `for` window — a queue is allowed to be momentarily idle)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_queue_depth{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '3x10'
+      - series: 'gdi_ingest_inflight{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x10'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: WedgedIngestPool
+        exp_alerts: []
+
+  # --- IngestTimeout ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",outcome="timeout"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: IngestTimeout
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              outcome: 'timeout'
+            exp_annotations:
+              summary: 'An ingest job exceeded ingest_timeout_seconds (restart to clear)'
+
+  # --- IngestRetryChurn ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",outcome="transient"}'
+        values: '0+2x30'
+    alert_rule_test:
+      - eval_time: 30m
+        alertname: IngestRetryChurn
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              outcome: 'transient'
+            exp_annotations:
+              summary: 'Persistent transient ingest retries (>5/h) — a backend dependency is degraded'
+
+  # --- IngestRetryChurn --- (must not fire: one retry in the hour is below the >5 churn threshold)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",outcome="transient"}'
+        values: '0 1x10'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: IngestRetryChurn
+        exp_alerts: []
+
+  # --- IngestSourceBackoff ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_transient_backoff{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: IngestSourceBackoff
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A source stuck in transient-failure backoff for >15m — a backend is persistently failing its ingest'
+
+  # --- DatasetStuckProcessing --- (one ingest held from t=0: its age climbs a minute per sample)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_inflight_oldest_age_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0+60x35'
+    alert_rule_test:
+      - eval_time: 29m
+        alertname: DatasetStuckProcessing
+        exp_alerts: []
+      - eval_time: 31m
+        alertname: DatasetStuckProcessing
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'The oldest in-flight ingest has been held for >30m — likely a stuck ingest; identify the id from `_status/{id}.json` or the ingest logs, and confirm with IngestTimeout / IngestRetryChurn'
+
+  # --- DatasetStuckProcessing --- (must not fire: a steady stream of 10-minute ingests keeps
+  # gdi_ingest_inflight at 1 for the whole window — the former min_over_time form fired on exactly
+  # this — but no single marker ever gets old)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_inflight_oldest_age_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0+60x9 0+60x9 0+60x9 0+60x5'
+      - series: 'gdi_ingest_inflight{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x35'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: DatasetStuckProcessing
+        exp_alerts: []
+
+  # --- IngestPoolSaturated ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_inflight{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '4x12'
+      - series: 'gdi_ingest_concurrency{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '4x12'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: IngestPoolSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'All ingest workers busy for >10m (inflight >= configured concurrency)'
+
+  # --- IngestPoolStarvedByQueries ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_beacon_scan_blocking_inflight{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '8x7'
+      - series: 'gdi_query_concurrency{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '4x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: IngestPoolStarvedByQueries
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Beacon scans sustained at >=2x the query fan-out cap (gdi_query_concurrency) for >5m — query fan-out is occupying the shared blocking pool and ingest may be starving (async /health stays green); shed query load or scale out'
+
+  # --- LowDisk ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_disk_free_bytes{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1000000000x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: LowDisk
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Data volume free space below the 5 GB PLACEHOLDER margin. This is far below peak ingest scratch for default caps (§7: ~320 GiB) — raise this threshold to >= peak scratch + headroom, or ingests will wedge before it ever fires.'
+
+  # --- LowDisk --- (must not fire: 6 GB free is above the 5 GB floor)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_disk_free_bytes{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '6000000000x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: LowDisk
+        exp_alerts: []
+
+  # --- DiskSampleFailed ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_disk_sample_failed{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: DiskSampleFailed
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'statvfs on the data volume is failing, so gdi_disk_free_bytes is STALE and LowDisk cannot fire. Check that data_dir is still mounted and readable.'
+
+  # --- VaultTokenLeaseTooShort ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_vault_token_ttl_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '300x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: VaultTokenLeaseTooShort
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Vault/secrets token issued with a lease under 10 min (token policy too short; the gauge never counts down)'
+
+  # --- VaultTokenLeaseTooShort --- (must not fire: 0 means no token TTL is known (no Vault), which the `> 0` guard must not page on)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_vault_token_ttl_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: VaultTokenLeaseTooShort
+        exp_alerts: []
+
+  # --- VaultRenewalFailing ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_vault_reauth_total{outcome="failed",job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: VaultRenewalFailing
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              outcome: 'failed'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Vault re-authentication failing (renewal failed AND re-login failed)'
+
+  # --- VaultTokenFileStale ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_vault_token_file_age_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '7200x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: VaultTokenFileStale
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Vault token file not refreshed for >1h (the agent sidecar may be dead)'
+
+  # --- VaultTokenFileUnreadable ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_vault_token_file_read_errors_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: VaultTokenFileUnreadable
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Vault token file missing, empty, or unreadable'
+
+  # --- VaultCallErrors ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_vault_call_errors_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: VaultCallErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Vault KV/Transit call errors in the last 15m (data-path dependency fault)'
+
+  # --- DatasetsInError ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_dataset_state{job="gdi-node-standalone",instance="gdi-node-standalone:9090",state="error"}'
+        values: '2x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: DatasetsInError
+        exp_alerts:
+          - exp_labels:
+              severity: 'info'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              state: 'error'
+            exp_annotations:
+              summary: 'One or more datasets are in the error state'
+
+  # --- S3PollerWedged ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_poll_last_success_timestamp_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: S3PollerWedged
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'S3 poller has not completed a successful poll in >10m'
+
+  # --- S3PollErrors ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_poll_errors_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: S3PollErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'S3 poll errors observed in the last 15m'
+
+  # --- S3DownloadErrors ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_download_errors_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: S3DownloadErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'S3 package downloads failing (bucket lists OK, packages won''t fetch)'
+
+  # --- OverlayApplyFailing ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_overlay_apply_failed_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: OverlayApplyFailing
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Dataset metadata-overlay apply failing (serving last-good metadata)'
+
+  # --- StateSidecarRejected ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_state_sidecar_rejected_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",channel="inbox",reason="unreadable"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StateSidecarRejected
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              channel: 'inbox'
+              reason: 'unreadable'
+            exp_annotations:
+              summary: 'Visibility sidecar rejected (dataset failed safe to hidden)'
+
+  # --- StateSidecarRejected --- (must not fire: a counter that stands still has no increase)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_state_sidecar_rejected_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",channel="inbox",reason="unreadable"}'
+        values: '3x5'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StateSidecarRejected
+        exp_alerts: []
+
+  # --- MassRemovalSkipped ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_removal_skipped_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: MassRemovalSkipped
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'S3 reconcile suppressed a mass eviction (collapsed listing); check the bucket/endpoint'
+
+  # --- DeletedSidecarIgnored ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_deleted_sidecar_ignored_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DeletedSidecarIgnored
+        exp_alerts:
+          - exp_labels:
+              severity: 'info'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A `deleted` .state.json on S3 was ignored (delete the OBJECT instead); see the WARN log for the key'
+
+  # --- ManifestReloadSkipped ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_manifest_reload_skipped_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ManifestReloadSkipped
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Dataset skipped on cache reload (unreadable/corrupt manifest.json) — dropped from serving until fixed'
+
+  # --- InboxScanWedged ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_inbox_scan_last_success_timestamp_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x30'
+    alert_rule_test:
+      - eval_time: 26m
+        alertname: InboxScanWedged
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Inbox scan has not succeeded in >20m (only if inbox configured)'
+
+  # --- InboxWatcherFlapping ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_inbox_watcher_restarts_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: InboxWatcherFlapping
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Inbox filesystem watcher restarted in the last hour'
+
+  # --- StatusWritebackDisabled ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_status_writeback_disabled{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: StatusWritebackDisabled
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'S3 status writeback is disabled'
+
+  # --- DecryptFailures ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_decrypt_failures_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: DecryptFailures
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Decrypt failures observed in the last 15m'
+
+  # --- BackgroundPanics ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_background_task_panics_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: BackgroundPanics
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A background task panicked in the last hour'
+
+  # --- ProvenanceRecoveryFailed ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_provenance_absent_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",reason="recovery_failed"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ProvenanceRecoveryFailed
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              reason: 'recovery_failed'
+            exp_annotations:
+              summary: 'A package published with an unreadable writer key in the last hour'
+
+  # --- WriterKeyNotAllowed ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_ingest_writer_unknown_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",channel="s3"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: WriterKeyNotAllowed
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              channel: 's3'
+            exp_annotations:
+              summary: 'A package from a non-allow-listed writer reached ingest (s3)'
+
+  # --- SyntheticProbeDown ---
+  - interval: 1m
+    input_series:
+      - series: 'probe_success{job="blackbox-http",instance="http://gdi-node-standalone:8080/health/ready"}'
+        values: '0x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: SyntheticProbeDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'blackbox-http'
+              instance: 'http://gdi-node-standalone:8080/health/ready'
+            exp_annotations:
+              summary: 'Synthetic /health/ready probe failing (data plane down or draining)'
+
+  # --- HealthNotReady ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_health_ready{job="gdi-node-standalone",instance="gdi-node-standalone:9090",component="overall"}'
+        values: '0x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: HealthNotReady
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              component: 'overall'
+            exp_annotations:
+              summary: 'Node reports not-ready for >5m (check gdi_health_ready{component} for the subsystem)'
+
+  # --- BeaconServingErrors ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_beacon_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="5xx"}'
+        values: '0+10x30'
+      - series: 'gdi_beacon_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="2xx"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: BeaconServingErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+            exp_annotations:
+              summary: 'Beacon 5xx ratio >5% over 10m (sustained serving errors)'
+
+  # --- BeaconServingErrors --- (must not fire: rate below the 0.1/s traffic floor: a single error on an idle node is not a 5% error rate)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_beacon_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="5xx"}'
+        values: '0+1x30'
+      - series: 'gdi_beacon_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="2xx"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: BeaconServingErrors
+        exp_alerts: []
+
+  # --- HttpRequestsRejected ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_http_requests_rejected_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: HttpRequestsRejected
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'HTTP requests rejected by a resilience layer (load-shed/timeout/body-or-URI cap) in the last 15m'
+
+  # --- HttpInflightSaturated ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_http_inflight{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '9x12'
+      - series: 'gdi_http_max_concurrent_requests{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '10x12'
+    alert_rule_test:
+      - eval_time: 11m
+        alertname: HttpInflightSaturated
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Public-plane in-flight requests >80% of the concurrency limit for >10m'
+
+  # --- HttpConnectionsRejected ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_http_connections_rejected_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",plane="management"}'
+        values: '0 1 1 1 1 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 7m
+        alertname: HttpConnectionsRejected
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              plane: 'management'
+            exp_annotations:
+              summary: 'Connections dropped at accept on the management plane — connection cap reached (on the management plane this starves kubelet probes and risks a SIGKILL)'
+
+  # --- FdpServingErrors ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_fairdp_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="5xx"}'
+        values: '0+10x30'
+      - series: 'gdi_fairdp_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="2xx"}'
+        values: '0+10x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: FdpServingErrors
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+            exp_annotations:
+              summary: 'FDP 5xx ratio >5% over 10m (sustained serving errors)'
+
+  # --- FdpServingErrors --- (must not fire: rate below the 0.1/s traffic floor: a single error on an idle node is not a 5% error rate)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_fairdp_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="5xx"}'
+        values: '0+1x30'
+      - series: 'gdi_fairdp_requests_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090",status_class="2xx"}'
+        values: '0+1x30'
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: FdpServingErrors
+        exp_alerts: []
+
+  # --- FdpSerializationFailures ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_fairdp_serialization_failures_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: FdpSerializationFailures
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'FDP RDF serialization produced empty output (500) in the last 15m'
+
+  # --- StoreScrubFailed ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_store_scrub_failed{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: StoreScrubFailed
+        exp_alerts:
+          - exp_labels:
+              severity: 'info'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'One or more datasets failed the store-readability sweep (on-disk corruption)'
+
+  # --- DatasetsPlaintextAtRest ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_datasets_at_rest{job="gdi-node-standalone",instance="gdi-node-standalone:9090",form="plaintext"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: DatasetsPlaintextAtRest
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              form: 'plaintext'
+            exp_annotations:
+              summary: 'PME is configured but dataset(s) are still PLAINTEXT at rest'
+              description: 'Enabling PME does not migrate existing datasets. Re-ingest them (delete + re-add, or re-upload from S3) to encrypt; `verify --digest` shows the form per dataset. Clears on its own as datasets are migrated.'
+
+  # --- DatasetsIndeterminateAtRest ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_datasets_at_rest{job="gdi-node-standalone",instance="gdi-node-standalone:9090",form="indeterminate"}'
+        values: '1x20'
+    alert_rule_test:
+      - eval_time: 16m
+        alertname: DatasetsIndeterminateAtRest
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              form: 'indeterminate'
+            exp_annotations:
+              summary: 'Dataset(s) have NO readable parquet — at-rest form unknown, and NOT known to be encrypted'
+              description: 'A published dataset always carries at least one `allele-freq.*.parquet`, so this is a deleted, truncated or unreadable store. Run `verify`, which fails on it at footer depth and names the dataset. The periodic scrub quarantines it on the same schedule (footer depth covers every dataset every pass); this alert adds what `gdi_store_scrub_failed` cannot say — the at-rest form is unknown, so the data is NOT known to be encrypted.'
+
+  # --- StoreScrubStale ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_store_scrub_last_run_timestamp_seconds{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x380'
+    alert_rule_test:
+      - eval_time: 376m
+        alertname: StoreScrubStale
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Store-readability sweep has not completed in over 6h (corruption detection is blind)'
+
+  # --- SuppressionStoreDegraded ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_suppression_load_degraded{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: SuppressionStoreDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'One or more <override_dir>/suppressions/*.json files failed to parse (fail-closed to hide)'
+
+  # --- OverrideStoreAbsent ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_override_store_absent{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: OverrideStoreAbsent
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Operator-override store is absent while require_override_store is set (serving from the last in-memory set)'
+
+  # --- ChannelSuppressed ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_channel_suppressed{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: ChannelSuppressed
+        exp_alerts:
+          - exp_labels:
+              severity: 'info'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A channel (bucket or inbox) is under an operator suppression override (withheld + ingest paused)'
+
+  # --- S3ChannelOrphaned ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_channel_orphaned{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: S3ChannelOrphaned
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A channel''s datasets are withheld because its [[s3.buckets]] entry was removed; re-add it or finish the offboarding with channel take-down'
+
+  # --- CatalogOrphaned ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_catalog_orphaned{job="gdi-node-standalone",instance="gdi-node-standalone:9090",catalog="ee-biobank"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CatalogOrphaned
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+              catalog: 'ee-biobank'
+            exp_annotations:
+              summary: 'Visible datasets declare a [catalogs] entry that no longer exists: still served, but unreachable by crawling the FDP. Re-add the entry, or take the datasets down if retraction was the intent'
+
+  # --- CatalogOrphaned --- (must not fire: the gauge is seeded at 0 for a configured catalog)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_catalog_orphaned{job="gdi-node-standalone",instance="gdi-node-standalone:9090",catalog="ee-biobank"}'
+        values: '0x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: CatalogOrphaned
+        exp_alerts: []
+
+  # --- S3KeyspaceMismatch ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_s3_keyspace_mismatch{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: S3KeyspaceMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A bucket channel''s configured keyspace is not the one its datasets came from; removal processing is refused (revert the config, finish the migration, or take-down the channel''s datasets)'
+
+  # --- ConfigReloadFailed ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_config_reload_failed_total{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0 1 1 1 1'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ConfigReloadFailed
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'A SIGHUP config reload failed validation and was discarded; the node kept its previous [catalogs]/[ingest] allow-list'
+
+  # --- InboxQuarantineBacklog ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_inbox_rejected_packages{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x35'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: InboxQuarantineBacklog
+        exp_alerts:
+          - exp_labels:
+              severity: 'info'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Packages parked in inbox .rejected quarantine for >30m (operator must clear)'
+
+  # --- InboxKeylessPackages ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_inbox_keyless_packages{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '2x35'
+    alert_rule_test:
+      - eval_time: 31m
+        alertname: InboxKeylessPackages
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Encrypted inbox packages waiting >30m on a node with no crypt4gh identity (nothing will ingest them)'
+
+  # --- InboxKeylessPackages --- (must not fire: inside the 30m `for` window — a keyed run may still pick them up)
+  - interval: 1m
+    input_series:
+      - series: 'gdi_inbox_keyless_packages{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '2x35'
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: InboxKeylessPackages
+        exp_alerts: []
+
+  # --- PmeMasterKeyMismatch ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_pme_master_key_mismatch{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x3'
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: PmeMasterKeyMismatch
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'At-rest Transit master key cannot decrypt this node''s data (key replaced or backend reset)'
+
+  # --- KeylessDegraded ---
+  - interval: 1m
+    input_series:
+      - series: 'gdi_keyless_degraded{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '1x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: KeylessDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Node running keyless-degraded (Vault unreachable at startup) — restart once Vault is reachable'
+
+  # --- TargetDown ---
+  - interval: 1m
+    input_series:
+      - series: 'up{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'critical'
+              job: 'gdi-node-standalone'
+              instance: 'gdi-node-standalone:9090'
+            exp_annotations:
+              summary: 'Prometheus target gdi-node-standalone (gdi-node-standalone:9090) down for >5m'
+
+  # --- TargetDown / ObservabilityTargetDown --- (the split: an infra scrape target down does
+  # not page — TargetDown stays quiet — but it is not invisible either: the dev-only
+  # warning fires on the same input. One input, both verdicts, so the two rules cannot
+  # drift apart without one half of this case going red.)
+  - interval: 1m
+    input_series:
+      - series: 'up{job="tempo",instance="tempo:3200"}'
+        values: '0x7'
+    alert_rule_test:
+      - eval_time: 6m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ObservabilityTargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'tempo'
+              instance: 'tempo:3200'
+            exp_annotations:
+              summary: 'Observability scrape target tempo (tempo:3200) down for >5m (dev overlay only)'
+
+  # --- ObservabilityTargetDown --- (must not fire: inside the 5m `for` window; and never on the node's own job, which is TargetDown's)
+  - interval: 1m
+    input_series:
+      - series: 'up{job="tempo",instance="tempo:3200"}'
+        values: '0x7'
+      - series: 'up{job="gdi-node-standalone",instance="gdi-node-standalone:9090"}'
+        values: '0x7'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: ObservabilityTargetDown
+        exp_alerts: []
+      - eval_time: 6m
+        alertname: ObservabilityTargetDown
+        exp_alerts:
+          - exp_labels:
+              severity: 'warning'
+              job: 'tempo'
+              instance: 'tempo:3200'
+            exp_annotations:
+              summary: 'Observability scrape target tempo (tempo:3200) down for >5m (dev overlay only)'
+
+  # --- Watchdog ---
+  - interval: 1m
+    input_series: []
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: Watchdog
+        exp_alerts:
+          - exp_labels:
+              severity: 'none'
+            exp_annotations:
+              summary: 'Always-on heartbeat — alert externally if this STOPS arriving (monitoring pipeline down)'

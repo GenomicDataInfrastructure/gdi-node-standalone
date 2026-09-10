@@ -1,0 +1,12 @@
+# The plain, scrape-based shape — `kubectl apply -k deploy/kubernetes` — as a one-line
+# alias for base/, so that command keeps working with the base/ + overlays/ layout. It must
+# stay an alias: kustomize refuses a resource that is an ancestor of the kustomization
+# loading it ("cycle detected"), and its default load restrictor refuses a file outside the
+# loading kustomization's own directory. An overlay therefore cannot reference `../` (this
+# directory) or `../deployment.yaml`; it references `../../base`, which is a sibling. List
+# resources here and the overlays can no longer build on them.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - base

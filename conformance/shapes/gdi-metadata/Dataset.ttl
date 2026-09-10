@@ -1,0 +1,247 @@
+# SPDX-FileCopyrightText: 2025 Health-RI
+# 
+# SPDX-License-Identifier: Apache-2.0
+
+
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dqv: <http://www.w3.org/ns/dqv#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix healthdcatap: <http://healthdataportal.eu/ns/health#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix prov: <http://www.w3.org/ns/prov#> .
+@prefix foaf: <http://xmlns.com/foaf/0.1/> .
+@prefix gdi: <http://data.gdi.eu/core/p2/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix dcatap: <http://data.europa.eu/r5r/> .
+@prefix dpv: <https://w3id.org/dpv#> .
+@prefix eu: <http://publications.europa.eu/resource/authority/access-right/> .
+@prefix datasetstatus: <http://publications.europa.eu/resource/authority/dataset-status/> .
+@prefix type: <https://publications.europa.eu/resource/authority/dataset-type/> .
+@prefix dpv-pd: <https://w3id.org/dpv/dpv-pd#> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix dash: <http://datashapes.org/dash#> .
+
+gdi:DatasetShape a owl:Ontology, sh:NodeShape;
+  rdfs:label "Excel template for Dataset class"@en, "Dataset"@en;
+  rdfs:comment "Excel template for Dataset class"@en;
+  dct:description "This is an excel template for Dataset class in GDI v1.1"@en;
+  owl:versionInfo "0.1";
+  dct:modified "2025-02-10T00:00:00.000Z"^^xsd:dateTime;
+  sh:targetClass dcat:Dataset;
+  sh:property <http://data.gdi.eu/core/p2/DatasetShape#access-rights>, <http://data.gdi.eu/core/p2/DatasetShape#applicable-legislation>, 
+    <http://data.gdi.eu/core/p2/DatasetShape#conforms-to>, <http://data.gdi.eu/core/p2/DatasetShape#contact-point>,
+    <http://data.gdi.eu/core/p2/DatasetShape#creator>,
+    <http://data.gdi.eu/core/p2/DatasetShape#description>, <http://data.gdi.eu/core/p2/DatasetShape#distribution>,
+    <http://data.gdi.eu/core/p2/DatasetShape#hdab>, <http://data.gdi.eu/core/p2/DatasetShape#identifier>, <http://data.gdi.eu/core/p2/DatasetShape#is-referenced-by>,
+    <http://data.gdi.eu/core/p2/DatasetShape#keyword>, <http://data.gdi.eu/core/p2/DatasetShape#legal-basis>,
+    <http://data.gdi.eu/core/p2/DatasetShape#health-category>,
+    <http://data.gdi.eu/core/p2/DatasetShape#number-of-records>, <http://data.gdi.eu/core/p2/DatasetShape#number-of-unique-individuals>,
+    <http://data.gdi.eu/core/p2/DatasetShape#other-identifier>, <http://data.gdi.eu/core/p2/DatasetShape#status>,
+    <http://data.gdi.eu/core/p2/DatasetShape#theme>,
+    <http://data.gdi.eu/core/p2/DatasetShape#title>, <http://data.gdi.eu/core/p2/DatasetShape#type>,
+    <http://data.gdi.eu/core/p2/DatasetShape#publisher> .
+
+<http://data.gdi.eu/core/p2/DatasetShape#access-rights> sh:path dct:accessRights;
+  sh:name "access rights"@en;
+  sh:description "Information that indicates whether the Dataset is publicly accessible, has access restrictions or is not public. This property must be filled with a value from a controlled vocabulary."@en;
+  sh:minCount 1;
+  sh:maxCount 1;
+  sh:nodeKind sh:IRI;
+  sh:defaultValue <http://publications.europa.eu/resource/authority/access-right/PUBLIC>;
+  sh:in _:63db696725d34edebb948ae5f263a6626;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:EnumSelectEditor .
+
+_:63db696725d34edebb948ae5f263a6626 rdf:first eu:PUBLIC;
+  rdf:rest _:63db696725d34edebb948ae5f263a6627 .
+
+_:63db696725d34edebb948ae5f263a6627 rdf:first eu:RESTRICTED;
+  rdf:rest _:63db696725d34edebb948ae5f263a6628 .
+
+_:63db696725d34edebb948ae5f263a6628 rdf:first eu:NON_PUBLIC;
+  rdf:rest rdf:nil .
+
+<http://data.gdi.eu/core/p2/DatasetShape#applicable-legislation> sh:path dcatap:applicableLegislation;
+  sh:name "applicable legislation"@en;
+  sh:description "The legislation that mandates the creation or management of the Dataset. The default value is the ELI of the EHDS."@en;
+  sh:nodeKind sh:IRI;
+  sh:minCount 1;
+  sh:defaultValue <http://data.europa.eu/eli/reg/2025/327/oj>;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:URIEditor .
+
+gdi:ExternallyGoverned a dct:Standard;
+  rdfs:label "Externally governed"@en .
+
+gdi:1MGCompliant a dct:Standard;
+  rdfs:label "1+MG compliant"@en .
+
+gdi:1MGCohort a dct:Standard;
+  rdfs:label "1+MG cohort"@en .
+
+<http://data.gdi.eu/core/p2/DatasetShape#conforms-to> sh:path dct:conformsTo;
+  sh:name "conforms to"@en;
+  sh:description "An implementing rule or other specification"@en;
+  sh:nodeKind sh:IRI;
+  sh:in ( gdi:ExternallyGoverned gdi:1MGCompliant gdi:1MGCohort );
+  dash:viewer dash:URIViewer;
+  dash:editor dash:EnumSelectEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#contact-point> sh:path dcat:contactPoint;
+  sh:name "contact point"@en;
+  sh:description "Contact information that can be used for sending comments about the Dataset."@en;
+  sh:node gdi:KindShape;
+  dash:viewer dash:DetailsViewer;
+  dash:editor dash:BlankNodeEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#creator> sh:path dct:creator;
+  sh:name "creator"@en;
+  sh:description "An entity responsible for producing the dataset."@en;
+  sh:minCount 1;
+  sh:node gdi:AgentCreatorShape;
+  dash:viewer dash:DetailsViewer;
+  dash:editor dash:BlankNodeEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#publisher> sh:path dct:publisher;
+  sh:name "publisher"@en;
+  sh:description "An entity (organisation) responsible for making the dataset available."@en;
+  sh:minCount 1;
+  sh:maxCount 1;
+  sh:node gdi:AgentHdabShape;
+  dash:viewer dash:DetailsViewer;
+  dash:editor dash:BlankNodeEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#description> sh:path dct:description;
+  sh:name "description"@en;
+  sh:description "A free-text account of the Dataset."@en;
+  sh:minCount 1;
+  sh:nodeKind sh:Literal;
+  sh:uniqueLang true;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#distribution> sh:path dcat:distribution;
+  sh:name "distribution"@en;
+  sh:description "An available Distribution for the Dataset."@en;
+  sh:nodeKind sh:IRI .
+
+<http://data.gdi.eu/core/p2/DatasetShape#hdab> sh:path healthdcatap:hdab;
+  sh:name "hdab"@en;
+  sh:description "Health Data Access Body supporting access to data in the Member State."@en;
+  sh:node gdi:AgentHdabShape;
+  dash:viewer dash:DetailsViewer;
+  dash:editor dash:BlankNodeEditor .
+
+gdi:HealthCategoryHumanGenetic a skos:Concept;
+  skos:prefLabel "Human genetic data"@en .
+
+gdi:HealthCategoryHumanEpigenomic a skos:Concept;
+  skos:prefLabel "Human epigenomic data"@en .
+
+gdi:HealthCategoryHumanGenomic a skos:Concept;
+  skos:prefLabel "Human genomic data"@en .
+
+<http://data.gdi.eu/core/p2/DatasetShape#health-category> sh:path healthdcatap:healthCategory;
+  sh:name "health category"@en;
+  sh:description "A category of the Dataset or tag describing the Dataset."@en;
+  sh:nodeKind sh:IRI;
+  sh:minCount 1;
+  sh:in ( gdi:HealthCategoryHumanGenetic gdi:HealthCategoryHumanEpigenomic gdi:HealthCategoryHumanGenomic );
+  dash:viewer dash:URIViewer;
+  dash:editor dash:EnumSelectEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#identifier> sh:path dct:identifier;
+  sh:name "identifier"@en;
+  sh:description "The main identifier for the Dataset, e.g. the URI or other unique identifier in the context of the Catalogue."@en;
+  sh:minCount 1;
+  sh:datatype xsd:string;
+  sh:nodeKind sh:Literal;
+  sh:pattern "^(GOE|GDI)-[A-Z]{2}-[A-Z]+-[0-9]+$";
+  sh:message "Use GOE-CC-ORG-NNN… or GDI-CC-ORG-NNN… (CC = two-letter country code, ORG = institute abbreviation, NNN… = digits)."@en;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#other-identifier> sh:path adms:identifier;
+  sh:name "other identifier"@en;
+  sh:description "A secondary identifier of the Dataset, such as MAST/ADS17, DataCite18, DOI19, EZID20 or W3ID21"@en;
+  sh:node gdi:IdentifierShape;
+  dash:viewer dash:DetailsViewer;
+  dash:editor dash:BlankNodeEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#status> sh:path adms:status;
+  sh:name "status"@en;
+  sh:description "The lifecycle status of the Dataset metadata record. Use the EU Dataset Status vocabulary; in GDI this supports operational states such as Develop, Discontinued, and Withdrawn."@en;
+  sh:maxCount 1;
+  sh:nodeKind sh:IRI;
+  sh:defaultValue datasetstatus:COMPLETED;
+  sh:in ( datasetstatus:COMPLETED datasetstatus:DEPRECATED datasetstatus:DEVELOP datasetstatus:DISCONT datasetstatus:WITHDRAWN );
+  dash:viewer dash:URIViewer;
+  dash:editor dash:EnumSelectEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#is-referenced-by> sh:path dct:isReferencedBy;
+  sh:name "is referenced by"@en;
+  sh:description "A related resource, such as a publication, that references, cites, or otherwise points to the dataset."@en;
+  sh:nodeKind sh:IRI;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:URIEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#legal-basis> sh:path dpv:hasLegalBasis;
+  sh:name "legal basis"@en;
+  sh:description "The legal basis used to justify processing of personal data. The legal basis can be provided as a value from the dpv taxonomy and should be provided via IRI, for example https://w3id.org/dpv#Consent"@en;
+  sh:nodeKind sh:IRI;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:URIEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#keyword> sh:path dcat:keyword;
+  sh:name "keyword"@en;
+  sh:description "Keyword(s) describing the dataset for discovery and thematic categorization (e.g. disease area)."@en;
+  sh:nodeKind sh:Literal;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#number-of-records> sh:path healthdcatap:numberOfRecords;
+  sh:name "number of records"@en;
+  sh:description "Number of data records (rows) represented by the dataset."@en;
+  sh:nodeKind sh:Literal;
+  sh:datatype xsd:nonNegativeInteger;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#number-of-unique-individuals> sh:path
+    healthdcatap:numberOfUniqueIndividuals;
+  sh:name "number of unique individuals"@en;
+  sh:description "Number of unique individuals represented in the dataset."@en;
+  sh:nodeKind sh:Literal;
+  sh:datatype xsd:nonNegativeInteger;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#theme> sh:path dcat:theme;
+  sh:name "theme"@en;
+  sh:description "A category of the Dataset. This property must be filled with a value from a controlled vocabulary. The default value of this property is http://publications.europa.eu/resource/authority/data-theme/HEAL from the controlled vocabulary."@en;
+  sh:minCount 1;
+  sh:nodeKind sh:IRI;
+  sh:defaultValue <http://publications.europa.eu/resource/authority/data-theme/HEAL>;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:URIEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#title> sh:path dct:title;
+  sh:name "title"@en;
+  sh:description "A name given to the Dataset."@en;
+  sh:minCount 1;
+  sh:nodeKind sh:Literal;
+  sh:uniqueLang true;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .
+
+<http://data.gdi.eu/core/p2/DatasetShape#type> sh:path dct:type;
+  sh:name "type"@en;
+  sh:description "A type of the Dataset.This property must be filled with a value from a controlled vocabulary."@en;
+  sh:nodeKind sh:IRI;
+  dash:viewer dash:URIViewer;
+  sh:in ( type:SYNTHETIC_DATA );
+  dash:editor dash:EnumSelectEditor .

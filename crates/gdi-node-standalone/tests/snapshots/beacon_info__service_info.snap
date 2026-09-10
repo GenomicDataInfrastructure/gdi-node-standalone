@@ -1,0 +1,22 @@
+---
+source: crates/gdi-node-standalone/tests/beacon_info.rs
+expression: v
+---
+{
+  "contactUrl": "mailto:beacon@example.org",
+  "description": "An example aggregated allele-frequency beacon.",
+  "documentationUrl": "https://beacon.example.org/docs",
+  "environment": "test",
+  "id": "org.example.beacon",
+  "name": "Example GDI Beacon",
+  "organization": {
+    "name": "Example Organization",
+    "url": "https://example.org"
+  },
+  "type": {
+    "artifact": "beacon",
+    "group": "org.ga4gh",
+    "version": "v2.2.0"
+  },
+  "version": "1.2.3"
+}

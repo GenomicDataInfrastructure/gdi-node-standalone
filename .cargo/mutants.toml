@@ -1,0 +1,23 @@
+# cargo-mutants configuration, read by every `cargo mutants` invocation.
+#
+# Mutation testing is an on-demand activity: nothing here gates a commit or a release.
+# `scripts/mutants-audit.sh` drives it and documents the traps.
+#
+# Keep this list tight so the survivor report stays meaningful. Exclude only provably
+# equivalent mutants, where no input distinguishes the mutant from the original, and never
+# a genuinely-missed one: a real survivor has to stand out.
+#
+# Do not add `exclude_globs` here. This file is global, so excluding a file makes it
+# un-mutatable in every run, including a future one that compiles it. A file that is
+# feature-gated away in one particular run belongs on that run's command line instead,
+# through cargo-mutants' own `-e` (file) and `-E` (mutant-description regex) flags.
+
+exclude_re = [
+  # crypt4gh/keys.rs base64: every `|` in `base64_encode`/`base64_decode` combines two
+  # operands whose set bits are disjoint (per site: 0x30|0x0F, 0x3C|0x03, 0xFC|0x03,
+  # 0xF0|0x0F, 0xC0|0x3F). With no bit overlapping, `a | b == a ^ b` bit-for-bit, so no
+  # input can distinguish the mutant. This is the `|`/`^` disjoint-bitfield false positive
+  # rather than a test gap: the round-trip known-answer test covers each of these lines.
+  "replace \\| with \\^ in base64_encode",
+  "replace \\| with \\^ in base64_decode",
+]

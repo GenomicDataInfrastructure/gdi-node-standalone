@@ -1,0 +1,80 @@
+# gitleaks configuration for `scripts/ci-local.sh secrets`.
+#
+# Extends the upstream default ruleset rather than replacing it: a hand-rolled rule list
+# would silently stop matching whatever upstream learns about next, which is the same
+# "guard that quietly covers less" failure this repo's gate keeps finding elsewhere.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Build output and fuzz corpora, plus one committed key file that cannot carry a pragma"
+# A path entry exempts a whole subtree from every rule, including secrets nobody has written
+# yet, so each one is justified individually here. The default remedy for a finding is an
+# inline `gitleaks:allow` comment at the line (see `secrets` in scripts/ci-local.sh).
+#
+# Keep this list minimal. A broad directory entry exempts live code as well as fixtures, so
+# a real credential dropped into an exempted tree would be invisible, which is the failure
+# this scanner exists to prevent. A new finding needs an exemption argued at the line, not
+# inherited from a directory.
+paths = [
+  # Build output and caches. `--no-git` does not consult .gitignore, so without these the
+  # scan walks tens of GB of `target/` and the leg is unusable — and none of it is source
+  # anyone can commit.
+  '''(^|/)target/''',
+  '''(^|/)\.git/''',
+  '''(^|/)node_modules/''',
+  # Editor and tool scratch directories inside the checkout: generated, gitignored, and not
+  # source anyone commits from this tree.
+  '''(^|/)\.claude/''',
+  # A nested git worktree (`.worktrees/<name>/`, the convention CONTRIBUTING.md describes)
+  # is a second checkout of this repo, scanned on its own terms when the gate runs there.
+  # From the parent it is the `target/` case: nothing under it can be staged from this
+  # tree, and the anchored exemption below (`^crates/...`) cannot match at the nested path,
+  # so every finding under it is a false positive by construction. The residual is
+  # accepted: a secret sitting uncommitted inside a worktree is invisible to a parent-run
+  # scan, and committing it needs that worktree's own gate, exactly as here, so no new gap
+  # opens.
+  '''(^|/)\.worktrees/''',
+  # Fuzzer output, which is build output by another name: libFuzzer writes it, `cargo fuzz`
+  # and the weekly workflow grow it in place, and .gitignore already treats it as generated
+  # (`corpus/`). It is in this group for the same reason `target/` is. Without the entry the
+  # scan walks thousands of generated inputs, some of which trip `generic-api-key` on a path
+  # nobody can commit, and the leg becomes unrunnable: an inline pragma is not available in
+  # a binary blob, and a `.gitleaksignore` fingerprint would be re-minted on every fuzz run.
+  #
+  # The residual is checked rather than accepted, because this is a whole-subtree exemption
+  # over a subtree that is not purely generated: some seeds under it are tracked, and
+  # `corpus/` in .gitignore only stops new files being added. The `secrets` leg therefore
+  # copies every tracked seed out under a flattened name, where no path can match this
+  # entry, and scans them again under the full default ruleset. A credential committed
+  # under the corpus fails the gate; a fuzzer-grown one cannot stall it. That also covers
+  # any future un-ignore here, which would otherwise widen this entry's blast radius
+  # silently.
+  '''^crates/core/fuzz/corpus/''',
+  # The one committed-key exemption that is neither build output nor a fuzz corpus: the
+  # private half of the crypt4gh known-answer-test recipient, in a raw key file with no
+  # syntax for a `gitleaks:allow` pragma. gitleaks is right to flag it — it is a real,
+  # usable, unencrypted X25519 key — so this entry is a deliberate override.
+  #
+  # It guards nothing. `crypt4gh-keygen --nocrypt` minted it here solely to encrypt the
+  # three sibling `.c4gh` vectors to its public half; `crates/core/tests/crypt4gh_kat.rs`
+  # records the regeneration procedure. The vectors come from the reference
+  # `crypt4gh==1.8.6` implementation, but the key does not: it is not an upstream one.
+  # Pinned to the exact file rather than its directory, so that the three sibling `.c4gh`
+  # vectors stay covered by the ordinary rules and a new key landing beside them fails
+  # loudly instead of inheriting this exemption. Anchored (`^…$`), because gitleaks matches
+  # path allowlists with an unanchored `regexp.MatchString`: a bare form would also exempt
+  # `recipient.sec.bak`, `recipient.secrets.env` and every file under a `recipient.sec.d/`
+  # directory.
+  '''^crates/core/tests/fixtures/crypt4gh_kat/recipient\.sec$''',
+  # The node identity the documented S3 bring-up creates: docker-compose.s3.yml instructs
+  # `identity init --file compose/keys/node.c4gh`, and compose/keys/.gitkeep is tracked so
+  # the directory exists to receive it. `.gitignore` covers `compose/keys/*`, so it cannot
+  # reach git, but `secrets` runs `--no-git` and reads gitignored files, so following the
+  # documented setup would redden the gate in every checkout.
+  #
+  # Scoped to one filename shape in one directory rather than to `compose/`, so a real
+  # credential dropped elsewhere under `compose/` stays visible, and anchored for the same
+  # reason as `recipient.sec`: unanchored, it would also cover `node.c4gh.bak`.
+  '''^compose/keys/[^/]+\.c4gh$''',
+]

@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "StatusWriteback",
+  "description": "The status-writeback object the service publishes at `_status/{id}.json` and the tool\nreads back to detect drift.\n\nOne model is shared by the service, which writes it, and the tool, which reads it, so a\nfield rename on one side cannot silently deserialize to a default on the other and\ndefeat the tool's freshness check.\n\nThe read side is lenient: the tool consults only `state`, `source_signature` and\n`error_message`, and the discriminator and provenance fields `schemaVersion`, `id` and\n`updated_at` default when absent, so an older or partial object still parses. Only\n`state` is required.",
+  "type": "object",
+  "properties": {
+    "error_message": {
+      "description": "Sanitized closed-class error message (present only on `error`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "id": {
+      "description": "The dataset id.",
+      "type": "string",
+      "default": ""
+    },
+    "schemaVersion": {
+      "description": "Schema version of this writeback object; `1` today. Readers ignore it under the\nlenient parse, matching `manifestVersion`.",
+      "type": "integer",
+      "format": "uint32",
+      "default": 0,
+      "minimum": 0
+    },
+    "source_signature": {
+      "description": "The `ETag` of the `.tar.c4gh` this result describes: the freshness key a reader\ncompares against the current package `ETag`. Absent only on `deleted`.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "state": {
+      "description": "The node's reported state: `processing` | `visible` | `hidden` | `error` | `deleted`.",
+      "type": "string"
+    },
+    "updated_at": {
+      "description": "RFC3339 write time.",
+      "type": "string",
+      "default": ""
+    }
+  },
+  "required": [
+    "state"
+  ]
+}

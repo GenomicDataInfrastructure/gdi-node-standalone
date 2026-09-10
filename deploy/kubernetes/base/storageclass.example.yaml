@@ -1,0 +1,46 @@
+# Example only: a Retain StorageClass for the override-store volume. Copy it, set
+# `provisioner` for your cluster, and apply it out of band. It is not in
+# kustomization.yaml because `provisioner` is cluster-specific, and `kubectl apply -k .`
+# must not create a StorageClass with a placeholder (the same reason secret.example.yaml
+# is excluded).
+#
+# Why it matters. `[service].require_override_store = true` (in node.toml) makes the node
+# refuse to serve when the override store is missing, such as an unmounted volume or a
+# wrong path. The used-marker (`<data_dir>/.override-store-used.json`, operating.md §17)
+# makes it refuse when the store is present but empty after it once held an override. So
+# a lost `overrides` PVC is caught: the node stops rather than serving with zero
+# suppressions.
+#
+# Caught is not recovered. A refused boot is an outage until the bytes come back, and the
+# marker sits on the data volume, so losing both volumes together leaves nothing to refuse
+# on. Only the storage layer can keep the volume from being destroyed and re-created empty.
+#
+# `reclaimPolicy: Retain` keeps the underlying volume when the PVC, the pod or the
+# namespace goes, so recovery re-binds the same bytes. Necessary but not sufficient:
+# Retain does not protect against the storage itself failing. Back this volume up
+# independently (Velero, a CSI VolumeSnapshot, or your platform's equivalent) and treat
+# "restore the override store before the node serves" as a mandatory DR step
+# (operating.md §17). Never let the node boot against a fresh empty override volume.
+#
+# To use it, set `storageClassName` on the `gdi-node-standalone-overrides` PVC in pvc.yaml
+# to this class's name. Without a StorageClass: provision the override PV yourself with
+# `persistentVolumeReclaimPolicy: Retain` set on the PV and bind the PVC to it. Same
+# durability, no dedicated class.
+#
+# The `data` PVC does not need this. Dataset content is reconstructible by re-ingesting
+# from the source bucket, so its loss is a re-ingest, not a disclosure. Only the override
+# store is irreplaceable.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gdi-node-standalone-overrides-retain
+# The CSI or in-tree driver that provisions the volume, cluster-specific. Examples:
+# `pd.csi.storage.gke.io` (GKE), `ebs.csi.aws.com` (EKS), `disk.csi.azure.com` (AKS),
+# `rancher.io/local-path` (k3s/local-path). Set yours.
+provisioner: "<SET ME: your cluster's volume provisioner, e.g. ebs.csi.aws.com>"
+# The whole point of this file. Default is Delete; Retain keeps the volume when the PVC goes.
+reclaimPolicy: Retain
+# Optional but recommended: bind the PV only once a pod needs it (respects topology on
+# multi-zone clusters) and allow the 1Gi override claim to grow if it ever must.
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true

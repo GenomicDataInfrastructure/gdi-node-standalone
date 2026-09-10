@@ -1,0 +1,57 @@
+{
+  "cohort": {
+    "EE": {
+      "F": 1119,
+      "M": 1012
+    },
+    "FI": {
+      "F": 925,
+      "M": 880
+    },
+    "LV": {
+      "F": 552,
+      "M": 498
+    }
+  },
+  "individuals": 4986,
+  "nsPeak": 4986,
+  "populations": [
+    "EE",
+    "EE_F",
+    "EE_M",
+    "F",
+    "FI",
+    "FI_F",
+    "FI_M",
+    "LV",
+    "LV_F",
+    "LV_M",
+    "M",
+    "Total"
+  ],
+  "records": 1637,
+  "recordsPerContig": {
+    "chr21": 1367,
+    "chrM": 30,
+    "chrX": 200,
+    "chrY": 40
+  },
+  "rowsEmitted": 19484,
+  "rowsPerPopulation": {
+    "EE": 1637,
+    "EE_F": 1597,
+    "EE_M": 1637,
+    "F": 1597,
+    "FI": 1637,
+    "FI_F": 1597,
+    "FI_M": 1637,
+    "LV": 1637,
+    "LV_F": 1597,
+    "LV_M": 1637,
+    "M": 1637,
+    "Total": 1637
+  },
+  "seed": 20260904,
+  "sites": 1637,
+  "totalAfZeroVariants": 11
+}

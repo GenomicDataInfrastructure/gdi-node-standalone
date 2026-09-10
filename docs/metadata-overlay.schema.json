@@ -1,0 +1,237 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MetadataOverlay",
+  "description": "A patch over a dataset's FDP-served metadata. Every field is optional: a field present\nin the JSON overwrites the baseline, an absent field is left untouched. Clearing a field\nback to absent is not supported. Re-edit with the desired value instead.",
+  "type": "object",
+  "properties": {
+    "accessRights": {
+      "description": "Access rights authority IRI (`PUBLIC` / `RESTRICTED` / `NON_PUBLIC`).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "applicableLegislation": {
+      "description": "Legislation mandating the dataset (EU ELI IRIs, >= 1).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "conformsTo": {
+      "description": "Standards-compliance IRIs.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "contactPoint": {
+      "description": "Dataset-level contact point.",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ContactPoint"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "creator": {
+      "description": "Creating agents (>= 1).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/Agent"
+      }
+    },
+    "description": {
+      "description": "Free-text description (plain string or language map).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "healthCategory": {
+      "description": "GDI health category IRIs (>= 1).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "isReferencedBy": {
+      "description": "Publication DOI IRIs.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "keywords": {
+      "description": "Tags for discovery (recommended).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "legalBasis": {
+      "description": "DPV legal basis IRIs (for real personal data).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
+    "license": {
+      "description": "Reuse license for this dataset (IRI).",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "numberOfUniqueIndividuals": {
+      "description": "Distinct sequenced subjects across the whole dataset (recommended).",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint64",
+      "minimum": 0
+    },
+    "otherIdentifier": {
+      "description": "Secondary identifiers.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/$defs/OtherIdentifier"
+      }
+    },
+    "title": {
+      "description": "Dataset title (plain string or language map).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "type": {
+      "description": "Dataset type IRI, set only for synthetic datasets.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "Agent": {
+      "description": "An agent (creator / contributor). Maps to `foaf:Agent`.",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "`foaf:name`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ]
+    },
+    "ContactPoint": {
+      "description": "A vCard-style contact point (`vcard:Kind`).",
+      "type": "object",
+      "properties": {
+        "fn": {
+          "description": "`vcard:fn` (required when a contact point is present).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasEmail": {
+          "description": "`vcard:hasEmail` (required when a contact point is present).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hasURL": {
+          "description": "`vcard:hasURL` (optional; recommended sub-field).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "LocalizedText": {
+      "description": "Either a plain string or a BCP-47 language map (e.g. `{en: \"...\", et: \"...\"}`).\n\nUsed for the localized `title` and `description` fields.",
+      "anyOf": [
+        {
+          "description": "Single untagged value.",
+          "type": "string"
+        },
+        {
+          "description": "Language-tagged values, keyed by BCP-47 tag.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      ]
+    },
+    "OtherIdentifier": {
+      "description": "A secondary identifier (`adms:identifier`).",
+      "type": "object",
+      "properties": {
+        "name": {
+          "description": "Optional human-readable name.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "notation": {
+          "description": "`skos:notation` (required within the identifier).",
+          "type": "string"
+        },
+        "schemaAgency": {
+          "description": "`adms:schemaAgency` (recommended within the identifier).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "notation"
+      ]
+    }
+  }
+}

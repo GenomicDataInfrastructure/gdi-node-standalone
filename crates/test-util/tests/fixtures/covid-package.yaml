@@ -1,0 +1,35 @@
+metadata:
+  prefix: "GDI"
+  org: "UTARTU"
+  catalog: "gdi-aggregated"
+  title: "Genome of Europe Estonia aggregated allele frequencies"
+  description: "Aggregated allele frequencies for the Genome of Europe Estonia cohort, published as public summary statistics from whole-genome sequencing."
+  accessRights: "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+  applicableLegislation:
+    - "http://data.europa.eu/eli/reg/2025/327/oj"
+  license: "https://creativecommons.org/licenses/by/4.0/"
+  creator:
+    - name: "Genome of Europe - EE node"
+  healthCategory:
+    - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+  keywords:
+    - allele-frequency
+    - genomics
+  numberOfUniqueIndividuals: 4008
+
+files:
+  - category: "VCF"
+    reference: "GRCh38"
+    files:
+      - "COVID.monogneic.aggregate.AFs.GRCh38.vcf"
+
+config:
+  mode: aggregated
+  blockRange: 10000000
+  afSource: "The Genome of Europe"
+  afSourceReference: "https://genomeofeurope.eu/"
+  # 0 = NO build-time k-anonymity floor. Kept at 0 here only because this is a minimal
+  # example/test fixture; a REAL dataset should set a floor (~10 = k=5 distinct individuals,
+  # since this counts ALLELES). The node's serve-time [beacon].min_allele_count composes with
+  # this as max(build, serve), so a package built with 0 still relies on the node's floor.
+  minAlleleCount: 0

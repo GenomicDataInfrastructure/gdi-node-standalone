@@ -1,0 +1,547 @@
+name: scheduled
+# Rarely-run / on-demand checks moved off the per-PR `ci` workflow because they are
+# advisory, slow, or expensive and gate nothing on a PR: the Criterion benchmarks
+# (runner-variance noise), the time-boxed corpus fuzz pass (a checked-in corpus
+# rarely regresses per-PR), the `oha` load harness (throughput is runner-variant),
+# the macOS + Windows
+# `cross-native` builds (priciest runner minutes, low regression rate), the
+# `vendored-sync` drift check (needs network), and the instrumented `coverage` run
+# (the single heaviest job, report-only). They run weekly
+# as a periodic safety net and can be triggered by hand via the Actions UI. (The
+# full-stack e2e lives in its own `e2e-full.yml`, which also accepts a `full-e2e` PR
+# label.)
+on:
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: {}
+
+# Least-privilege default token: the weekly jobs only read the repo (checkout,
+# build, network fetches, artifact upload). The `notify` job below opts into
+# `issues: write` for itself. Mirrors release.yml/ci.yml.
+permissions:
+  contents: read
+
+# Incremental compilation buys nothing on a cold CI runner; disable it so the
+# bench/fuzz/load jobs don't write throwaway `incremental/` artifacts. Mirrors the
+# `ci` workflow.
+env:
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  # Time-boxed fuzz pass. The untrusted-input harnesses in
+  # crates/core/fuzz/fuzz_targets/ are each run for a short bounded time, seeded
+  # only by their checked-in benign corpus under crates/core/fuzz/corpus/<target>/.
+  # The count is not written here: the step enumerates targets from `cargo fuzz list`, and
+  # a hand-maintained number in prose is a second copy that drifts.
+  # cargo-fuzz needs the nightly toolchain (libfuzzer-sys / -Z flags). The fuzz
+  # crate is its own isolated workspace, so this never touches the stable
+  # workspace lockfile.
+  #
+  # parquet_validate caveat: arrow-ipc's metadata decoder panics on some crafted
+  # parquet, which the product converts to a clean Err via catch_unwind — but
+  # libfuzzer-sys's panic hook fires at the panic site, so cargo-fuzz still
+  # reports such an input as a crash (a known cargo-fuzz limitation with
+  # internally-caught third-party panics; see the header of
+  # fuzz_targets/parquet_validate.rs). The checked-in corpus holds only benign
+  # seeds (no panic-inducing sample), so a corpus-seeded, time-boxed run is safe.
+  # -max_total_time stays small and the run uses -fork=1 so a corpus-only pass does
+  # not wander into the known arrow case.
+  fuzz:
+    runs-on: ubuntu-latest
+    # Every target × a 60 s bounded run + `cmin`, plus a from-source cargo-fuzz install and
+    # nightly builds of them all; cap it so a libfuzzer hang can't run to the 6h GitHub
+    # default. The per-target cost (fuzz + cmin) scales linearly with the harness count, so
+    # raise this cap when targets are added. A timeout here is indistinguishable from a
+    # fuzz failure, so leave headroom.
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Pin an exact cargo-fuzz, because a floating one can shift behaviour. The nightly
+      # toolchain is left floating: a dated nightly cannot be bumped by Dependabot and
+      # would need a manual cadence, which is not worth it for a weekly advisory job, and
+      # cargo-fuzz needs a recent nightly.
+      #
+      # The SHA below must be the head of the upstream `nightly` branch. Upstream
+      # force-pushes these rolling refs, so an older pin becomes an unreachable commit:
+      # it may still resolve, but Dependabot cannot bump a SHA it cannot reach. Re-check
+      # this pin whenever you bump the other actions.
+      - uses: dtolnay/rust-toolchain@7c8d7d138f5c09cef361f8214cf96882cd029cdb # nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: crates/core/fuzz
+      # Compound the fuzz corpus across weekly runs: restore the most recent
+      # accumulated corpus before fuzzing and save the cmin-minimized result after,
+      # so coverage deepens over time instead of resetting to the checked-in seeds
+      # + 60s each run. The unique run-id key always saves a fresh entry; the
+      # `fuzz-corpus-` restore-key prefix always restores the latest prior corpus.
+      # The committed seed corpus is in the checkout regardless, so a miss is safe.
+      # This step uses only `path`, `key` and `restore-keys`, which have been stable across
+      # the action's major versions, so a major bump here is normally safe to take whole.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/core/fuzz/corpus
+          key: fuzz-corpus-${{ github.run_id }}
+          restore-keys: |
+            fuzz-corpus-
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - name: Time-boxed fuzz over the checked-in seed corpus
+        working-directory: crates/core
+        run: |
+          # Enumerate targets from `fuzz list` (the fuzz_targets/*.rs set) rather than a
+          # hand-maintained name list, so a newly-added target is fuzzed automatically
+          # instead of compiling-but-never-running (a silent coverage gap). Fail loudly
+          # if the list is empty.
+          mapfile -t targets < <(cargo +nightly fuzz list)
+          if [ "${#targets[@]}" -eq 0 ]; then
+            echo "::error::cargo fuzz list returned no targets"; exit 1
+          fi
+          echo "fuzzing ${#targets[@]} targets: ${targets[*]}"
+          for target in "${targets[@]}"; do
+            echo "::group::fuzz $target"
+            cargo +nightly fuzz run "$target" -- -max_total_time=60 -fork=1
+            # Minimize the (possibly grown) corpus in place so the checked-in seed
+            # set stays small and non-redundant for the next run.
+            cargo +nightly fuzz cmin "$target"
+            echo "::endgroup::"
+          done
+      # Surface any crash-reproducer inputs the run found (none on a green run).
+      - name: Upload fuzz crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crashes
+          path: crates/core/fuzz/artifacts/
+          if-no-files-found: ignore
+      # Publish the post-run (minimized) corpus for inspection / refreshing the
+      # checked-in seeds. Cross-run persistence is handled by the actions/cache step
+      # above (the corpus compounds each week); this artifact is a snapshot.
+      - name: Upload post-run fuzz corpus
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus
+          path: crates/core/fuzz/corpus/
+          if-no-files-found: ignore
+
+  # Criterion performance benchmarks. Builds and runs the hot-path benches against
+  # their fixed, checked-in fixtures so the numbers are visible in the job log:
+  # crates/core/benches/{parquet_read,crypt4gh}.rs and
+  # crates/beacon/benches/query_assembly.rs. `--features full` so the pme/network
+  # cfg-gated paths are exercised. Advisory: `continue-on-error: true` keeps a
+  # noisy/slow bench run from going red.
+  benches:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo bench --workspace --features full --locked
+
+  # Advisory HTTP load harness (`oha`). Boots the node over the COVID fixture
+  # (plaintext inbox — no Docker/S3/keys) and drives it: a baseline pass under the
+  # concurrency limit (asserts all-2xx) and a saturation pass over it (asserts the
+  # load-shed arm returns 503 `beaconErrorResponse` envelopes — the back-pressure
+  # path that is not in-process testable, since a `tower::oneshot` queues instead of
+  # shedding). Throughput is runner-variant and gates nothing; the shed-trip +
+  # envelope are the deterministic assertions (the script exits non-zero on a real
+  # regression, surfacing it on the weekly run). See scripts/load/run.sh.
+  load:
+    runs-on: ubuntu-latest
+    # Builds the release binaries + boots the node + two oha passes; cap to fail fast
+    # on a wedged service instead of the 6h default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        # Pinned, unlike `uv` and `cargo-llvm-cov`, whose version cannot change a verdict.
+        # `oha` is not in install-action's own tool
+        # list, so it necessarily routes through the cargo-binstall fallback; the
+        # version pin is what makes that path reproducible, and
+        # `ci-local.sh workflow-tool-pins` can only compare tools that carry one.
+        with: { tool: oha@1.16.0 }
+      # The harness builds the release binaries itself if absent.
+      - run: ./scripts/load/run.sh
+
+  # Endurance-leak + crash-loop soaks (long-runners; no Docker, no S3, no keys). `leak.sh`
+  # boots the node over the COVID fixture and samples the process RSS / open-fds / thread
+  # count across `oha` request rounds, asserting a plateau not a sustained climb;
+  # `crash-loop.sh` SIGKILLs the node at jittered moments across cycles and asserts the
+  # store converges on restart (kept dataset served, deleted dataset erased with no
+  # `.deleting` marker, no orphan `.incoming`). Both build the release binaries themselves
+  # and exit non-zero on a real regression (a memory/fd/thread leak, or a non-converging
+  # store), surfacing it on the weekly run — so no `continue-on-error`. See scripts/soak/.
+  soak:
+    runs-on: ubuntu-latest
+    # Release build + a leak soak (40 rounds) + a crash-loop soak (10 cycles); cap it so a
+    # wedged boot fails fast instead of the 6h default.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        # Pinned like every other tool here. `oha` is not in install-action's own tool
+        # list, so it necessarily routes through the cargo-binstall fallback; the
+        # version pin is what makes that path reproducible, and
+        # `ci-local.sh workflow-tool-pins` can only compare tools that carry one.
+        with: { tool: oha@1.16.0 }
+      - run: SOAK_ROUNDS=40 ./scripts/soak/leak.sh
+      - run: SOAK_CYCLES=10 ./scripts/soak/crash-loop.sh
+
+  # Continuous supply-chain re-scan (advisory). Re-runs only the RustSec advisory
+  # check from the single repo-root deny.toml against the shipped Cargo.lock, so a
+  # newly-disclosed advisory against an already-pinned dependency is caught on the
+  # weekly run even when no PR / Dependabot bump is in flight (the per-PR `ci` gate
+  # only fires on a change). The `[advisories] ignore` list in deny.toml is honoured.
+  # This job hard-fails on a fresh advisory (no `continue-on-error`): a red run is
+  # what fires GitHub's native failed-scheduled-run email to the cron owner and
+  # trips the `notify` job below — a `continue-on-error` here would leave the run
+  # green and the supply-chain net silent. Reuses the same pinned cargo-deny as the
+  # `ci` workflow; the full license/bans/sources check stays on the per-PR gate.
+  advisories:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cargo-deny@0.20.2 }
+      - run: cargo deny check advisories
+      # The isolated cargo-fuzz crate has its own Cargo.lock (excluded from the
+      # workspace, so the check above never sees it) with ~15 crates absent from the
+      # main lock. Per-PR CI does not deny-check it either (it only builds weekly),
+      # so it is scanned here for advisories + a rogue registry/git source. Scoped to
+      # `advisories sources` only — not `licenses`/`bans`: the fuzz tooling
+      # (libfuzzer-sys, wit-parser, wasm-*, …) never ships, so its licences aren't in
+      # deny.toml's allow-list and its duplicates are irrelevant; running those
+      # subchecks would red the run on crates with zero shipped impact.
+      - run: cargo deny --manifest-path crates/core/fuzz/Cargo.toml check advisories sources
+
+  # Vendored-input drift check. Re-fetches each vendored conformance file
+  # (conformance/shapes/gdi-metadata/, conformance/ga4gh-beacon-v2/,
+  # conformance/ga4gh-beacon-v2-default-model/, conformance/ga4gh-vrs-1.3/) from the commit
+  # pinned in its VENDORED.md and asserts it is still byte-identical — turning the
+  # "verbatim at commit X" claim from documentation into an enforced check. `check` also
+  # runs the `pins` assertions: the userportal's deployed ckanext-dcat/ckanext-fairdatapoint
+  # refs and gdi-metadata's declared HealthDCAT-AP release (so a federation move surfaces
+  # here as a ticket, not a silent harvest break). It is off the per-PR `ci` workflow
+  # because it needs network access and gates nothing on a PR. A red run means a vendored file
+  # was locally edited, a pin drifted, or an upstream deploy ref moved — re-vendor with
+  # `scripts/vendored.sh fetch` + bump VENDORED.md, update EXTERNAL_PINS, or revert the edit.
+  # (The authored FDP shapes under conformance/shapes/fdp/ are not vendored — see
+  # their PROVENANCE.md — so they are not byte-checked here.) GITHUB_TOKEN raises the
+  # unauthenticated rate limit for the raw fetches.
+  vendored-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify vendored files + external upstream pins match their pins
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/vendored.sh check
+      # ...and the question `check` structurally cannot answer. It fetches each set at its
+      # pinned commit — an immutable SHA — so it stays green no matter how far upstream
+      # advances. `drift` compares the same files against the upstream branch, which is the
+      # only way a changed shape or schema upstream becomes visible here at all.
+      #
+      # `continue-on-error`, because upstream moving is news, not a defect in this tree.
+      # The policy is to follow the federation in lockstep rather than chase it, so this
+      # surfaces the change as exit 3, visible in the run, without failing a job that then
+      # gets muted. The `notify` step below still reports the run.
+      - name: Report whether upstream has moved past our pinned commits
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: ./scripts/vendored.sh drift
+
+  # macOS + Windows cross-compile of the gdi-dataset-tool CLI — moved off the per-PR
+  # ci `cross-compile` job (which keeps the Linux gnu + static-musl service legs).
+  # These need native runners — the priciest minutes (GitHub bills macOS 10x, Windows
+  # 2x) — and rarely break in a way the Linux build doesn't, so a weekly verify is the
+  # right cadence; the release workflow still rebuilds all platforms on a `v*` tag.
+  cross-native:
+    name: cross-native (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Platform set — keep in sync with the two sibling cross matrices:
+          #   * ci.yml `cross-compile` (the per-PR Linux legs), and
+          #   * release.yml `build` (the superset that ships on a `v*` tag).
+          # These are the macOS + Windows tool legs kept off the per-PR path (priciest
+          # runners); a native target added here should be mirrored in release.yml `build`.
+          - name: tool-macos
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: tool-windows-msvc
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.name }}
+      - name: Build (native)
+        shell: bash
+        run: cargo build --release --locked -p gdi-dataset-tool --target ${{ matrix.target }}
+
+  # Weekly aarch64-linux build-verify, kept off the per-PR `ci.yml` cross-compile matrix to
+  # keep it light: the aarch64 legs are the slowest (emulated) cross builds and cross-arch
+  # breaks are rare. Build-verifies the two shipped aarch64-linux service targets (gnu
+  # primary + static musl secondary, full features) via `cross`, and glibc-floor-guards the
+  # gnu one.
+  # The release-target guard (ci.yml `actionlint`) reads this job's `target:` keys, so these
+  # shipped targets stay verified-somewhere. Keep the matrix in sync with release.yml `build`
+  # and the per-PR ci.yml `cross-compile` (its x86_64 siblings).
+  cross-linux-arm:
+    name: cross-linux-arm (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: service-gnu-aarch64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            crate: gdi-node-standalone
+            features: "full"
+          - name: service-musl-aarch64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            crate: gdi-node-standalone
+            features: "full"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.name }}
+      - name: Install cross
+        uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cross@0.2.5 }
+      - name: Build (cross, build-verify profile)
+        run: |
+          cross build --profile release-verify --locked -p ${{ matrix.crate }} --target ${{ matrix.target }} \
+            ${{ matrix.features != '' && format('--features {0}', matrix.features) || '' }}
+      # glibc floor guard on the gnu leg — the 2.28 floor is single-sourced from ci.yml's
+      # cross-compile guard via check-ci-gate.py, so there is no second copy to drift.
+      # objdump reads the dynamic symbol table cross-arch, so it covers the aarch64 binary.
+      - name: glibc floor guard (gnu targets)
+        if: contains(matrix.target, '-gnu')
+        run: |
+          floor="$(python3 scripts/check-ci-gate.py --glibc-floor)"
+          bin="target/${{ matrix.target }}/release-verify/${{ matrix.crate }}"
+          max=$(objdump -T "$bin" | grep -oE 'GLIBC_[0-9.]+' | sort -V | tail -1)
+          # Fails open without this — see the identical assert in ci.yml: an empty `max`
+          # sorts before the floor and reports it satisfied having checked nothing.
+          [ -n "${max#GLIBC_}" ] || { echo "::error::no GLIBC symbols found in $bin — the floor guard verified nothing"; exit 1; }
+          printf '%s\n%s\n' "${max#GLIBC_}" "$floor" | sort -V -C \
+            || { echo "::error::glibc floor $max exceeds $floor (would drop RHEL8) — a dep pulled a newer symbol or cross's base bumped"; exit 1; }
+          echo "ok: glibc floor ${max#GLIBC_} ≤ $floor"
+
+  # Coverage — report-only (continue-on-error), moved off the per-PR ci workflow
+  # because it is the single heaviest job: one instrumented `cargo llvm-cov
+  # --features full` run with `--test-threads=1` (the network/Vault tests share
+  # process state). The summary goes to the run's job summary and the lcov is uploaded
+  # as an artifact. No floor is enforced — it surfaces the trend on the weekly run.
+  coverage:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with: { components: llvm-tools-preview }
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        with: { tool: cargo-llvm-cov }
+      - name: Coverage (summary -> job summary, lcov -> artifact)
+        run: |
+          cargo llvm-cov --no-report --workspace --features full --locked -- --test-threads=1
+          cargo llvm-cov report --lcov --output-path lcov.info
+          {
+            echo '### Coverage (report-only — no floor enforced)'
+            echo ''
+            echo '```'
+            cargo llvm-cov report --summary-only
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage-lcov
+          path: lcov.info
+          if-no-files-found: error
+
+  # Weekly image vulnerability scan. The per-PR `supply-chain` job's `cargo deny`
+  # covers Rust-crate advisories from Cargo.lock, but structurally cannot see CVEs in
+  # the container's OS layer — the distroless `cc-debian13` base ships glibc/libgcc/…
+  # that carry their own advisories. Trivy scans the shipped image (built here
+  # from the same multi-stage Dockerfile) for those. `--ignore-unfixed` so an
+  # unpatchable base CVE does not nag; a fixable HIGH/CRITICAL fails the run so
+  # `notify` files the tracking issue → bump the base digest in the Dockerfile. Trivy
+  # is installed via the already-pinned taiki-e/install-action (no new action to pin).
+  image-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the service image (the same multi-stage Dockerfile that ships)
+        run: docker build -f Dockerfile -t gdi-node-standalone:scan .
+      - uses: taiki-e/install-action@6cd13508893c0e7eab5f273c2575d3859bd7229a # v2.86.6
+        # Pin the scanner version, as release.yml does, so the weekly base-CVE gate is
+        # reproducible. Keep it in step with release.yml's pin. The vulnerability DB is
+        # still fetched fresh at scan time.
+        with: { tool: trivy@0.74.0 }
+      - name: Trivy scan the image for OS/base-layer CVEs
+        run: |
+          # Table -> job summary (fixable HIGH/CRITICAL), then re-scan with a non-zero
+          # exit to fail the run. The vuln DB is cached between the two invocations.
+          trivy image --ignore-unfixed --severity HIGH,CRITICAL \
+            --format table --output trivy.txt gdi-node-standalone:scan || true
+          {
+            echo '### Trivy image scan (fixable HIGH/CRITICAL)'
+            echo '```'
+            cat trivy.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          trivy image --ignore-unfixed --severity HIGH,CRITICAL \
+            --exit-code 1 --quiet gdi-node-standalone:scan
+
+  # Third-party attribution drift-guard. THIRD-PARTY-LICENSES.md (full licence texts
+  # + copyright, shipped with the release binaries and inside the container image) is
+  # committed at repo root and generated by `cargo about`. Regenerate it here and fail
+  # if the committed copy is stale — i.e. a dependency bump changed the shipped licence
+  # set but the bundle was not refreshed. Lives weekly (not per-PR) because cargo-about
+  # has no install-action prebuilt, so it is a from-source install (like the `fuzz`
+  # job's cargo-fuzz); a red run trips `notify`. Fix: run
+  # `cargo about generate about.hbs -o THIRD-PARTY-LICENSES.md` and commit.
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - name: Install cargo-about (pinned; from source — no install-action prebuilt)
+        run: cargo install cargo-about --version 0.9.2 --locked --features cli
+      - name: Regenerate the attribution bundle and assert it matches the committed copy
+        run: |
+          cargo about generate --fail about.hbs -o /tmp/THIRD-PARTY-LICENSES.gen.md
+          diff -u THIRD-PARTY-LICENSES.md /tmp/THIRD-PARTY-LICENSES.gen.md \
+            || { echo "::error::THIRD-PARTY-LICENSES.md is stale — run 'cargo about generate about.hbs -o THIRD-PARTY-LICENSES.md' and commit the result"; exit 1; }
+
+  # Stable canary. `rust-toolchain.toml` pins the dev toolchain and outranks `rustup
+  # default`, so every bare `cargo` in ci.yml compiles with that pin — never with whatever
+  # `stable` the runner installed. The MSRV policy (CONTRIBUTING §MSRV) is a ratchet: the
+  # floor (`rust-version`) stays below the pin and rises only when a dependency forces it,
+  # so the `msrv` job is meaningful precisely while the two differ. What nothing else tells
+  # anyone is when current stable moves ahead of the pin: the per-PR matrix keeps happily
+  # building the old compiler and new clippy lints never fire. This job is that signal —
+  # about the pin, not the floor. It is not a per-PR gate: a fresh stable release must
+  # never turn contributors' PRs red.
+  #
+  # Explicit `cargo +stable` on every invocation — a bare `cargo` here would silently be
+  # the pinned toolchain and the canary would test nothing.
+  stable-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: stable-canary
+      - name: Report whether the pinned dev toolchain is behind current stable
+        shell: bash
+        run: |
+          set -euo pipefail
+          pin=$(sed -n -E 's/^[[:space:]]*channel[[:space:]]*=[[:space:]]*"([0-9.]+)".*/\1/p' rust-toolchain.toml)
+          stable=$(rustc +stable --version | awk '{print $2}')
+          echo "rust-toolchain.toml pin: ${pin}   current stable: ${stable}"
+          if [ "${pin%.*}" != "${stable%.*}" ]; then
+            echo "::notice::current stable (${stable}) is ahead of the pinned dev toolchain (${pin}). Bump rust-toolchain.toml when ready; leave Cargo.toml \`rust-version\` alone — the MSRV is a ratchet below the pin and rises only when a dependency forces it (scripts/check-ci-gate.py asserts MSRV <= pin)."
+          fi
+      - name: clippy on current stable (new lints surface here, never in a PR)
+        run: cargo +stable clippy --workspace --all-targets --all-features --locked -- -D warnings
+      - name: check on current stable
+        run: cargo +stable check --workspace --all-targets --all-features --locked
+
+  # Real-data conformance against 1000 Genomes + gnomAD chr21 slices. Weekly rather than
+  # per-PR because the leg range-downloads those slices before it can run anything: the
+  # payload is large, the two archives are third-party availability risks, and the shapes
+  # it checks change on upstream's cadence, not on this repository's. The corpus is cached
+  # between runs and keyed on the fetch script, so a change to what is fetched invalidates
+  # it; the leg itself refetches only when the slices are absent.
+  corpus:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: corpus
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: target/corpus
+          key: gdi-corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
+      - run: ./scripts/ci-local.sh corpus
+
+  # External pin freshness: the userportal deploy refs and gdi-metadata lineage this tree
+  # follows, plus the Dockerfile base-image digests. Weekly, not per-PR, because it is a
+  # verdict about the world rather than about the commit: it goes red when the federation
+  # moves or a base image is rebuilt, neither of which any pull request caused, and a gate
+  # that reddens for reasons the author cannot fix is a gate people learn to ignore. The
+  # leg already downgrades an unreachable upstream to a warning rather than a failure.
+  pins:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: External pins + base-image digest freshness
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          # Fatal here, unlike a developer's working tree: this job exists to be the place
+          # drift is noticed, and a warning in a weekly log nobody opens is not that.
+          PINS_STRICT: "1"
+        run: ./scripts/ci-local.sh pins
+
+  # Active failure surfacing. GitHub emails the cron owner when a scheduled run
+  # fails, but that signal is easy to miss and is not assignable — so on any failed
+  # weekly run, open (or comment on) a single tracking issue. Uses the preinstalled
+  # `gh` CLI rather than a third-party create-issue Action, mirroring the
+  # promtool/actionlint `docker run` jobs (no new supply-chain surface). The
+  # `continue-on-error` advisory jobs (benches, coverage) report `success` to `needs`, so
+  # they never trip this; the gating jobs, including `advisories`, do. Scoped to the
+  # schedule trigger, since a human already watches a manual dispatch.
+  notify:
+    needs: [fuzz, benches, load, soak, advisories, vendored-sync, cross-native, cross-linux-arm, coverage, image-scan, licenses, stable-canary, corpus, pins]
+    if: failure() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the weekly-failure tracking issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          body="A weekly \`scheduled\` maintenance run failed: ${RUN_URL} — check the failed job(s). A red \`advisories\` job means a fresh RustSec advisory landed against an already-pinned dependency (no PR/Dependabot bump needed to surface it)."
+          existing=$(gh issue list --state open --search "in:title scheduled-failure" \
+            --json number --jq '.[0].number // empty')
+          if [ -n "${existing}" ]; then
+            gh issue comment "${existing}" --body "${body}"
+          else
+            gh issue create --title "scheduled-failure: weekly maintenance run failed" --body "${body}"
+          fi

@@ -1,0 +1,130 @@
+# FDP v1.2 Catalog (FDP-structural) SHACL shape.
+#
+# Authored in-repo from two sources — not vendored or copied from any node
+# implementation (see PROVENANCE.md):
+#
+#   1. The FDP v1.2 specification, §4.2.2 "Catalog Metadata"
+#      (https://specs.fairdatapoint.org/v1.2/fdp-specs-v1.2.html), which fixes the
+#      mandatory property set and cardinalities encoded below.
+#   2. This repository's own catalog emitter — crates/fairdp/src/root.rs
+#      (`catalog_graph`) and crates/fairdp/src/vocab.rs.
+#
+# It targets `dcat:Catalog` directly because the node navigates the catalog layer
+# via plain `ldp:contains` plus the three membership predicates (dct:hasPart /
+# dcat:dataset / ldp:contains), not via an `ldp:DirectContainer` — so a
+# DirectContainer-targeted containment shape would never apply here.
+#
+# Scope: the FDP-*structural* layer only. The GDI field-model constraints on a
+# catalog (title / description / applicableLegislation) are checked by the separate
+# gdi-metadata `CatalogShape`, which targets these same `dcat:Catalog` nodes (each
+# catalog record is validated by both shape sets).
+#
+# Two deliberate deviations from the bare §4.2.2 table, mirroring how fdp-root.ttl
+# treats the root:
+#   * `dct:hasPart` is RELAXED to `sh:minCount 0` (spec is 1..*), so an empty catalog
+#     — a stable, dereferenceable `dcat:Catalog` with zero visible datasets —
+#     conforms. This is the only minCount relaxation in the whole conformance harness.
+#   * `fdp-o:conformsToFdpSpec` is asserted as a FORM check only (an IRI, no minCount):
+#     §4.2.2 lists it for the FAIR Data Point ROOT, not the Catalog, but the emitter
+#     emits the FDP bookkeeping uniformly on every record, so its shape is validated
+#     where present without being mandated beyond the spec (the root shape mandates
+#     its presence).
+
+@base <https://w3id.org/fdp/fdp-shapes#> .
+
+@prefix   dcat: <http://www.w3.org/ns/dcat#> .
+@prefix    dct: <http://purl.org/dc/terms/> .
+@prefix  fdp-o: <https://w3id.org/fdp/fdp-o#> .
+@prefix     sh: <http://www.w3.org/ns/shacl#> .
+@prefix    xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<#FDPCatalogShape> a sh:NodeShape ;
+  sh:targetClass dcat:Catalog ;
+
+  # --- FDP v1.2 §4.2.2 mandatory properties (cardinality per the spec table) ---
+
+  # dct:title — mandatory 1..*.
+  sh:property [
+    sh:path dct:title ;
+    sh:nodeKind sh:Literal ;
+    sh:minCount 1 ;
+  ] ;
+
+  # dct:publisher — mandatory 1..* (the foaf:Agent internals are validated by
+  # gdi-metadata's AgentHdabShape).
+  sh:property [
+    sh:path dct:publisher ;
+    sh:minCount 1 ;
+  ] ;
+
+  # dct:license — mandatory, exactly 1 (an IRI).
+  sh:property [
+    sh:path dct:license ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # dct:conformsTo — mandatory, exactly 1 (the node's opaque catalog-profile IRI).
+  sh:property [
+    sh:path dct:conformsTo ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # dct:isPartOf — mandatory, exactly 1 (points at the FDP root).
+  sh:property [
+    sh:path dct:isPartOf ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # dcat:themeTaxonomy — mandatory, exactly 1 (the SKOS ConceptScheme of the theme).
+  sh:property [
+    sh:path dcat:themeTaxonomy ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:metadataIdentifier — mandatory, exactly 1 (the record's own resource IRI).
+  sh:property [
+    sh:path fdp-o:metadataIdentifier ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:metadataIssued — mandatory, exactly 1 (xsd:dateTime).
+  sh:property [
+    sh:path fdp-o:metadataIssued ;
+    sh:datatype xsd:dateTime ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:metadataModified — mandatory, exactly 1 (xsd:dateTime).
+  sh:property [
+    sh:path fdp-o:metadataModified ;
+    sh:datatype xsd:dateTime ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # --- Deliberate deviations from the bare §4.2.2 table (see header) ---
+
+  # dct:hasPart — spec 1..*, RELAXED to minCount 0 so an empty catalog conforms.
+  sh:property [
+    sh:path dct:hasPart ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 0 ;
+  ] ;
+
+  # fdp-o:conformsToFdpSpec — FORM check only (no minCount): §4.2.2 lists it for the
+  # root, not the catalog; the root shape is what mandates its presence.
+  sh:property [
+    sh:path fdp-o:conformsToFdpSpec ;
+    sh:nodeKind sh:IRI ;
+  ] .

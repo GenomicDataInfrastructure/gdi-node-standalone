@@ -1,0 +1,272 @@
+# Derived mandatory constraints — the complete set this repo's SHACL shapes enforce.
+#
+# GENERATED. Do not hand-edit. Regenerate after a DELIBERATE shape change with:
+#     python conformance/check_fdp_negative.py --write-snapshot
+#
+# Why this file exists: check_fdp_negative.py derives its mutation set from the shapes'
+# own `sh:minCount` declarations, so relaxing a constraint deletes the very mutation that
+# would catch it — silently, and the suite stays green. A snapshot is the only offline way
+# to see that: a relaxation removes a line here, which shows up in review.
+#
+# A line removed means a constraint was relaxed or a shape was disabled: either a real
+# regression, or a re-vendor you must review. A line added means a new mandatory
+# constraint; regenerate and commit it in the same change.
+#
+# Format (sorted):
+#   P <predicate>                    a property shape mandates this predicate somewhere
+#   C <class> <predicate>            some NodeShape with this sh:targetClass mandates it
+#   S <shape> <class> <predicate>    this NodeShape mandates it (finest granularity: a
+#                                    sibling shape can keep a C line alive after this
+#                                    shape stopped enforcing, so S moves first)
+#   K <shape> <path> <kind> <value>  ANY declared constraint — minCount, maxCount, datatype,
+#                                    nodeKind, pattern, uniqueLang, class, node, in. The
+#                                    mutation passes cannot exercise every kind, but every
+#                                    kind can be RECORDED, and "the constraint vanished" is
+#                                    the failure that matters. For `in`, <value> is the
+#                                    sorted members joined by `|`, so dropping one member of
+#                                    a controlled vocabulary changes the line.
+P http://data.europa.eu/r5r/applicableLegislation
+P http://healthdataportal.eu/ns/health#healthCategory
+P http://purl.org/dc/terms/accessRights
+P http://purl.org/dc/terms/conformsTo
+P http://purl.org/dc/terms/creator
+P http://purl.org/dc/terms/description
+P http://purl.org/dc/terms/identifier
+P http://purl.org/dc/terms/isPartOf
+P http://purl.org/dc/terms/license
+P http://purl.org/dc/terms/publisher
+P http://purl.org/dc/terms/title
+P http://www.w3.org/2004/02/skos/core#notation
+P http://www.w3.org/2006/vcard/ns#fn
+P http://www.w3.org/2006/vcard/ns#hasEmail
+P http://www.w3.org/ns/dcat#accessURL
+P http://www.w3.org/ns/dcat#endpointURL
+P http://www.w3.org/ns/dcat#theme
+P http://www.w3.org/ns/dcat#themeTaxonomy
+P http://xmlns.com/foaf/0.1/name
+P https://w3id.org/fdp/fdp-o#conformsToFdpSpec
+P https://w3id.org/fdp/fdp-o#metadataIdentifier
+P https://w3id.org/fdp/fdp-o#metadataIssued
+P https://w3id.org/fdp/fdp-o#metadataModified
+C http://www.w3.org/2006/vcard/ns#Kind http://www.w3.org/2006/vcard/ns#fn
+C http://www.w3.org/2006/vcard/ns#Kind http://www.w3.org/2006/vcard/ns#hasEmail
+C http://www.w3.org/ns/adms#Identifier http://www.w3.org/2004/02/skos/core#notation
+C http://www.w3.org/ns/dcat#Catalog http://data.europa.eu/r5r/applicableLegislation
+C http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/conformsTo
+C http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/description
+C http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/isPartOf
+C http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/license
+C http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/publisher
+C http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/title
+C http://www.w3.org/ns/dcat#Catalog http://www.w3.org/ns/dcat#themeTaxonomy
+C http://www.w3.org/ns/dcat#Catalog https://w3id.org/fdp/fdp-o#metadataIdentifier
+C http://www.w3.org/ns/dcat#Catalog https://w3id.org/fdp/fdp-o#metadataIssued
+C http://www.w3.org/ns/dcat#Catalog https://w3id.org/fdp/fdp-o#metadataModified
+C http://www.w3.org/ns/dcat#DataService http://purl.org/dc/terms/title
+C http://www.w3.org/ns/dcat#DataService http://www.w3.org/ns/dcat#endpointURL
+C http://www.w3.org/ns/dcat#Dataset http://data.europa.eu/r5r/applicableLegislation
+C http://www.w3.org/ns/dcat#Dataset http://healthdataportal.eu/ns/health#healthCategory
+C http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/accessRights
+C http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/creator
+C http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/description
+C http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/identifier
+C http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/publisher
+C http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/title
+C http://www.w3.org/ns/dcat#Dataset http://www.w3.org/ns/dcat#theme
+C http://www.w3.org/ns/dcat#Distribution http://data.europa.eu/r5r/applicableLegislation
+C http://www.w3.org/ns/dcat#Distribution http://purl.org/dc/terms/title
+C http://www.w3.org/ns/dcat#Distribution http://www.w3.org/ns/dcat#accessURL
+C http://xmlns.com/foaf/0.1/Agent http://xmlns.com/foaf/0.1/name
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/conformsTo
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/license
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/publisher
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/title
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint http://www.w3.org/ns/dcat#endpointURL
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#conformsToFdpSpec
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#metadataIdentifier
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#metadataIssued
+C https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#metadataModified
+S http://data.gdi.eu/core/p2/AgentCreatorShape http://xmlns.com/foaf/0.1/Agent http://xmlns.com/foaf/0.1/name
+S http://data.gdi.eu/core/p2/AgentHdabShape http://xmlns.com/foaf/0.1/Agent http://xmlns.com/foaf/0.1/name
+S http://data.gdi.eu/core/p2/CatalogShape http://www.w3.org/ns/dcat#Catalog http://data.europa.eu/r5r/applicableLegislation
+S http://data.gdi.eu/core/p2/CatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/description
+S http://data.gdi.eu/core/p2/CatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/title
+S http://data.gdi.eu/core/p2/DataServiceShape http://www.w3.org/ns/dcat#DataService http://purl.org/dc/terms/title
+S http://data.gdi.eu/core/p2/DataServiceShape http://www.w3.org/ns/dcat#DataService http://www.w3.org/ns/dcat#endpointURL
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://data.europa.eu/r5r/applicableLegislation
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://healthdataportal.eu/ns/health#healthCategory
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/accessRights
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/creator
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/description
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/identifier
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/publisher
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://purl.org/dc/terms/title
+S http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#Dataset http://www.w3.org/ns/dcat#theme
+S http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/dcat#Distribution http://data.europa.eu/r5r/applicableLegislation
+S http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/dcat#Distribution http://purl.org/dc/terms/title
+S http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/dcat#Distribution http://www.w3.org/ns/dcat#accessURL
+S http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/ns/adms#Identifier http://www.w3.org/2004/02/skos/core#notation
+S http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#Kind http://www.w3.org/2006/vcard/ns#fn
+S http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#Kind http://www.w3.org/2006/vcard/ns#hasEmail
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/conformsTo
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/license
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/publisher
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint http://purl.org/dc/terms/title
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint http://www.w3.org/ns/dcat#endpointURL
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#conformsToFdpSpec
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#metadataIdentifier
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#metadataIssued
+S https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#FAIRDataPoint https://w3id.org/fdp/fdp-o#metadataModified
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/conformsTo
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/isPartOf
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/license
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/publisher
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog http://purl.org/dc/terms/title
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog http://www.w3.org/ns/dcat#themeTaxonomy
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog https://w3id.org/fdp/fdp-o#metadataIdentifier
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog https://w3id.org/fdp/fdp-o#metadataIssued
+S https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#Catalog https://w3id.org/fdp/fdp-o#metadataModified
+K http://data.gdi.eu/core/p2/AgentCreatorShape http://xmlns.com/foaf/0.1/name minCount 1
+K http://data.gdi.eu/core/p2/AgentCreatorShape http://xmlns.com/foaf/0.1/name nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/AgentCreatorShape http://xmlns.com/foaf/0.1/name uniqueLang true
+K http://data.gdi.eu/core/p2/AgentHdabShape http://www.w3.org/ns/dcat#contactPoint node http://data.gdi.eu/core/p2/KindShape
+K http://data.gdi.eu/core/p2/AgentHdabShape http://xmlns.com/foaf/0.1/name minCount 1
+K http://data.gdi.eu/core/p2/AgentHdabShape http://xmlns.com/foaf/0.1/name nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/AgentHdabShape http://xmlns.com/foaf/0.1/name uniqueLang true
+K http://data.gdi.eu/core/p2/CatalogShape http://data.europa.eu/r5r/applicableLegislation minCount 1
+K http://data.gdi.eu/core/p2/CatalogShape http://data.europa.eu/r5r/applicableLegislation nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/CatalogShape http://purl.org/dc/terms/description minCount 1
+K http://data.gdi.eu/core/p2/CatalogShape http://purl.org/dc/terms/description nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/CatalogShape http://purl.org/dc/terms/description uniqueLang true
+K http://data.gdi.eu/core/p2/CatalogShape http://purl.org/dc/terms/title minCount 1
+K http://data.gdi.eu/core/p2/CatalogShape http://purl.org/dc/terms/title nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/CatalogShape http://purl.org/dc/terms/title uniqueLang true
+K http://data.gdi.eu/core/p2/DataServiceShape http://purl.org/dc/terms/title minCount 1
+K http://data.gdi.eu/core/p2/DataServiceShape http://purl.org/dc/terms/title nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DataServiceShape http://purl.org/dc/terms/title uniqueLang true
+K http://data.gdi.eu/core/p2/DataServiceShape http://www.w3.org/ns/dcat#endpointURL minCount 1
+K http://data.gdi.eu/core/p2/DataServiceShape http://www.w3.org/ns/dcat#endpointURL nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DataServiceShape http://www.w3.org/ns/dcat#servesDataset nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://data.europa.eu/r5r/applicableLegislation minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://data.europa.eu/r5r/applicableLegislation nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#hdab node http://data.gdi.eu/core/p2/AgentHdabShape
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#healthCategory in http://data.gdi.eu/core/p2/HealthCategoryHumanEpigenomic|http://data.gdi.eu/core/p2/HealthCategoryHumanGenetic|http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#healthCategory minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#healthCategory nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#numberOfRecords datatype http://www.w3.org/2001/XMLSchema#nonNegativeInteger
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#numberOfRecords nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#numberOfUniqueIndividuals datatype http://www.w3.org/2001/XMLSchema#nonNegativeInteger
+K http://data.gdi.eu/core/p2/DatasetShape http://healthdataportal.eu/ns/health#numberOfUniqueIndividuals nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/accessRights in http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC|http://publications.europa.eu/resource/authority/access-right/PUBLIC|http://publications.europa.eu/resource/authority/access-right/RESTRICTED
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/accessRights maxCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/accessRights minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/accessRights nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/conformsTo in http://data.gdi.eu/core/p2/1MGCohort|http://data.gdi.eu/core/p2/1MGCompliant|http://data.gdi.eu/core/p2/ExternallyGoverned
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/conformsTo nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/creator minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/creator node http://data.gdi.eu/core/p2/AgentCreatorShape
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/description minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/description nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/description uniqueLang true
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/identifier datatype http://www.w3.org/2001/XMLSchema#string
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/identifier minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/identifier nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/identifier pattern ^(GOE|GDI)-[A-Z]{2}-[A-Z]+-[0-9]+$
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/isReferencedBy nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/publisher maxCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/publisher minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/publisher node http://data.gdi.eu/core/p2/AgentHdabShape
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/title minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/title nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/title uniqueLang true
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/type in https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA
+K http://data.gdi.eu/core/p2/DatasetShape http://purl.org/dc/terms/type nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/adms#identifier node http://data.gdi.eu/core/p2/IdentifierShape
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/adms#status in http://publications.europa.eu/resource/authority/dataset-status/COMPLETED|http://publications.europa.eu/resource/authority/dataset-status/DEPRECATED|http://publications.europa.eu/resource/authority/dataset-status/DEVELOP|http://publications.europa.eu/resource/authority/dataset-status/DISCONT|http://publications.europa.eu/resource/authority/dataset-status/WITHDRAWN
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/adms#status maxCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/adms#status nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#contactPoint node http://data.gdi.eu/core/p2/KindShape
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#distribution nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#keyword nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#theme minCount 1
+K http://data.gdi.eu/core/p2/DatasetShape http://www.w3.org/ns/dcat#theme nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DatasetShape https://w3id.org/dpv#hasLegalBasis nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DistributionShape http://data.europa.eu/r5r/applicableLegislation minCount 1
+K http://data.gdi.eu/core/p2/DistributionShape http://data.europa.eu/r5r/applicableLegislation nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DistributionShape http://purl.org/dc/terms/title minCount 1
+K http://data.gdi.eu/core/p2/DistributionShape http://purl.org/dc/terms/title nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/DistributionShape http://purl.org/dc/terms/title uniqueLang true
+K http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/adms#status in http://publications.europa.eu/resource/authority/distribution-status/COMPLETED|http://publications.europa.eu/resource/authority/distribution-status/DEPRECATED|http://publications.europa.eu/resource/authority/distribution-status/DEVELOP|http://publications.europa.eu/resource/authority/distribution-status/WITHDRAWN
+K http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/adms#status maxCount 1
+K http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/adms#status nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/dcat#accessService class http://www.w3.org/ns/dcat#DataService
+K http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/dcat#accessURL minCount 1
+K http://data.gdi.eu/core/p2/DistributionShape http://www.w3.org/ns/dcat#accessURL nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/2004/02/skos/core#notation datatype http://www.w3.org/2001/XMLSchema#string
+K http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/2004/02/skos/core#notation maxCount 1
+K http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/2004/02/skos/core#notation minCount 1
+K http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/2004/02/skos/core#notation nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/ns/adms#schemaAgency datatype http://www.w3.org/2001/XMLSchema#string
+K http://data.gdi.eu/core/p2/IdentifierShape http://www.w3.org/ns/adms#schemaAgency nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/IdentifierShape http://xmlns.com/foaf/0.1/name nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/IdentifierShape http://xmlns.com/foaf/0.1/name uniqueLang true
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#fn maxCount 1
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#fn minCount 1
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#fn nodeKind http://www.w3.org/ns/shacl#Literal
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#hasEmail maxCount 1
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#hasEmail minCount 1
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#hasEmail nodeKind http://www.w3.org/ns/shacl#IRI
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#hasEmail pattern ^mailto:.+@.+\..+$
+K http://data.gdi.eu/core/p2/KindShape http://www.w3.org/2006/vcard/ns#hasURL nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/conformsTo maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/conformsTo minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/conformsTo nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/license maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/license minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/license nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/publisher minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/title minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://purl.org/dc/terms/title nodeKind http://www.w3.org/ns/shacl#Literal
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://www.w3.org/ns/dcat#endpointURL maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://www.w3.org/ns/dcat#endpointURL minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape http://www.w3.org/ns/dcat#endpointURL nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#conformsToFdpSpec maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#conformsToFdpSpec minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#conformsToFdpSpec nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataCatalog nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataIdentifier maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataIdentifier minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataIdentifier nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataIssued datatype http://www.w3.org/2001/XMLSchema#dateTime
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataIssued maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataIssued minCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataModified datatype http://www.w3.org/2001/XMLSchema#dateTime
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataModified maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FAIRDataPointShape https://w3id.org/fdp/fdp-o#metadataModified minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/conformsTo maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/conformsTo minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/conformsTo nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/hasPart minCount 0
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/hasPart nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/isPartOf maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/isPartOf minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/isPartOf nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/license maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/license minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/license nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/publisher minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/title minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://purl.org/dc/terms/title nodeKind http://www.w3.org/ns/shacl#Literal
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#themeTaxonomy maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#themeTaxonomy minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape http://www.w3.org/ns/dcat#themeTaxonomy nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#conformsToFdpSpec nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataIdentifier maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataIdentifier minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataIdentifier nodeKind http://www.w3.org/ns/shacl#IRI
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataIssued datatype http://www.w3.org/2001/XMLSchema#dateTime
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataIssued maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataIssued minCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataModified datatype http://www.w3.org/2001/XMLSchema#dateTime
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataModified maxCount 1
+K https://w3id.org/fdp/fdp-shapes##FDPCatalogShape https://w3id.org/fdp/fdp-o#metadataModified minCount 1

@@ -1,0 +1,55 @@
+# SPDX-FileCopyrightText: 2025 Health-RI
+# 
+# SPDX-License-Identifier: Apache-2.0
+
+
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix sh: <http://www.w3.org/ns/shacl#> .
+@prefix dcat: <http://www.w3.org/ns/dcat#> .
+@prefix eu: <http://publications.europa.eu/resource/authority/access-right/> .
+@prefix gdi: <http://data.gdi.eu/core/p2/> .
+@prefix adms: <http://www.w3.org/ns/adms#> .
+@prefix dcatap: <http://data.europa.eu/r5r/> .
+@prefix rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#> .
+@prefix dash: <http://datashapes.org/dash#> .
+
+<https://data.sparna.fr/shapes-example#> a owl:Ontology;
+  rdfs:label "DataService"@en;
+  rdfs:comment "Health-RI v2 DataService."@en;
+  dct:description "SHACL definitions for GDI v1.1 metadata for DataService."@en;
+  owl:versionInfo "0.1";
+  dct:modified "2025-12-22T13:38:40.950Z"^^xsd:dateTime .
+
+gdi:DataServiceShape a sh:NodeShape;
+  rdfs:label "DataService"@en;
+  sh:targetClass dcat:DataService;
+  sh:property <http://data.gdi.eu/core/p2/DataServiceShape#dcat:endpointURL>,
+    <http://data.gdi.eu/core/p2/DataServiceShape#dcat:servesDataset>, 
+    <http://data.gdi.eu/core/p2/DataServiceShape#dct:title> .
+
+<http://data.gdi.eu/core/p2/DataServiceShape#dcat:endpointURL> sh:path dcat:endpointURL;
+  sh:name "end point URL"@en;
+  sh:description "The root location or primary endpoint of the service (an IRI)."@en;
+  sh:minCount 1;
+  sh:nodeKind sh:IRI;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:URIEditor .
+
+<http://data.gdi.eu/core/p2/DataServiceShape#dcat:servesDataset> sh:path dcat:servesDataset;
+  sh:name "serves dataset"@en;
+  sh:description "This property refers to a collection of data that this data service can distribute."@en;
+  sh:nodeKind sh:IRI;
+  dash:viewer dash:URIViewer;
+  dash:editor dash:URIEditor .
+
+<http://data.gdi.eu/core/p2/DataServiceShape#dct:title> sh:path dct:title;
+  sh:name "title"@en;
+  sh:description "A name given to the Data Service."@en;
+  sh:minCount 1;
+  sh:nodeKind sh:Literal;
+  sh:uniqueLang true;
+  dash:viewer dash:LiteralViewer;
+  dash:editor dash:TextFieldEditor .

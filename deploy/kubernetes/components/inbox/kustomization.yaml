@@ -1,0 +1,30 @@
+# The local-inbox shape, as a kustomize component: a fourth volume, the env overlay that
+# turns the channel on, and the `ops` sidecar that makes a drop possible at all.
+#
+# When to use it. S3 is the supported ingest channel on Kubernetes: a provider uploads,
+# the node polls, nothing has to reach into the pod. The inbox is for a node that has no
+# object store — the keyless, plaintext-at-rest posture — and it comes with three
+# consequences an operator must accept (all three are stated in
+# deploy/kubernetes/README.md, "Getting a dataset in on Kubernetes"):
+#
+#   1. Plaintext at rest on the inbox volume. Nothing is encrypted to a node identity in
+#      this shape; the staging material sits there until ingest moves it.
+#   2. Operator-performed drops. There is no provider self-service: every install is a
+#      `kubectl cp` + `kubectl exec` by someone with `pods/exec` on this namespace.
+#   3. The override-store volume needs its own backup, as it does in every shape — but
+#      here you are also the one running the verbs that write it.
+#
+# Layered by ../../overlays/inbox (apply that), and stacked with the push-telemetry
+# component by ../../overlays/inbox-push. Do not point `kubectl kustomize` at this
+# directory: a Component root renders an empty stream and exits 0.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+resources:
+  - pvc.yaml
+
+patches:
+  - path: deployment-inbox.patch.yaml
+    target:
+      kind: Deployment
+      name: gdi-node-standalone

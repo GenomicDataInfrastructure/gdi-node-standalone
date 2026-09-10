@@ -1,0 +1,7 @@
+target
+# The small seed corpus under corpus/<target>/ IS checked in (see git history);
+# fuzzer-grown inputs added on top are not committed (add them explicitly only
+# if they minimise a real crash). Crash reproducers and coverage are never
+# committed.
+artifacts
+coverage

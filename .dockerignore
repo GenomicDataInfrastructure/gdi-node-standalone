@@ -1,0 +1,79 @@
+# Keep the Docker build context small + the layer cache stable: exclude local
+# build artifacts, VCS metadata, and editor/OS cruft. The builder runs a clean
+# `cargo build --locked` over the source, so none of these are needed in-context.
+
+# Rust build output (large; rebuilt in the builder stage).
+# `/target` is anchored and so misses nested ones: `crates/core/fuzz` is its own workspace
+# with its own `target/`. `**/target` catches those; no directory named `target` is ever an
+# input to this image.
+**/target
+**/*.rs.bk
+
+# Local cargo config. `.cargo/config.toml` is gitignored and its own header says it is not
+# part of the repo's build contract, but `COPY . .` would make it exactly that: a local
+# `rustflags` linker override would enter the builder, which carries no such toolchain, and
+# fail the build with a misleading linker error. Machine-shaped build flags must not enter
+# the image. Scoped to the file, not the directory: `.cargo/mutants.toml` is tracked.
+.cargo/config.toml
+
+# Tool scratch space inside the checkout. It can hold whole working copies of this repo,
+# each with its own `target/`. Besides the transfer cost, a build context should never
+# contain another checkout's source.
+.claude/
+
+# VCS + CI metadata.
+.git
+.github
+.gitignore
+
+# Generated CI artifacts (never part of a build).
+*.cdx.json
+/lcov.info
+
+# Local key material / scratch (never baked into an image).
+*.c4gh
+*.c4gh.pub
+# Local env files may carry secrets — never let them flow into the builder's `COPY . .`.
+# Both a bare name and a glob: Docker matches these patterns with Go's `filepath.Match`
+# against the whole relative path, with no prefix semantics, so `.env` alone would exclude
+# `.env` (a single COMPOSE_PROFILES line, no credential) and still let `.env.external`
+# through — the file `.env.external.example` says "may carry credentials", and which
+# `.gitignore` excludes for that reason.
+.env
+.env.*
+# The operator's filled service/provider configs, excluded for the same reason as the env
+# files above and by `.gitignore`'s own words: they "hold a Vault token and S3 access keys
+# by design". They are the default discovery names, and README/docs/deployment.md tell
+# operators to create them, so without these lines `COPY . .` carries a live Vault token
+# and S3 credentials into the `builder` layer. The final runtime image is unaffected (it
+# only `COPY --from=binsrc` the binary and the licences), so the exposure is the builder
+# layer: `--target builder`, a BuildKit `--cache-to` registry export, or `docker history`
+# on it. Neither file is ever a build input, so excluding them cannot break the image.
+#
+# Anchored (`/node.toml`, not `node.toml`), matching .gitignore: only the checkout-root
+# file is the credential-bearing one. Docker strips the leading `/` and matches the
+# remainder against the context-relative path, so this excludes exactly the root file —
+# the shipped `<SET ME: …>` templates (`node.example.toml`, which the Dockerfile needs)
+# and any same-named file deeper in the tree keep flowing into the build.
+/node.toml
+/tool.toml
+
+# Deployment/packaging artifacts that are not build inputs. Keep this list complete: an
+# omitted compose file still lands in the context, so editing it busts the `COPY . .` layer
+# and forces a full cold `cargo build --release` — the exact cost the others avoid.
+Dockerfile
+Dockerfile.ops
+.dockerignore
+docker-compose.yml
+docker-compose.minimal.yml
+docker-compose.observability.yml
+docker-compose.s3.yml
+docker-compose.chaos.yml
+docker-compose.external.yml
+compose/
+deploy/
+scripts/e2e/
+
+# Editor / OS cruft.
+.DS_Store
+*.swp

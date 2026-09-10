@@ -1,0 +1,19 @@
+# Both optional shapes at once — a local-inbox node whose observability is an OTLP intake:
+#
+#   kubectl apply -k deploy/kubernetes/overlays/inbox-push
+#
+# It exists because "these two compose" is a claim, and the only thing that settles a
+# claim about kustomize is a render (test_k8s_manifests.py renders exactly this). Because
+# both shapes are components, stacking them needs no copied patch file: this overlay is
+# four lines and owns nothing.
+#
+# Write your own the same way: `resources: [../../base]` plus the components you want.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/inbox
+  - ../../components/push-telemetry

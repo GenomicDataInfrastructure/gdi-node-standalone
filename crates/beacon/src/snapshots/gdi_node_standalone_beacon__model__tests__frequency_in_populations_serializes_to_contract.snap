@@ -1,0 +1,19 @@
+---
+source: crates/beacon/src/model.rs
+expression: f
+---
+{
+  "source": "The Genome of Europe",
+  "sourceReference": "https://genomeofeurope.eu/",
+  "frequencies": [
+    {
+      "population": "FI_M",
+      "alleleFrequency": 0.085,
+      "alleleCount": 119,
+      "alleleNumber": 1400,
+      "alleleCountHomozygous": 8,
+      "alleleCountHeterozygous": 111,
+      "alleleCountHemizygous": 0
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+# Not optional. Widening management_addr to 0.0.0.0:9090 (required for kubelet probes)
+# exposes the unauthenticated dataset-state oracle — GET /datasets/{id}/state reveals
+# which dataset ids are hidden or errored, which is exactly the disclosure the node
+# otherwise works to prevent. This policy is what contains that.
+#
+# It admits the monitoring namespace rather than merely denying everyone: a policy that
+# lets nobody in gives you the exposure and no metrics. Adjust the namespace selector to
+# match your cluster's monitoring namespace label. That rule belongs to the scrape-based
+# shape (servicemonitor.yaml); under the overlays/push-telemetry/ overlay no scraper
+# exists and the rule admits nobody, which is fine — the management plane then serves only
+# the kubelet's probes. Egress is not restricted here (`policyTypes: [Ingress]`); a cluster
+# that does restrict it must admit the OTLP intake for the push shape.
+#
+# The kubelet is not covered by this ingress rule and does not need to be: probes
+# originate from the node itself, which NetworkPolicy does not filter in most CNIs. If
+# your CNI does filter node traffic, add a rule admitting the node CIDR.
+#
+# Prerequisite: this object is enforced only by a CNI that implements NetworkPolicy
+# (Calico, Cilium, Antrea, ... — not kindnet, kind's default, or flannel alone), so on a
+# non-enforcing CNI it applies with no error and does nothing, leaving :9090 reachable
+# cluster-wide — verify enforcement (the CNI running in kube-system, or a scratch deny-all
+# policy tested with a cross-namespace curl) before relying on it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gdi-node-standalone
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gdi-node-standalone
+  policyTypes: ["Ingress"]
+  ingress:
+    # Public plane: open to the Ingress controller / in-cluster consumers.
+    - ports:
+        - port: 8080
+          protocol: TCP
+    # Management plane: the monitoring namespace's scraper only.
+    #
+    # `namespaceSelector` and `podSelector` sit in the same `from` element: one
+    # element ANDs its selectors, whereas two elements OR them — which would widen this
+    # rule to every pod in the cluster carrying the label, the exact opposite of the
+    # intent. A bare `namespaceSelector` would admit every pod in `monitoring` (Grafana,
+    # Alertmanager, any sidecar, anything that later lands there) to the unauthenticated
+    # dataset-state oracle, so it is worth the extra selector.
+    #
+    # Adjust the pod label to match your scraper — `app.kubernetes.io/name: prometheus` is
+    # the prometheus-operator convention, not a universal one. Getting it wrong blocks the
+    # scrape rather than exposing anything, and it fails loudly: `TargetDown` fires within
+    # 5m (compose/observability/rules/), so this is a safe default to ship narrow.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - port: 9090
+          protocol: TCP

@@ -1,0 +1,123 @@
+# FDP v1.2 FAIR Data Point root (RepositoryMetadata) SHACL shape.
+#
+# Authored in-repo from two sources — not vendored or copied from any node
+# implementation (see PROVENANCE.md):
+#
+#   1. The FDP v1.2 specification, §4.2.1 "FAIR Data Point Metadata"
+#      (https://specs.fairdatapoint.org/v1.2/fdp-specs-v1.2.html#repositorymetadata),
+#      which fixes the mandatory property set and cardinalities encoded below.
+#   2. This repository's own FDP-root emitter — crates/fairdp/src/root.rs
+#      (`fdp_root_graph`) and crates/fairdp/src/vocab.rs. Every constraint here is
+#      grounded in a triple that emitter actually produces, so the shape validates
+#      exactly what the node serves.
+#
+# Scope: the FDP-*structural* layer only — the metadata-bookkeeping triplet
+# (metadataIdentifier / metadataIssued / metadataModified), the two conformance
+# markers (dct:conformsTo + fdp-o:conformsToFdpSpec), the endpoint URL, title,
+# publisher, and license that FDP v1.2 §4.2.1 makes mandatory. The publisher and
+# contact-point internals are not re-checked here: the emitter types the publisher
+# `foaf:Agent` and its contact point `vcard:Kind`, so the gdi-metadata
+# `AgentHdabShape` (targetClass foaf:Agent) and `KindShape` (targetClass vcard:Kind)
+# already validate them over the same unioned graph. Re-asserting them here would
+# only duplicate that coverage.
+#
+# The root is typed all three of `fdp-o:FAIRDataPoint`, `fdp-o:MetadataService`,
+# and `dcat:DataService`; this shape targets the first directly. The `dcat:DataService`
+# typing makes gdi-metadata's `DataServiceShape` also target the root, and both shapes
+# check the same canonical `dcat:endpointURL` (lowercase-`p`) the emitter writes.
+
+@base <https://w3id.org/fdp/fdp-shapes#> .
+
+@prefix  dcat: <http://www.w3.org/ns/dcat#> .
+@prefix   dct: <http://purl.org/dc/terms/> .
+@prefix fdp-o: <https://w3id.org/fdp/fdp-o#> .
+@prefix    sh: <http://www.w3.org/ns/shacl#> .
+@prefix   xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+<#FAIRDataPointShape> a sh:NodeShape ;
+  sh:targetClass fdp-o:FAIRDataPoint ;
+
+  # --- FDP v1.2 §4.2.1 mandatory properties (cardinality per the spec table) ---
+
+  # dct:title — mandatory 1..* (the emitter writes one service-generated title).
+  sh:property [
+    sh:path dct:title ;
+    sh:nodeKind sh:Literal ;
+    sh:minCount 1 ;
+  ] ;
+
+  # dct:publisher — mandatory 1..*. Presence only; the foaf:Agent internals
+  # (foaf:name + dcat:contactPoint) are validated by gdi-metadata's AgentHdabShape.
+  sh:property [
+    sh:path dct:publisher ;
+    sh:minCount 1 ;
+  ] ;
+
+  # dct:license — mandatory, exactly 1 (an IRI).
+  sh:property [
+    sh:path dct:license ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # dct:conformsTo — mandatory, exactly 1 (the node's opaque profile-marker IRI).
+  sh:property [
+    sh:path dct:conformsTo ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # dcat:endpointURL — mandatory, exactly 1. The canonical lowercase-`p` DCAT
+  # predicate (the `dcat:` namespace defines no capital-P `endPointURL`; DCAT-AP,
+  # FDP-O, and the deployed ckanext-dcat harvester all read `endpointURL`).
+  sh:property [
+    sh:path dcat:endpointURL ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:conformsToFdpSpec — mandatory, exactly 1 (the FDP-spec-version marker;
+  # the emitted value is the constant FDP_SPEC_V1_2 in vocab.rs).
+  sh:property [
+    sh:path fdp-o:conformsToFdpSpec ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:metadataIdentifier — mandatory, exactly 1 (the record's own resource IRI).
+  sh:property [
+    sh:path fdp-o:metadataIdentifier ;
+    sh:nodeKind sh:IRI ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:metadataIssued — mandatory, exactly 1 (xsd:dateTime).
+  sh:property [
+    sh:path fdp-o:metadataIssued ;
+    sh:datatype xsd:dateTime ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # fdp-o:metadataModified — mandatory, exactly 1 (xsd:dateTime).
+  sh:property [
+    sh:path fdp-o:metadataModified ;
+    sh:datatype xsd:dateTime ;
+    sh:minCount 1 ;
+    sh:maxCount 1 ;
+  ] ;
+
+  # --- Structural navigation (grounded in the emitter; not spec-mandatory) ---
+
+  # fdp-o:metadataCatalog — the root lists every configured catalog under this
+  # predicate (root.rs emits one per catalog, alongside ldp:contains). FDP v1.2
+  # does not fix its cardinality, so this constrains only the value form (an IRI).
+  sh:property [
+    sh:path fdp-o:metadataCatalog ;
+    sh:nodeKind sh:IRI ;
+  ] .

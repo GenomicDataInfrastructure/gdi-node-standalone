@@ -1,0 +1,219 @@
+# The node's node.toml, fed to the `configMapGenerator` in kustomization.yaml.
+#
+# The ConfigMap is generated, not hand-written: its name carries a hash of this file's
+# content, so a config change rolls the Deployment and `kubectl rollout undo` reverts
+# config and image together. A ConfigMap edited in place has no such history.
+#
+# It is mounted from outside the data volume, so it survives an incident that destroys
+# that volume and can still testify that an override store was supposed to exist
+# (require_override_store below).
+#
+# This is an example. Fill every <SET ME: ...> and adapt it to your deployment; start from
+# node.example.toml (annotated, exhaustive) for anything not shown here. Gate an apply by
+# running the node's own preflight over the rendered file, which needs no cluster and
+# catches what `kubectl apply` cannot:
+#
+#   kubectl kustomize deploy/kubernetes | \
+#     python3 -c 'import sys,yaml;print([d for d in yaml.safe_load_all(sys.stdin) if d and d["kind"]=="ConfigMap"][0]["data"]["node.toml"])' > /tmp/node.toml
+#   docker run --rm -v /tmp/node.toml:/etc/gdi-node-standalone/node.toml:ro \
+#     <your-image> --config /etc/gdi-node-standalone/node.toml check-config
+
+[service]
+listen = "0.0.0.0:8080"
+# Widened from the 127.0.0.1:9090 default because kubelet probes come from another
+# network namespace and cannot reach loopback inside the container. This exposes the
+# unauthenticated dataset-state oracle, which networkpolicy.yaml then contains. The
+# startup warning about a wildcard bind is expected here.
+management_addr = "0.0.0.0:9090"
+base_url = "<SET ME: https://beacon.example.org>"
+data_dir = "/var/lib/gdi-node-standalone/datasets"
+# Its own PVC, not the default <data_dir>/overrides: the override store is the only
+# state re-ingest cannot rebuild (operating.md §17).
+override_dir = "/var/lib/gdi-node-standalone/overrides"
+# With the store on its own volume, a lost mount must refuse to serve rather than
+# silently lift every suppression: an absent store is otherwise indistinguishable from
+# one that never existed. Boot does not create the store's loader subdirectories, so the
+# very first boot on a fresh PVC would refuse; deployment.yaml runs `overrides init` as
+# an init container to materialise them.
+require_override_store = true
+# The built-in default, stated explicitly because deployment.yaml's
+# terminationGracePeriodSeconds has to cover it and nothing else makes the two
+# comparable. Shutdown spends this budget twice, once draining the public listener and
+# once awaiting in-flight ingest after the management listener's fixed 2 s stop, so it
+# needs up to 2x this plus 2 s; the full accounting is on that field in deployment.yaml.
+# Raising it means raising the grace period too, and test_k8s_manifests.py fails if that
+# relation stops holding.
+shutdown_drain_seconds = 30
+# The pod's memory model has two terms, and this count bounds only the first. It is a
+# fairness cap, how many requests run at once, not a byte ceiling. It is 16 here rather
+# than the built-in 64 because at the shipped `[beacon].max_page_limit = 1000` a broad
+# `record` query retains its page, `datasets matched x limit x populations x ~450 B`,
+# about 220 MiB per matched dataset at the 512-population cap (docs/deployment.md,
+# "Resource baseline"). So this count admits a retained burst of 16 x 220 MiB = 3.4 GiB,
+# under the 8 GiB retained-row budget below, which is the backstop that sheds 503s when a
+# request matches several datasets at once.
+#
+# Term two is the transient parquet decode working set, which the retained-row budget
+# never charges: every admitted scan materialises a row group before a single row is
+# charged against the budget. The node's boot check computes the floor under a saturated
+# scan pool as `(query_concurrency x 4 + 16) x max_parquet_row_group_bytes`, 32 x 256 MiB
+# = 8 GiB at the built-in defaults this file inherits for both knobs, and warns when
+# `max_total_query_bytes` is below it.
+#
+# The 8 GiB decode floor plus the 3.4 GiB retained burst, about 11.4 GiB, is what
+# deployment.yaml's 12Gi memory request reserves. Raise this count only together with that
+# request; test_k8s_manifests.py fails if the burst stops fitting it. Serving datasets
+# with fewer populations, or lowering `[beacon].max_page_limit` to 100, both buy the
+# concurrency back: a node with about 12 populations per dataset costs about 5 MiB a
+# request, not 220.
+max_concurrent_requests = 16
+# The retained-row backstop; `max_concurrent_requests` above is fairness. Over this
+# process-wide budget the node sheds 503 instead of growing. It is the built-in default,
+# stated explicitly because two relations have to hold around it and neither is visible
+# when the value is inherited: it must be at least the 8 GiB decode floor above, or the
+# node warns on every boot ("beacon query memory: a saturated scan pool (32) decodes up to
+# ... which exceeds [service].max_total_query_bytes"), and it must fit the pod's memory,
+# which test_k8s_manifests.py checks against the 12Gi request (or the limit, when one is
+# set). Lower it only together with `max_parquet_row_group_bytes`; raise it only with the
+# memory request.
+max_total_query_bytes = 8589934592
+# Opt-in, startup-only: GET /datasets serves the whole inventory, hidden ids included.
+# It is commented in place inside this table because a second `[service]` header further
+# down would be a duplicate table, which TOML rejects, and the key on its own under
+# another header would land in that header's table.
+# expose_dataset_list = true
+#
+# The local inbox channel is not configured here: `[service].inbox` is set by the `inbox`
+# component (deploy/kubernetes/components/inbox), which supplies the volume it needs in
+# the same patch. Setting it here without that volume gives a node that boots and then
+# cannot write, because the root filesystem is read-only.
+
+[beacon]
+# The GDI-harmonized beacon-id convention, which the node checks at boot and warns about
+# on every start when the value does not follow it:
+#   <cc>.<institution>.<af-beacon|sl-beacon>.<staging|production>[.<extra>]
+# `af-beacon` for an allele-frequency (aggregated) node, `sl-beacon` for sensitive-level;
+# the last segment must agree with `environment` below (`production` <-> "prod"), and the
+# first is a two-letter country code. The hint below is conformant, so a filled-in copy
+# boots without the warning.
+id = "<SET ME: ee.example-institution.af-beacon.production>"
+name = "<SET ME: Example GDI Beacon>"
+environment = "prod"
+# Treat as required to join the GDI allele-frequency network, although the Beacon schema
+# marks it optional. The network's registry reads `alternativeUrl` and
+# `organization.logoUrl`, and a member that omits either has been observed to degrade the
+# shared member listing rather than only its own entry. The node emits both verbatim and
+# never fetches them, so nothing here reports it. See docs/deployment.md, "Registering
+# with a Beacon network".
+alternative_url = "<SET ME: https://gdi.example.org/beacon>"
+# Stated explicitly rather than inherited, because the default is the disclosive one and
+# silence here is indistinguishable from not having thought about it.
+#
+# 0 disables node-level k-anonymity suppression: exact aggregate counts, singletons
+# (AC=1) included, are served for any dataset that does not set its own
+# config.minAlleleCount, and the aggregated g_variants plane is unauthenticated
+# regardless of `environment`. The node warns about this on every boot; that warning is
+# expected here rather than a misconfiguration.
+#
+# This is defensible only if your DPIA treats aggregate allele frequencies as
+# non-identifying. If it does not, set a floor: `min_allele_count = 10` is roughly 2x k
+# for k = 5 individuals, and is the value the four runnable configs in this repo ship
+# (node.quickstart.toml, compose/node.{full,s3,minimal}.toml). node.example.toml ships 0
+# like this file, being an annotated reference rather than a config anyone applies. A
+# floor alone does not defeat all differencing: see the counting-unit and two-floors notes
+# on `[beacon].min_allele_count` in node.example.toml, and docs/threat-model.md.
+#
+# test_k8s_manifests.py asserts the key is present and integer-typed, not that it is
+# non-zero: the value is the operator's call, but inheriting it by omission is not.
+min_allele_count = 0
+
+[beacon.organization]
+id = "<SET ME: org.example>"
+name = "<SET ME: Example Organisation>"
+# The second half of the pair above: absent, the GDI allele-frequency network's shared
+# member listing has been observed to degrade for every member, rather than only its own
+# entry. Keep both filled.
+logo_url = "<SET ME: https://gdi.example.org/assets/logo.svg>"
+
+[catalogs]
+gdi-aggregated = "<SET ME: Aggregated Data>"
+
+# The FAIR Data Point node identity. Present because this example is the node the README
+# describes, "GA4GH Beacon + FAIR Data Point". Without the block the node serves a 404 at
+# /fairdp, omits `fairdp` from GET /, and reports `fairdp = not-configured` with nothing
+# to say why. Delete the whole block (all four tables) for a Beacon-only node.
+#
+# Every field below is required once the block is present: preflight rejects a partial
+# one, and at one replica under `strategy: Recreate` that rejection is a crash-loop, not a
+# failed apply. The publisher and HDAB contact points are the two most easily missed.
+[fairdp]
+title = "<SET ME: Example GDI FAIR Data Point>"
+description = "<SET ME: Aggregated genomic metadata for the Example GDI node>"
+# xsd:dateTime. The FDP root's metadataIssued; metadataModified is data-derived.
+issued = "<SET ME: 2026-01-01T00:00:00Z>"
+# The FDP-root and Catalog records' own licence IRI (datasets carry their own).
+license = "<SET ME: http://publications.europa.eu/resource/authority/licence/CC_BY_4_0>"
+# >= 1 concept IRI. The Catalog's dcat:themeTaxonomy is derived from these.
+theme = ["<SET ME: http://publications.europa.eu/resource/authority/data-theme/HEAL>"]
+# >= 1 IRI. Node-level; datasets carry their own in package.yaml.
+applicable_legislation = ["<SET ME: http://data.europa.eu/eli/reg/2025/327/oj>"]
+
+[fairdp.publisher]
+name = "<SET ME: Example Organisation>"
+
+[fairdp.publisher.contact_point]
+# The TOML key is `fn` (vcard:fn). `has_email` must match ^mailto:.+@.+\..+$.
+fn = "<SET ME: Example GDI Node>"
+has_email = "<SET ME: mailto:gdi@example.org>"
+
+# healthdcatap:hdab — the Member-State Health Data Access Body. Required, and the
+# GDI-specific half of the FDP metadata a harvester expects.
+[fairdp.hdab]
+name = "<SET ME: Example HDAB>"
+
+[fairdp.hdab.contact_point]
+fn = "<SET ME: Example HDAB>"
+has_email = "<SET ME: mailto:hdab@example.org>"
+
+# An ingest source is required, and none is supplied above: a node with no source has
+# nothing to serve. Filling the placeholders above is necessary, not sufficient.
+# Uncomment and complete both blocks; see docs/deployment.md, "Running against your own
+# backends", for the mounts, the least-privilege policies, and the auth choice. The other
+# supported channel is the local inbox, which is the `inbox` component. A node with
+# neither warns `no ingest channel configured` on every boot.
+#
+# role_id is not secret and belongs here; the secret-id arrives via the Secret as
+# GDI_NODE__VAULT__SECRET_ID (see deployment.yaml), or drop it entirely and point
+# token_file at an agent-written token (see secret.example.yaml).
+#
+# [vault]
+# address = "<SET ME: https://vault.example.org>"
+# role_id = "<SET ME: the AppRole role-id>"
+# # token_file = "/var/run/vault/token"   # agent-written; mutually exclusive with role_id
+#
+# [[s3.buckets]]
+# name = "<SET ME: provider-a>"
+# endpoint = "<SET ME: https://s3.example.org>"
+# region = "<SET ME: eu-north-1>"
+# bucket = "<SET ME: gdi-provider-a>"
+# # prefix = "gdi-node-storage/"   # confine the channel to a key prefix when the
+# # bucket holds anything else (backups, a second node). Pair it with a
+# # prefix-scoped credential, and set the same prefix on the writer's profile.
+# # Credentials come from Vault when [vault].s3_path is set; otherwise from
+# # GDI_NODE__S3__BUCKETS__0__ACCESS_KEY_ID / __SECRET_ACCESS_KEY. Never inline here.
+
+# Opt-in management surfaces, all off by default. Turn on only what something consumes;
+# each is startup-only, deciding whether a route is mounted, so a reload does not apply a
+# change here. See docs/api.md.
+#
+# `[service].expose_dataset_list` is the third of these, and is not repeated here:
+# `[service]` is already declared above, and a second header would be a duplicate
+# table. It is commented in place, next to `shutdown_drain_seconds`.
+#
+# [stats]
+# enabled = true                   # GET /stats/queries — per-dataset usage counters
+#
+# [control]
+# enabled = true                   # POST /reload | /reconcile | /log-level: operator
+#                                  # actions on a plane with no authentication, so pair
+#                                  # them with the NetworkPolicy that keeps it in-cluster

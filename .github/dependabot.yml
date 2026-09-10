@@ -1,0 +1,142 @@
+# Dependabot configuration: dependency freshness is automated, and `cargo deny`
+# plus the full CI gate then vet every update PR.
+#
+# Covers the Cargo workspace, the isolated cargo-fuzz crate, the Python
+# conformance/interop tooling, the GitHub Actions used by the workflows, and the
+# Dockerfile base images. A main-workspace update PR runs the full CI (fmt/clippy/
+# test + cargo deny + the cross-compile checks), so a bump that introduces an
+# advisory, a banned crate, or a breaking change fails before merge. One caveat: the
+# cargo-fuzz crate is excluded from the workspace, so per-PR CI does not compile or
+# deny-check its lock — a fuzz-only bump is advisory-scanned by the weekly scheduled
+# `advisories` job instead (see .github/workflows/scheduled.yml).
+version: 2
+updates:
+  # Cargo dependencies. The dependencies are exact-pinned ("=x.y.z") in the
+  # manifests, so Dependabot opens a PR per bump and CI re-vets the new lockfile.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      # This repo uses Conventional Commits.
+      prefix: build
+      prefix-development: build
+    groups:
+      # Batch the patch/minor noise into one PR per group to keep review focused;
+      # major bumps still come as individual PRs (they may be breaking).
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+
+  # The isolated cargo-fuzz crate carries its own Cargo.lock (nightly-only,
+  # excluded from the workspace), so it needs its own Dependabot entry.
+  - package-ecosystem: cargo
+    directory: "/crates/core/fuzz"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+      prefix-development: build
+
+  # GitHub Actions used by the CI and release workflows.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: ci
+    groups:
+      # Batch the patch/minor noise into one PR per group to keep review focused;
+      # major bumps still come as individual PRs (they may be breaking).
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+
+  # Base/builder images in the single `Dockerfile`: its digest-pinned
+  # `rust:1.98.0-trixie` builder and its digest-pinned `distroless/cc-debian13`
+  # runtime. A digest-pinned `FROM` still gets an update PR that refreshes the digest,
+  # keeping the base images + the glibc floor current.
+  # Neither the pinned `docker run` images in scripts/ci-local.sh (promtool /
+  # actionlint / shellcheck) nor the digest-pinned `ghcr.io/cross-rs/*` build
+  # containers in Cross.toml are parsed by any ecosystem — they are bumped by hand
+  # (the ci-local digests alongside their CI jobs; the Cross.toml digests alongside
+  # the `tool: cross@` install-action pin in the workflows).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    groups:
+      # Batch the patch/minor noise into one PR per group to keep review focused;
+      # major bumps still come as individual PRs (they may be breaking).
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+
+  # The images in the six root `docker-compose*.yml` stacks (garage, openbao, vault,
+  # toxiproxy, minio, the grafana/prometheus observability pair, …). The `docker`
+  # ecosystem above parses Dockerfiles only, so compose files need this separate
+  # `docker-compose` ecosystem; without it their tag-pinned images are tracked by
+  # nothing.
+  #
+  # Dev/test stacks: nothing here ships in a release artifact or the published image, so
+  # these bumps are lower-stakes than the `docker` entry — but they are still
+  # fetched and executed on developer machines and in the e2e/chaos jobs, which is the
+  # same reason the pip entry below exists for CI-only Python.
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    groups:
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+
+  # Python conformance + crypt4gh-interop tooling (conformance/requirements*.txt).
+  # CI-only (pyshacl/rdflib/ckanext-dcat for the FDP conformance job; crypt4gh for
+  # the interop oracle) and never shipped, but still fetched-and-executed on the
+  # runner — so it stays under automated freshness + advisory-remediation like every
+  # other dependency input. The top-level pins are exact; a bump comes as a PR the
+  # full CI (incl. the conformance run + the `pip-audit` step) then vets.
+  - package-ecosystem: pip
+    directory: "/conformance"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: build
+    groups:
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch
+
+  # PyYAML for the deploy/kubernetes contract guard (scripts/tests/k8s/). A second pip
+  # directory rather than a line in /conformance, because that closure installs into the FDP
+  # and crypt4gh venvs and this one must stay disjoint from both. It is the gate's only
+  # third-party Python outside conformance/, kept out of scripts/tests/ proper so the
+  # pre-commit path stays stdlib-only.
+  - package-ecosystem: pip
+    directory: "/scripts/tests/k8s"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: build
+    groups:
+      patch-and-minor:
+        update-types:
+          - minor
+          - patch

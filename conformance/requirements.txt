@@ -1,0 +1,44 @@
+# Top-level Python dependencies for the gdi-node-standalone FDP conformance jobs.
+#
+# These are the only Python in the project (everything shipped is Rust). They run
+# out-of-band in CI, isolated from the
+# pure-Rust build, and are never shipped in either binary. The three TOP-LEVEL
+# versions below are pinned and the jobs install into a fresh venv, so a
+# pyshacl/rdflib/ckanext-dcat bump is a deliberate, reviewed change.
+#
+# This file is the human-facing, Dependabot-visible pin list. The venv is actually
+# installed from the fully-resolved, hash-locked `requirements.lock` (transitive deps
+# included) with pip `--require-hashes`, so the closure IS byte-for-byte reproducible and
+# a compromised/typosquatted PyPI artifact cannot enter the dev/CI Python. When you bump a
+# version below, regenerate the lock in the same change:
+#   uv pip compile --universal --generate-hashes conformance/requirements.txt -o conformance/requirements.lock
+# `--universal` is required, not cosmetic: without it `uv` resolves against whichever
+# interpreter the developer happens to be running, so the lock silently encodes that
+# Python's conditional dependencies (this is how `importlib-metadata`/`zipp` — needed only
+# on older Pythons — ended up hard-pinned in a lock consumed by a 3.14 CI job). `--universal`
+# emits environment markers instead, so one lock is correct on every Python and platform and
+# the file no longer depends on who regenerated it.
+# `ci-local.sh assert_lock_current` fails the gate if the lock does not track these pins.
+#
+# - pyshacl / rdflib: the SHACL engine + RDF graph for check_fdp.py / check_dataset.py.
+# - ckanext-dcat:    the consumer-compat profile parser for check_ckanext.py. The
+#                    userportal deploys the GDI *fork* installed from git —
+#                    `gdi-userportal-ckanext-dcat @ v2.4.2` (+ the harvester
+#                    `gdi-userportal-ckanext-fairdatapoint @ v1.6.12`), per
+#                    gdi-userportal-ckan-docker's `ckan/Dockerfile`. We pin the matching
+#                    upstream base `2.4.2` here, not the git fork: the fork's `RDFParser`
+#                    imports `ckan.plugins`, so the real-parser tier cannot load in this
+#                    CKAN-less venv either way — check_ckanext.py always degrades to its
+#                    best-effort direct rdflib consumer-parse (it says so in its output),
+#                    so a git install would only add per-run network fragility for zero
+#                    functional gain. pyshacl is the must-have gate; ckanext is nice-to-have.
+#                    PIN NOTE: check_ckanext.py's fallback hand-mirrors the predicate reads
+#                    of the fork's `euro_health_dcat_ap` profile — VERIFIED against
+#                    gdi-userportal-ckanext-dcat @ v2.4.2 (namespaces + predicate set match
+#                    upstream 2.4.2). When bumping, re-verify that mirrored list against the
+#                    fork's `profiles/euro_health_dcat_ap.py` (and `euro_dcat_ap_3.py`) so
+#                    the best-effort check cannot silently validate stale predicates. The
+#                    deployed fork refs are drift-watched by `scripts/vendored.sh pins`.
+pyshacl==0.40.1
+rdflib==7.6.0
+ckanext-dcat==2.4.2

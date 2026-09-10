@@ -1,0 +1,53 @@
+[package]
+name = "gdi-node-standalone-beacon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+description = "GA4GH Beacon v2.2 request, query and response types for gdi-node-standalone."
+# Internal workspace library — not published to crates.io (see core/Cargo.toml).
+publish = false
+
+[lints]
+workspace = true
+
+[features]
+# At-rest Parquet Modular Encryption: forwards to core's `pme` so the scan path can
+# decrypt `PARE` files via a `DatasetDecryptor`. Off by default, leaving the scan path
+# byte-for-byte unchanged; the service enables it transitively under its own `pme`.
+pme = ["gdi-node-standalone-core/pme"]
+
+[dependencies]
+gdi-node-standalone-core = { path = "../core" }
+serde.workspace = true
+serde_json.workspace = true
+sha2 = { workspace = true }
+# `assemble_dataset` logs the fail-closed arm it takes when a stored dataset's assembly or
+# contig has no reference accession.
+tracing = { workspace = true }
+
+[dev-dependencies]
+test-util = { path = "../test-util" }
+insta = { workspace = true, features = ["json"] }
+tempfile = { workspace = true }
+criterion = { workspace = true }
+# Property and differential tests for the query math (tests/query_proptest.rs): a
+# brute-force oracle against the real pruned reader, plus repack invariance. parquet and
+# arrow-array build the partitioned fixture datasets it reads.
+proptest = "=1.11.0"
+parquet = { workspace = true }
+arrow-array = { workspace = true }
+# Criterion bench for the query-assembly hot path: scan the fixture dataset, then group and
+# build `frequencyInPopulations`. `harness = false` lets criterion own `fn main`.
+[[bench]]
+name = "query_assembly"
+harness = false
+
+# Criterion bench for the multi-file parquet scan path (`select_files`, then per-file
+# `read_matching_rows` and accumulate), for a point query and a wide range.
+[[bench]]
+name = "scan_dataset"
+harness = false

@@ -1,0 +1,48 @@
+# NEGATIVE FIXTURE — pattern violation (`contactPoint.hasEmail`).
+# Violates: the `^mailto:.+@.+\..+$` pattern (gdi-metadata `KindShape#vcard:hasEmail`).
+# The email below omits the `mailto:` scheme.
+# Expected: Rust gate REJECTS (email_pattern); pySHACL VIOLATES exactly one constraint —
+# KindShape sh:pattern. (The renderer emits hasEmail as an IRI node <data@example.org> via
+# add_iri, so the sibling sh:nodeKind sh:IRI constraint is SATISFIED, not violated; only
+# the pattern fires. Keeps this fixture's one-rule-per-fixture invariant honest.)
+metadata:
+  prefix: "GDI"
+  org: "EXAMPLE"
+  catalog: "gdi-aggregated"
+  title:
+    en: "Genome of Europe Estonia aggregated allele frequencies"
+    et: "Genome of Europe Eesti koondsagedused"
+  description: "Aggregated allele frequencies for the Genome of Europe Estonia cohort."
+  accessRights: "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+  applicableLegislation:
+    - "http://data.europa.eu/eli/reg/2025/327/oj"
+  license: "https://creativecommons.org/licenses/by/4.0/"
+  creator:
+    - name: "Genome of Europe - EE node"
+  healthCategory:
+    - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+  keywords:
+    - allele-frequency
+    - genomics
+  numberOfUniqueIndividuals: 1234
+  conformsTo:
+    - "http://data.gdi.eu/core/p2/1MGCompliant"
+  legalBasis:
+    - "https://w3id.org/dpv#Consent"
+  contactPoint:
+    fn: "Data team"
+    hasEmail: "data@example.org"
+    hasURL: "https://example.org"
+
+files:
+  - category: "VCF"
+    reference: "GRCh38"
+    files:
+      - "relative/to/yaml/file1.vcf.gz"
+
+config:
+  mode: aggregated
+  blockRange: 10000000
+  afSource: "The Genome of Europe"
+  afSourceReference: "https://genomeofeurope.eu/"
+  minAlleleCount: 0

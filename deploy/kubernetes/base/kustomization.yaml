@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# `labels`, not the deprecated `commonLabels` (kustomize warns on the latter and tells you
+# to run `kustomize edit fix`).
+#
+# includeSelectors is false, and that is required rather than an oversight. It rewrites
+# every selector it can find — including the `podSelector` inside a NetworkPolicy ingress
+# `from` element, which is not this app's pods at all but the scraper's. With it true, the
+# management-plane rule's `app.kubernetes.io/name: prometheus` is silently rewritten to
+# `app.kubernetes.io/name: gdi-node-standalone`, turning "admit Prometheus" into "admit the
+# node's own pods" — a policy that blocks all monitoring while still looking correct in the
+# source.
+#
+# Nothing is lost: every selector in this base is written out explicitly (the Deployment's
+# matchLabels, both Service selectors, the NetworkPolicy's own podSelector and the pod
+# template's labels), so rendering with it false is byte-identical apart from that one line.
+labels:
+  - includeSelectors: false
+    pairs:
+      app.kubernetes.io/name: gdi-node-standalone
+
+# The node's config is generated from node.toml rather than written as a ConfigMap
+# manifest, and the generated name therefore carries a hash of that file's content.
+#
+# That hash is the whole point. `kubectl rollout undo` reverts the pod template and nothing
+# else, so a hand-written ConfigMap gives the documented rollback — "roll the image back and
+# revert the ConfigMap alongside it" — no mechanism: a ConfigMap edited in place has no
+# history to revert to, and the running pods keep the old projection until something
+# restarts them anyway. With the hash in the name, the config is part of what
+# `rollout undo` reverts, and editing node.toml rolls the Deployment by itself.
+#
+# The cost is that the applied object is `gdi-node-standalone-config-<hash>`, not a stable
+# name: address it by label (`kubectl get cm -l app.kubernetes.io/name=gdi-node-standalone`)
+# rather than by name. Nothing in the pod template needs the literal name — kustomize's
+# name-reference transformer rewrites the Deployment's `volumes[].configMap.name` — which
+# test_k8s_manifests.py asserts against the render.
+configMapGenerator:
+  - name: gdi-node-standalone-config
+    files:
+      - node.toml
+
+resources:
+  - pvc.yaml
+  - deployment.yaml
+  - service.yaml
+  - networkpolicy.yaml
+  # secret.example.yaml is not listed: it holds placeholders, and applying
+  # it would create a Secret with a literal "<SET ME: ...>" value. Copy it, fill it, and
+  # apply out of band — or have your secrets operator generate the Secret.
+  # servicemonitor.yaml is not listed either: it needs the Prometheus
+  # Operator CRDs, whose absence would fail `kubectl apply -k` for everyone else.
+  # storageclass.example.yaml is not listed, for the same reason as the Secret:
+  # its `provisioner` is a cluster-specific placeholder, so applying it as-is would create a
+  # broken StorageClass. Copy it, set the provisioner, and apply out of band — it is what
+  # gives the override PVC a Retain reclaim policy (see the comment on that claim in pvc.yaml).

@@ -1,0 +1,38 @@
+# cargo-about configuration. `cargo about generate` uses it to produce
+# THIRD-PARTY-LICENSES.md, the attribution bundle shipped with the release binaries and the
+# container image. The enforced licence allow-list lives in deny.toml
+# (`cargo deny check licenses`); this file governs the human-readable attribution rendering
+# only, and must stay in step with deny.toml's `allow`.
+
+# Accepted SPDX licences, mirroring deny.toml [licenses].allow. cargo-about fails under
+# `--fail` if a shipped crate carries anything outside this set.
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",
+    "Zlib",
+]
+
+# Resolve licences for every target an artifact is distributed for, so the bundle covers
+# platform-specific crates such as the Windows-only ones in the Windows `gdi-dataset-tool`
+# build. This is the union of the release matrix; keep it in step when that matrix changes.
+# macOS is Apple silicon only.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "aarch64-unknown-linux-gnu",
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+    "aarch64-apple-darwin",
+    "x86_64-pc-windows-msvc",
+]
+
+# Attribution covers what is distributed inside the binaries: runtime dependencies and
+# their transitives. Build-only (proc-macro) and dev or test-only crates are not linked
+# into the shipped artifact, so they carry no binary-redistribution obligation.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false

@@ -1,0 +1,16 @@
+---
+source: crates/fairdp/tests/render.rs
+expression: nt
+---
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://data.europa.eu/r5r/applicableLegislation> <http://data.europa.eu/eli/reg/2025/327/oj>
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://purl.org/dc/terms/format> <http://publications.europa.eu/resource/authority/file-type/JSON>
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://purl.org/dc/terms/license> <https://creativecommons.org/licenses/by/4.0/>
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://purl.org/dc/terms/title> "Beacon distribution"
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#Distribution>
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://www.w3.org/ns/dcat#accessService> _:c14n0
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://www.w3.org/ns/dcat#accessURL> <https://gdi-ee.example.org/beacon/v2/g_variants>
+<https://gdi-ee.example.org/fairdp/distribution/GDI-EE-UTARTU-20260409143052837> <http://www.w3.org/ns/dcat#mediaType> <https://www.iana.org/assignments/media-types/application/json>
+_:c14n0 <http://purl.org/dc/terms/title> "GDI Beacon"
+_:c14n0 <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <http://www.w3.org/ns/dcat#DataService>
+_:c14n0 <http://www.w3.org/ns/dcat#endpointURL> <https://gdi-ee.example.org/beacon/v2/g_variants>
+_:c14n0 <http://www.w3.org/ns/dcat#servesDataset> <https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260409143052837>

@@ -1,0 +1,16 @@
+# Blackbox-exporter module config for the local observability overlay.
+#
+# A single `http_2xx` module: a plain GET that passes on any 2xx response. TLS is
+# not required (the node's management/public planes are plain HTTP in dev), so
+# fail_if_not_ssl is false.
+
+modules:
+  http_2xx:
+    prober: http
+    timeout: 5s
+    http:
+      method: GET
+      # Default success set is 2xx; stated explicitly for clarity.
+      valid_status_codes: []
+      fail_if_not_ssl: false
+      preferred_ip_protocol: ip4

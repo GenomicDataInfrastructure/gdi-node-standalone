@@ -1,0 +1,13 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Boolean (true/false) response section.",
+    "properties": {
+        "exists": {
+            "$ref": "../../common/beaconCommonComponents.json#/$defs/Exists"
+        }
+    },
+    "required": [
+        "exists"
+    ],
+    "type": "object"
+}

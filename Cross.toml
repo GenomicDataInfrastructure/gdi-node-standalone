@@ -1,0 +1,61 @@
+# cross-rs build-container pins for the release and cross-compile legs.
+#
+# `cross build` compiles every shipped Linux artifact — the `gdi-node-standalone` service
+# and `gdi-dataset-tool`, gnu and musl, x86_64 and aarch64 — inside a per-target container
+# that provides the C toolchain, sysroot and linker that `ring` and `zstd-sys` need.
+# Without this file `cross` resolves those containers by tag, a mutable reference that can
+# be re-pushed. Every other container in the release path is digest-pinned (the `Dockerfile`
+# builder and distroless runtime, and the ci-local.sh promtool, actionlint and shellcheck
+# images), so this file closes the last tag-only hop. Build attestation records which
+# workflow built an artifact, not the integrity of a third-party build container.
+#
+# The dev-stack images in `docker-compose*.yml` stay tag-pinned. They are never shipped, and
+# nothing refreshes digests for them, so pinning them would rot rather than protect.
+# `prom/prometheus` is the exception, because ci-local.sh runs promtool from that exact
+# image and the two must agree.
+#
+# The `:0.2.5` tag is kept alongside the `@sha256:` for readability. Docker and podman
+# resolve to the digest, so the tag is advisory. These are the multi-arch index digests
+# for `cross` 0.2.5.
+#
+# Refresh these digests in the same change that bumps the `taiki-e/install-action`
+# `tool: cross@0.2.5` pin in the workflows; Dependabot parses neither this file nor that
+# input, so both are hand-bumped together. Re-resolve with:
+#   docker buildx imagetools inspect ghcr.io/cross-rs/<target>:<ver> --format '{{.Manifest.Digest}}'
+# A stale pin freezes the build toolchain, which is acceptable for a hermetic build
+# container, but refresh on a `cross` bump so security fixes to the image land.
+
+# Let `ci-local.sh` neutralise host rustflags for the container build by passing
+# `RUSTFLAGS=`. `cross` forwards no environment into the container unless it is listed
+# here, so without this entry the export on the host is invisible to the cargo inside.
+#
+# It matters because the container mounts the project directory. A gitignored, local
+# `.cargo/config.toml` carrying a mold linker override is then read by cargo inside the
+# image, which has no mold, and the build dies at link with
+# `cc: error: unrecognized command line option '-fuse-ld=mold'`. The recommended place for
+# that override is the user-level `~/.cargo/config.toml`, which the container never sees,
+# but a leftover per-checkout copy is still mounted, so the passthrough stays.
+#
+# Only the global `RUSTFLAGS` env outranks a config file's `target.*.rustflags`. The
+# per-target env form and cargo's `--config` do not, even inside the container.
+#
+# `RUSTFLAGS=` clears all rustflags, not only the linker one. That is right while nothing
+# tracked in this repo sets rustflags, since it reproduces a clean checkout and cannot alter
+# a released artifact; if a committed rustflag is ever added, change both sides together. It
+# also neutralises rustflags only: a leftover per-checkout config's `[target.*].linker`,
+# `[build].target-dir` or `[net]` keys are still read inside the container. Delete the file
+# rather than relying on the env to hide it.
+[build.env]
+passthrough = ["RUSTFLAGS"]
+
+[target.x86_64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-gnu:0.2.5@sha256:9e5b39c09874bc1816c675ed11afca2c2ed6cee0c4ed2b3c1d5763c346c9ae3f"
+
+[target.aarch64-unknown-linux-gnu]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-gnu:0.2.5@sha256:7f8308a8734d9fcd2ebbe9a3e4bdea74af293f0799d80c3cc341e340cda49a4c"
+
+[target.x86_64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/x86_64-unknown-linux-musl:0.2.5@sha256:77db671d8356a64ae72a3e1415e63f547f26d374fbe3c4762c1cd36c7eac7b99"
+
+[target.aarch64-unknown-linux-musl]
+image = "ghcr.io/cross-rs/aarch64-unknown-linux-musl:0.2.5@sha256:702154f52b2d8091671aa2c84d5582d849f949977228c735ff8462f93cc0e1e4"
