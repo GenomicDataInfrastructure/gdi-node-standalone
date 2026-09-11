@@ -284,9 +284,9 @@ definitions cannot drift from the local run. Six restate their commands inline: 
 definition is hand-kept in step with its `ci-local.sh` counterpart and will diverge if only
 one side is edited.
 
-**These workflows have not been exercised.** The repository was developed without a git
-remote, so no run has ever happened and no tag has ever been cut. Treat an early red as a
-pipeline defect until proven otherwise, and report it rather than working around it.
+**These workflows are young.** They first ran at publication, and `release.yml` has run
+once, for `v1.0.0-rc.1`. Plenty of legs have still run only once or twice, so treat an
+early red as a possible pipeline defect and report it rather than working around it.
 
 `all` covers every non-Docker check, including `sbom`, `conformance`, `crypt4gh`, the
 `fuzz-smoke` compile-check of the excluded fuzz harnesses, and the real-data `corpus`.
@@ -952,7 +952,12 @@ Then:
    `## [X.Y.Z]` section, so an un-rolled changelog blocks the release rather than being
    silently dropped.
 4. **Commit and tag.** Commit the above, then tag that same commit `vX.Y.Z` and push the
-   tag. `v0.x` tags publish as pre-releases and do not move `:latest`.
+   tag. A `v0.x` tag and any suffixed tag publish as pre-releases and do not move
+   `:latest`; only a stable tag does.
+
+   Update the version strings in the prose too. `README.md`, `docs/deployment.md`,
+   `docs/gdi-dataset-tool.md`, `docs/operating.md` and `docs/testing.md` name the current
+   release, and nothing checks them: `git grep 'v1\.0\.0-rc\.1'` finds the lot.
 5. **What the tag enforces.** `release.yml` gates `publish` and `image` behind `gate`
    (`ci-local.sh rust supply-chain`), `version-guard`, and the changelog assembly, and
    `ci.yml` also runs on the tag. If anything is red, nothing publishes: fix and re-tag.

@@ -297,10 +297,9 @@ comment: the upstream check enumerates on that comment, so an uncommented pin wo
 flagged, merely unchecked.
 
 `cargo-semver-checks` (public library API) belongs in this list but is not enforced: it is
-in neither meta-leg, because its default baseline is HEAD and there is no `v*` tag to
-compare against. Until the first release a public-API break is caught by nothing; after
-one, run `SEMVER_BASELINE=v1.0.0 ./scripts/ci-local.sh semver-checks` against the previous
-tag.
+in neither meta-leg, because its default baseline is HEAD. Now that `v1.0.0-rc.1` exists,
+run it against that tag by hand:
+`SEMVER_BASELINE=v1.0.0-rc.1 ./scripts/ci-local.sh semver-checks`.
 
 ### Out-of-process
 

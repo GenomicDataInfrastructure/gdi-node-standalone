@@ -2742,18 +2742,13 @@ operational invariant covered above under [Where things live](#where-things-live
 
 ## 20. Verifying release artifacts + the container image
 
-> **Status: no release has been cut yet.** The repository carries no tags at all, and
-> `release.yml` triggers on a `v*` tag alone, so
-> [`release.yml`](../.github/workflows/release.yml) has never run and none of the artifacts
-> below have been published: no GitHub Release, no `SHA256SUMS`, no attestation, no SBOM,
-> no `ghcr.io/…` image. The commands here fail with not-found until the first tag ships.
-> Deployments today are built from source and carry no provenance or checksum you can
-> verify. This section is the procedure that becomes live with the first release.
+> **`v1.0.0-rc.1` is the current release.** Being a candidate, it has no `:latest` image
+> tag, so use the exact tag in the commands below.
 
-Once tagging begins, each release will publish, alongside the per-platform binaries: one
-`SHA256SUMS`, a keyless SLSA build-provenance attestation via GitHub OIDC, needing no
-signing-key secrets, and a CycloneDX SBOM per shipped binary (`gdi-node-standalone`,
-`gdi-dataset-tool`) rather than one for the whole release. Verify before deploying.
+Each release publishes, alongside the per-platform binaries: one `SHA256SUMS`, a keyless
+SLSA build-provenance attestation via GitHub OIDC, needing no signing-key secrets, and a
+CycloneDX SBOM per shipped binary (`gdi-node-standalone`, `gdi-dataset-tool`) rather than
+one for the whole release. Verify before deploying.
 
 **Checksums.** Download `SHA256SUMS` next to the artifact(s) and check:
 

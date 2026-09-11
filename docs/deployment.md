@@ -28,9 +28,7 @@ The service is a single binary, built in two flavours:
 
 Prefer `gnu`. Reach for `musl` only when the gnu binary will not start.
 
-No release has been cut, so there is no `v*` tag: the Releases page is empty, the GHCR
-image does not exist, and the download commands below do not resolve. Build from source
-until a tag exists — it is the only working install path:
+There are prebuilt binaries for `v1.0.0-rc.1`, listed further down. To build from source:
 
 ```bash
 cargo build --release --features full -p gdi-node-standalone
@@ -56,7 +54,7 @@ source in its own temporary target directory, sharing nothing with the others. A
 `--target-dir target`, or set `CARGO_TARGET_DIR` for the session, to share the work. Cargo
 prints no progress when its output is piped or redirected, so a silent terminal is normal.
 
-Once a release exists, download a prebuilt, signed, checksummed binary from the
+Or skip the build: prebuilt, attested, checksummed binaries are on the
 [Releases page](https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases).
 The per-target service assets are named
 `gdi-node-standalone-<tag>-{x86_64,aarch64}-unknown-linux-{gnu,musl}`; fetch one plus the
@@ -149,14 +147,12 @@ single-writer invariant.
 
 ## Container image
 
-> **No image has been published yet.** No `v*` tag exists, so nothing has ever been pushed
-> to GHCR and the `docker pull` below fails with not-found. Build your own from the shipped
-> `Dockerfile` — see [Building your own image](#building-your-own-image) — until the first
-> tag ships. This section is the procedure that becomes live with that release.
+> **There is no `:latest`.** The workflow moves it only on a stable release, and
+> `v1.0.0-rc.1` is a candidate. Pull the exact tag.
 
-Tagged releases will publish a container image to GHCR, packaged from the same released
-`gnu` (glibc) binary onto a minimal `distroless/cc` base. There is no recompile: the binary
-is byte-identical to the bare-metal download.
+Tagged releases publish a container image to GHCR, packaged from the same released `gnu`
+(glibc) binary onto a minimal `distroless/cc` base. There is no recompile: the binary is
+byte-identical to the bare-metal download.
 
 ```bash
 docker pull ghcr.io/genomicdatainfrastructure/gdi-node-standalone:<tag>
@@ -701,8 +697,8 @@ an individual-level network only if the node really serves individuals.
 
 ## Compatibility
 
-The declared support set. No prebuilt artifacts are published yet, so build the row you
-need from source. `scripts/ci-local.sh` (see [`CONTRIBUTING.md`](../CONTRIBUTING.md))
+The declared support set. Most rows ship as prebuilt binaries; build the rest from
+source. `scripts/ci-local.sh` (see [`CONTRIBUTING.md`](../CONTRIBUTING.md))
 build-verifies the Linux rows with its `cross` and `cross-arm` legs; both live in the
 `release` target rather than `all`, so treat a row as verified once you have run it
 yourself.
