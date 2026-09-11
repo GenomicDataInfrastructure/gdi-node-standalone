@@ -21,10 +21,11 @@ queries in a common [GA4GH](https://www.ga4gh.org) language: does this variant e
 and at what frequency? This node answers that from aggregate counts and publishes the
 metadata a harvester needs. It does nothing else, which is why it stays small: one process,
 no database, no message bus. It runs on a laptop, and
-[Quickstart 1](#quickstart-1--see-it-work) has it answering a query minutes after the build.
+[Quickstart 1](#quickstart-1--see-it-work) has it answering a query in minutes.
 
-**Pre-release.** The tree is at `1.0.0-rc.1` and nothing is tagged, so there is no GitHub
-Release, image or prebuilt binary, and everything below builds from source.
+**Pre-release.** `v1.0.0-rc.1` is out. Binaries, a container image and checksums are on the
+[Releases page](https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases).
+It is a candidate, so the image has no `:latest` tag.
 [CHANGELOG.md](CHANGELOG.md) records what `1.0.0` will commit to.
 
 ## What you get
@@ -67,7 +68,7 @@ starter kit if you need access control or a maintained stack.
 
 | You are | Start at |
 | --- | --- |
-| evaluating it | [Quickstart 1](#quickstart-1--see-it-work): a node serving sample data, minutes after the build |
+| evaluating it | [Quickstart 1](#quickstart-1--see-it-work): a node serving sample data, in minutes |
 | operating a node | [Quickstart 2](#quickstart-2--a-real-node), then [Before you go live](#before-you-go-live) |
 | a data provider | the provider half of Quickstart 2, then [Providers: your own data](#providers-your-own-data) |
 | integrating against the API | [Integrating](#integrating) |
@@ -136,29 +137,48 @@ keyless, since nothing crosses a trust boundary. For the design, the trust bound
 disclosure control, see [architecture.md](docs/architecture.md) and
 [threat-model.md](docs/threat-model.md).
 
-## Build
+## Get it
 
-The service runs on Linux `x86_64` and `aarch64`, the tool also on macOS and Windows,
-with MSRV **1.96** ([deployment.md § Binaries and platforms](docs/deployment.md#binaries-and-platforms)).
-You need `rustup` (the pinned toolchain installs itself on first use), a C toolchain
-(`build-essential`, `gcc`, or the Xcode Command Line Tools), `git` and `curl`, plus `jq` for
-the query in Quickstart 1; `scripts/dev-setup.sh --check` verifies the toolchain.
+**Download.** Two binaries, plus the two sample files Quickstart 1 uses. The service
+binary is Linux only and is the full build; the tool also ships for macOS and Windows
+([platforms](docs/deployment.md#binaries-and-platforms)).
+
+```bash
+V=v1.0.0-rc.1
+U=https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases/download/$V
+R=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalone/$V/crates/gdi-dataset-tool/tests/fixtures
+mkdir -p ~/gdi-demo && cd ~/gdi-demo
+curl -fsSLo gdi-node-standalone "$U/gdi-node-standalone-$V-x86_64-unknown-linux-gnu"
+curl -fsSLo gdi-dataset-tool    "$U/gdi-dataset-tool-$V-x86_64-unknown-linux-gnu"
+curl -fsSLO "$R/covid-package.yaml" -O "$R/COVID.monogneic.aggregate.AFs.GRCh38.vcf"
+chmod +x gdi-node-standalone gdi-dataset-tool
+export PATH="$PWD:$PATH"
+```
+
+Both have `musl` builds for Alpine. The service also builds for `aarch64`; the tool does
+not, so compile that one there. Checksums and a provenance attestation sit beside the
+binaries, and
+[operating.md §20](docs/operating.md#20-verifying-release-artifacts--the-container-image)
+has the verify commands. There is an image too, `linux/amd64` only:
+`docker pull ghcr.io/genomicdatainfrastructure/gdi-node-standalone:v1.0.0-rc.1`.
+
+**Build** on macOS or Windows, where the service has no binary, or to work on the code. It
+needs MSRV **1.96**, `rustup` and a C toolchain (`build-essential`, `gcc`, or the Xcode
+Command Line Tools); `scripts/dev-setup.sh --check` checks them. The first build takes tens
+of minutes, because arrow, parquet and noodles compile from source.
 
 ```bash
 git clone https://github.com/GenomicDataInfrastructure/gdi-node-standalone.git
 cd gdi-node-standalone
-cargo build --release -p gdi-node-standalone -p gdi-dataset-tool    # lite node + the tool (Quickstart 1)
-cargo build --release -p gdi-node-standalone --features full         # node with S3, Vault and PME (Quickstart 2)
+cargo build --release -p gdi-node-standalone -p gdi-dataset-tool   # lite node + the tool
+cargo build --release -p gdi-node-standalone --features full       # + S3, Vault and PME
 export PATH="$PWD/target/release:$PATH"
 ```
 
-The first build compiles the arrow, parquet and noodles crates from source and takes tens
-of minutes; later builds reuse the cache. The default **lite** node has no S3, Vault or
-at-rest encryption and makes no outbound connections, which is enough for an inbox node. A
-config with `[[s3.buckets]]`, `[vault]` or `[vault].transit_key` needs the **full** build;
-a lite binary refuses such a config and says why. The container image is always full:
-`docker build -t gdi-node-standalone:local .`, plus the two build args that stamp a git SHA
-into `/version` ([deployment.md § Container image](docs/deployment.md#container-image)).
+A build defaults to **lite**: no S3, Vault or at-rest encryption, and no outbound
+connections, which is enough for an inbox node. A config with `[[s3.buckets]]`, `[vault]`
+or `[vault].transit_key` needs **full**; a lite binary refuses it and says why. Downloads
+are full already.
 
 ## Quickstart 1 — see it work
 
@@ -197,7 +217,7 @@ Now be the provider: build the sample into a staging directory, drop it into the
 make it visible, query it.
 
 ```bash
-gdi-dataset-tool build crates/gdi-dataset-tool/tests/fixtures/covid-package.yaml --cc EE -o build
+gdi-dataset-tool build covid-package.yaml --cc EE -o build   # in a checkout: crates/gdi-dataset-tool/tests/fixtures/
 ID=$(ls build)                          # build/ was empty; every build mints a new id
 gdi-dataset-tool deploy build/$ID --inbox ~/gdi-demo/inbox --wait --management-url http://127.0.0.1:9090
 gdi-dataset-tool publish $ID --inbox ~/gdi-demo/inbox   # writes {id}.state.json; the node applies it on its next scan
@@ -205,16 +225,19 @@ curl -s http://127.0.0.1:9090/datasets/$ID/state         # -> {"state":"visible"
 
 curl -s -X POST http://localhost:8080/aggregated/beacon/v2/g_variants \
   -H 'content-type: application/json' \
-  -d '{"query":{"requestParameters":{"referenceName":"3","start":[45823239],"referenceBases":"T","alternateBases":"C","assemblyId":"GRCh38","requestedGranularity":"RECORD"}}}' \
-  | jq '.responseSummary, .response.resultSets[0].results[0].frequencyInPopulations[0].frequencies[-1]'
-# -> {"exists": true, "numTotalResults": 1} and the Total population: alleleCount 618 / alleleNumber 8000
+  -d '{"query":{"requestParameters":{"referenceName":"3","start":[45823239],"referenceBases":"T","alternateBases":"C","assemblyId":"GRCh38","requestedGranularity":"RECORD"}}}'
+# One line of JSON. Look for "exists":true and "numTotalResults":1, and in the Total
+# population "alleleCount":618 with "alleleNumber":8000. Pipe to `jq` if you have it.
 ```
 
 For a Beacon that answers like a real export (1 637 sites, twelve populations, chrX/Y/M),
 build the realistic sample instead and repeat the `deploy` and `publish` lines with its id:
 
 ```bash
-gdi-dataset-tool build crates/test-util/tests/fixtures/sample/gdi-sample.package.yaml --cc EE -o build-sample
+V=v1.0.0-rc.1
+S=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalone/$V/crates/test-util/tests/fixtures/sample
+curl -fsSLO "$S/gdi-sample.package.yaml" -O "$S/gdi-sample.GRCh38.vcf.gz"
+gdi-dataset-tool build gdi-sample.package.yaml --cc EE -o build-sample   # checkout: crates/test-util/tests/fixtures/sample/
 ID=$(ls build-sample)
 ```
 
@@ -228,7 +251,8 @@ Point needs a `[fairdp]` block; Quickstart 2 has one.
 S3 ingest with the node's crypt4gh key on disk, no Vault and no PME. That is the usual
 production shape for public aggregated data ([`node.quickstart.toml`](node.quickstart.toml),
 [operating.md §0](docs/operating.md#0-quickstart-first-production-bring-up)). It needs the
-full build and an S3-compatible bucket: Garage, Ceph RGW, MinIO or AWS. The `[fairdp]`
+full node (the download is one; from source, `--features full`) and an S3-compatible
+bucket: Garage, Ceph RGW, MinIO or AWS. The `[fairdp]`
 block is what makes the node a FAIR Data Point. Fill in every field, including the
 publisher, the Health Data Access Body and both contact points, or delete the block for a
 Beacon-only node.
@@ -381,7 +405,7 @@ do about it.
   your CNI enforces. Read its "Before you apply" list first.
 - **Vault and at-rest encryption (PME).** With a `[vault]` block the node reads its
   identity and S3 credentials from Vault or OpenBao, and `[vault].transit_key` encrypts the
-  Parquet at rest (Parquet Modular Encryption). Both need the full build. Public aggregated
+  Parquet at rest (Parquet Modular Encryption). Both need the full node. Public aggregated
   data does not need PME; an encrypted volume is the baseline. Try it on the dev stack
   (root token, no TLS):
   ```bash
@@ -398,11 +422,23 @@ do about it.
 ## Providers: your own data
 
 You have a VCF with per-population allele counts or frequencies and you want it
-discoverable through a node. Build the tool ([Build](#build)) and let the wizard walk you
-through it, as in the provider half of [Quickstart 2](#quickstart-2--a-real-node). If the
-node is on the same machine, `deploy --inbox` and `publish --inbox`
-([Quickstart 1](#quickstart-1--see-it-work)) need no keys and no profile. Worth knowing
-before your first real build:
+discoverable through a node. You need the tool, not the node, and it is one file from the
+[Releases page](https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases):
+
+- **Linux, x86-64**: `gdi-dataset-tool-<version>-x86_64-unknown-linux-gnu`, or the `-musl`
+  one on Alpine.
+- **macOS, Apple silicon**: `gdi-dataset-tool-<version>-aarch64-apple-darwin`.
+- **Windows**: `gdi-dataset-tool-<version>-x86_64-pc-windows-msvc.exe`.
+
+On Linux and macOS, `chmod +x` it and put it on your `PATH`. A browser download is
+quarantined on macOS, which `xattr -d com.apple.quarantine gdi-dataset-tool` clears. Intel
+Macs and aarch64 Linux have no published build, so compile from source there
+([Get it](#get-it)).
+
+Then let the wizard walk you through it, as in the provider half of
+[Quickstart 2](#quickstart-2--a-real-node). If the node is on the same machine,
+`deploy --inbox` and `publish --inbox` ([Quickstart 1](#quickstart-1--see-it-work)) need no
+keys and no profile. Worth knowing before your first real build:
 
 - **Your VCF** can be on GRCh37 or GRCh38. Populations come from the INFO fields (`AF`,
   `AC` and `AN`, one set per population), and only those aggregate counts leave your
