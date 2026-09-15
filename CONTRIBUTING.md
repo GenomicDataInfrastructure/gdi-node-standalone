@@ -533,8 +533,9 @@ ever published or consumed as a versioned dependency.
 The heavier `e2e-smoke-full`, `coverage`, and the aarch64-linux and macOS/Windows cross
 legs run weekly instead; see
 [Scheduled / on-demand jobs](#scheduled--on-demand-jobs-scheduledyml). Every Action is
-pinned to a commit SHA with the version in a trailing comment, and Dependabot keeps the
-pins current.
+pinned to a commit SHA with the version in a trailing comment. Dependabot version updates
+are off (security updates still run), so routine bumps are by hand; the weekly `pins` job
+checks each pinned SHA against its comment upstream.
 
 | Job | What it does |
 | --- | --- |

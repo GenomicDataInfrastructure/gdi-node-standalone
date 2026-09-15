@@ -5,10 +5,11 @@
 # supplies the rule set behind `docker build --check`. A floating reference would run
 # arbitrary new code on each build and change the lint rules silently.
 #
-# Dependabot's `docker` ecosystem updates `FROM` lines, not this directive, so nothing
-# bumps it automatically — and a frozen frontend means new check rules never arrive,
-# which is its own quiet failure. `ci-local.sh dockerfile-check` therefore reports
-# (without failing) when upstream `docker/dockerfile:1` has moved past this digest.
+# Nothing bumps this directive automatically: Dependabot's version updates are off, and
+# its `docker` ecosystem reads `FROM` lines, not this directive, anyway. A frozen frontend
+# means new check rules never arrive, which is its own quiet failure, so
+# `ci-local.sh dockerfile-check` reports (without failing) when upstream
+# `docker/dockerfile:1` has moved past this digest.
 #
 # Single multi-stage Dockerfile packaging the `gdi-node-standalone` service. It covers both
 # build paths via the `BIN_SOURCE` build-arg, so there is one runtime stage and no twin to
