@@ -5728,7 +5728,7 @@ Used by:
 - ring 0.17.14
 - rustix 1.1.4
 - rustls-native-certs 0.8.4
-- rustls 0.23.44
+- rustls 0.23.45
 - scopeguard 1.2.0
 - security-framework-sys 2.17.0
 - security-framework 3.7.0

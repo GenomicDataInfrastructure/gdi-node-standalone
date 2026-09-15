@@ -206,7 +206,7 @@ reqwest = { version = "=0.13.4", default-features = false, features = ["json", "
 # rustls with `custom-provider`, which disables the implicit provider so one must be
 # installed explicitly. Shared by the service's `tls` group and the tool's startup
 # crypto-provider install; this is the surface that keeps the build on `ring` alone.
-rustls = { version = "=0.23.44", default-features = false, features = ["ring", "custom-provider", "logging", "tls12"] }
+rustls = { version = "=0.23.45", default-features = false, features = ["ring", "custom-provider", "logging", "tls12"] }
 # Mozilla CA roots as full DER certificates: `webpki-root-certs`, not the trust-anchor
 # `webpki-roots`, which reqwest 0.13 no longer consumes. Merged on top of the host platform
 # trust store, via reqwest's `tls_certs_merge` and object_store's `with_root_certificate`,
