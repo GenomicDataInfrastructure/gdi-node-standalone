@@ -56,10 +56,11 @@ updates:
           - minor
           - patch
 
-  # Base/builder images in the single `Dockerfile`: its digest-pinned
-  # `rust:1.98.0-trixie` builder and its digest-pinned `distroless/cc-debian13`
-  # runtime. A digest-pinned `FROM` still gets an update PR that refreshes the digest,
-  # keeping the base images + the glibc floor current.
+  # Base/builder images in the root Dockerfiles. Version updates are off (see the header),
+  # so a moved digest is noticed by the weekly `pins` job in scheduled.yml rather than by
+  # an update PR: it fails once the distroless runtime's digest moves upstream. The other
+  # digest pins are only noted, without failing, by `ci-local.sh lint-docker`, which
+  # `release` runs.
   # Neither the pinned `docker run` images in scripts/ci-local.sh (promtool /
   # actionlint / shellcheck) nor the digest-pinned `ghcr.io/cross-rs/*` build
   # containers in Cross.toml are parsed by any ecosystem — they are bumped by hand
