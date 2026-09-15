@@ -139,8 +139,8 @@
 #                    lineage), the GitHub action pins (`uses: owner/repo@sha # tag`) and
 #                    the Dockerfile base-image digest still resolve to what is pinned
 #                    here. The base-image half needs Docker and skips visibly without
-#                    it. Drift and an unreachable host are both warnings, because
-#                    neither is a defect in this tree; `pins-strict` makes them fatal.
+#                    it. Drift and an unreachable host are both warnings, because neither
+#                    is a defect in this tree; `pins-strict` makes only drift fatal.
 #   pins-strict      the same check with drift fatal, which is what `release` runs.
 #                    Being behind is a warning per change and a failure at a tag.
 #   licenses         cargo-about drift guard: THIRD-PARTY-LICENSES.md must match the
@@ -245,9 +245,9 @@
 #   GATE_LOCK        the slot's lock file (default:
 #                    /tmp/gdi-node-standalone-gate-<uid>.lock). One file per machine,
 #                    shared by every checkout, because what they contend for is the CPU.
-#   PINS_STRICT      set to 1 to make external-pin drift fatal instead of a warning.
-#                    It is what the `pins-strict` target sets and what `release`
-#                    exports.
+#   PINS_STRICT      set to 1 to make pin drift, external or base-image, fatal instead of
+#                    a warning. It is what the `pins-strict` target sets and what
+#                    `release` exports.
 #   SWEEP_MAXSIZE    the target/ ceiling for `sweep`, with an explicit unit (default:
 #                    20GB). A unitless value is rejected, because cargo-sweep would read
 #                    it as megabytes.
@@ -1303,10 +1303,9 @@ _base_image_freshness() {
   local ref='gcr.io/distroless/cc-debian13:nonroot'
   skip_unless docker "base image digest freshness" "base image freshness NOT checked" || return 0
   local pinned upstream
-  # Every Dockerfile's pin for the base, not `Dockerfile`'s alone: the two files carry the
-  # same distroless digest with nothing else forcing agreement, so reading one would let a
-  # bump that forgot the other pass. Two different digests for one ref is itself drift, and
-  # is reported before the network is asked.
+  # Every Dockerfile's pin for the base, not `Dockerfile`'s alone, so a pin in any other
+  # Dockerfile is watched too and a bump that forgot one of them cannot pass. Two different
+  # digests for one ref is itself drift, and is reported before the network is asked.
   pinned="$(_all_dockerfile_digest_pins | awk -v r="$ref" '$1 == r {print $2}' | sort -u)"
   assert_nonempty "$pinned" "base image digest freshness" \
     "no Dockerfile pin found for $ref — the freshness check would be a no-op"
@@ -1325,15 +1324,13 @@ _base_image_freshness() {
 }
 
 # Turns `_base_image_freshness`'s clean/drift verdict into the same warn-in-`all`,
-# fail-under-`PINS_STRICT=1` split the external pins below use. It stays a separate gate
-# rather than an arm of the external-pins `case`, because test_gate_ordering.py asserts by
-# regex over the literal source that the non-strict drift arm ends in its own `return 0`.
-# Threading a second concern through that `case` would make the assertion stop meaning what
-# it says.
+# fail-under-`PINS_STRICT=1` split the external pins below use. Under strict mode it returns
+# 1 rather than dying, and `pins()` acts on that only after the external pins have reported:
+# a `die` here ended the leg before they were fetched.
 _base_image_pin_gate() {
   _base_image_freshness && return 0
   if [[ "${PINS_STRICT:-0}" == "1" ]]; then
-    die "base image digest drift — see above. Re-resolve with 'docker buildx imagetools inspect gcr.io/distroless/cc-debian13:nonroot' and bump tag+digest together in the Dockerfile."
+    return 1
   fi
   printf '%sWARNING: base image digest DRIFT — see above. Not fatal here — `release` and `pins-strict` fail closed on this.%s\n' "$C_ERR" "$C_OFF"
   return 0
@@ -1362,23 +1359,27 @@ _base_image_pin_gate() {
 # in `release` before any artifact ships, which exports PINS_STRICT=1.
 pins() {
   step "external pins — userportal deploy refs + gdi-metadata lineage (network); base image digest freshness (Docker)"
-  _base_image_pin_gate
-  local rc=0
+  # Both halves report before either verdict is acted on. Strict-mode drift is collected
+  # and fails the leg once, at the end, naming every half that drifted.
+  local fatal=() rc=0
+  _base_image_pin_gate ||
+    fatal+=("base image digest drift — see above. Re-resolve with 'docker buildx imagetools inspect gcr.io/distroless/cc-debian13:nonroot' and bump tag+digest together in the Dockerfile.")
   bash scripts/vendored.sh pins || rc=$?
   case "$rc" in
-    0) return 0 ;;
-    2) printf '%sWARNING: external pins could not be fetched (offline / upstream down) — SKIPPED, not verified. Re-run scripts/ci-local.sh pins when connected.%s\n' "$C_ERR" "$C_OFF"; return 0 ;;
+    0) ;;
+    2) printf '%sWARNING: external pins could not be fetched (offline / upstream down) — SKIPPED, not verified. Re-run scripts/ci-local.sh pins when connected.%s\n' "$C_ERR" "$C_OFF" ;;
     *)
       if [[ "${PINS_STRICT:-0}" == "1" ]]; then
-        die "external pin drift — see above. Follow the federation in lockstep (bump EXTERNAL_PINS in scripts/vendored.sh + the matching note in conformance/requirements.txt); do not get ahead of it."
+        fatal+=("external pin drift — see above. Follow the federation in lockstep (bump EXTERNAL_PINS in scripts/vendored.sh + the matching note in conformance/requirements.txt); do not get ahead of it.")
+      else
+        printf '%sWARNING: external pin DRIFT — see above. The federation moved; this tree did not break.\n' "$C_ERR"
+        printf '  Follow it in lockstep (bump EXTERNAL_PINS in scripts/vendored.sh + the matching note\n'
+        printf '  in conformance/requirements.txt); do not get ahead of it. Not fatal here — `release`\n'
+        printf '  and `pins-strict` fail closed on this.%s\n' "$C_OFF"
       fi
-      printf '%sWARNING: external pin DRIFT — see above. The federation moved; this tree did not break.\n' "$C_ERR"
-      printf '  Follow it in lockstep (bump EXTERNAL_PINS in scripts/vendored.sh + the matching note\n'
-      printf '  in conformance/requirements.txt); do not get ahead of it. Not fatal here — `release`\n'
-      printf '  and `pins-strict` fail closed on this.%s\n' "$C_OFF"
-      return 0
       ;;
   esac
+  [[ ${#fatal[@]} -eq 0 ]] || die "pin drift under PINS_STRICT=1:$(printf '\n  - %s' "${fatal[@]}")"
 }
 
 # --- Seams -------------------------------------------------------------------

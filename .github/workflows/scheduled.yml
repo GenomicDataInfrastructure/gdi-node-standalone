@@ -498,11 +498,12 @@ jobs:
       - run: ./scripts/ci-local.sh corpus
 
   # External pin freshness: the userportal deploy refs and gdi-metadata lineage this tree
-  # follows, plus the Dockerfile base-image digests. Weekly, not per-PR, because it is a
-  # verdict about the world rather than about the commit: it goes red when the federation
-  # moves or a base image is rebuilt, neither of which any pull request caused, and a gate
-  # that reddens for reasons the author cannot fix is a gate people learn to ignore. The
-  # leg already downgrades an unreachable upstream to a warning rather than a failure.
+  # follows, plus the distroless runtime digest in the Dockerfile. Weekly, not per-PR,
+  # because it is a verdict about the world rather than about the commit: it goes red when
+  # the federation moves or the distroless base is rebuilt, neither of which any pull
+  # request caused, and a gate that reddens for reasons the author cannot fix is a gate
+  # people learn to ignore. The leg already downgrades an unreachable upstream to a warning
+  # rather than a failure.
   pins:
     runs-on: ubuntu-latest
     steps:

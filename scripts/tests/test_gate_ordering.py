@@ -9,7 +9,9 @@ Breaking one of these does not turn a leg red. It stops the leg from running at 
 
   2. External-pin drift is a warning in `all` and fatal only where shipping is at stake.
      Otherwise an upstream cutting a tag turns the per-change gate red with no edit that
-     could fix it, and skips every leg behind it.
+     could fix it, and skips every leg behind it. Where it is fatal, `pins` still reports
+     both halves, the base image and the external pins, before it fails: a `die` in the
+     first half once ended the leg before the second had run.
 
   3. `release` must not inherit `all`'s short-circuit, or a tag-time gate can Trivy-scan
      and cross-compile on top of a core it never compiled.
@@ -30,7 +32,11 @@ Assertions read `strip_comments()` output wherever they are about behaviour, so 
 restating a rule cannot satisfy the guard for it.
 """
 
+import os
+import pathlib
 import re
+import subprocess
+import tempfile
 import unittest
 
 from _helpers import SCRIPTS, strip_comments
@@ -337,31 +343,119 @@ class ReleaseLegsAreDocumentedTest(unittest.TestCase):
         )
 
 
-class PinDriftFatalityTest(unittest.TestCase):
-    @classmethod
-    def setUpClass(cls):
-        cls.pins_body = body(CI_LOCAL.read_text(encoding="utf-8"), "pins")
+def function_source(text: str, name: str) -> str:
+    """The verbatim source of a shell function, one-liners included, for executing."""
+    m = re.search(
+        rf"^{re.escape(name)}\(\)\s*\{{(?:[^\n]*\}}$|.*?^\}}$)",
+        text,
+        re.DOTALL | re.MULTILINE,
+    )
+    if m is None:
+        raise AssertionError(f"could not find a `{name}()` function in the script")
+    return m.group(0)
 
-    def test_drift_is_only_fatal_under_strict_mode(self):
-        # Asserts the structure, a `die` opening a `PINS_STRICT` conditional, rather than
-        # two string offsets. Comparing offsets lets a `PINS_STRICT` mentioned in an
-        # earlier `printf` appear to guard a `die` that is unconditional.
-        self.assertRegex(
-            self.pins_body,
-            r"if\s*\[\[[^]]*PINS_STRICT[^]]*\]\];\s*then\s+die\b",
-            "the drift `die` is no longer the guarded branch of a PINS_STRICT "
-            "conditional; `all` would then go red because an upstream moved, skipping "
-            "every leg after `pins`",
+
+def run_pins(
+    *, base_drift: bool, external_rc: int, strict: bool
+) -> subprocess.CompletedProcess:
+    """Run the real `pins()` with its Docker half and its network half stubbed.
+
+    `_base_image_freshness` returns 1 on drift and 0 when clean, as the real one does, and
+    `scripts/vendored.sh` exits 0 when clean, 1 on drift and 2 when unreachable. Each stub
+    announces itself on stdout, so a test can tell a half that ran from one that never
+    did. `pins`, `_base_image_pin_gate`, `step` and `die` are taken from ci-local.sh.
+    """
+    text = CI_LOCAL.read_text(encoding="utf-8")
+    script = "\n".join(
+        [
+            "set -euo pipefail",
+            "C_HEAD='' C_DIM='' C_ERR='' C_OK='' C_OFF=''",
+            *(
+                function_source(text, name)
+                for name in ("step", "die", "_base_image_pin_gate", "pins")
+            ),
+            (
+                f"_base_image_freshness() {{ echo 'stub: base image freshness ran'; "
+                f"return {1 if base_drift else 0}; }}"
+            ),
+            "pins",
+        ]
+    )
+    env = {k: v for k, v in os.environ.items() if k != "PINS_STRICT"}
+    if strict:
+        env["PINS_STRICT"] = "1"
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = pathlib.Path(tmp, "scripts", "vendored.sh")
+        stub.parent.mkdir()
+        stub.write_text(
+            f'echo "stub: vendored.sh $* ran"\nexit {external_rc}\n', encoding="utf-8"
         )
-        # The other half of the same rule: with strict mode off, the drift arm must fall
-        # through to `return 0`. A guarded `die` alone says nothing about the branch that
-        # runs on every per-change gate.
-        self.assertRegex(
-            self.pins_body,
-            r"fi\s+(printf[^\n]*\n\s*)+return 0",
-            "the non-strict drift path no longer ends in `return 0`; `all` would go red "
-            "because an upstream moved, skipping every leg after `pins`",
+        return subprocess.run(
+            ["bash", "-c", script],
+            cwd=tmp,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
         )
+
+
+class PinDriftFatalityTest(unittest.TestCase):
+    """`pins()` executed: drift is fatal only under PINS_STRICT=1, and both halves report.
+
+    The rule is about control flow, so the function is run rather than matched as text. A
+    regex over its source once required the strict `die` to sit inside the leg, the shape
+    that let a base-image drift end the leg before the external pins were fetched.
+    """
+
+    def test_strict_base_drift_does_not_hide_the_external_pins(self):
+        proc = run_pins(base_drift=True, external_rc=0, strict=True)
+        self.assertIn(
+            "stub: vendored.sh pins ran",
+            proc.stdout,
+            "a strict base-image drift ended the leg before the external pins ran",
+        )
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("base image digest drift", proc.stderr)
+
+    def test_strict_drift_in_both_halves_names_both(self):
+        proc = run_pins(base_drift=True, external_rc=1, strict=True)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("base image digest drift", proc.stderr)
+        self.assertIn("external pin drift", proc.stderr)
+
+    def test_strict_external_drift_alone_is_fatal(self):
+        proc = run_pins(base_drift=False, external_rc=1, strict=True)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("external pin drift", proc.stderr)
+        self.assertNotIn("base image digest drift", proc.stderr)
+
+    def test_strict_base_drift_survives_unreachable_external_pins(self):
+        # Unreachable is not fatal on its own, so its arm must not end the leg with a
+        # success that swallows the base-image verdict held above it.
+        proc = run_pins(base_drift=True, external_rc=2, strict=True)
+        self.assertIn("could not be fetched", proc.stdout)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("base image digest drift", proc.stderr)
+
+    def test_unreachable_external_pins_are_not_fatal_under_strict_mode(self):
+        proc = run_pins(base_drift=False, external_rc=2, strict=True)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("could not be fetched", proc.stdout)
+
+    def test_clean_pins_pass_under_strict_mode(self):
+        proc = run_pins(base_drift=False, external_rc=0, strict=True)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("stub: base image freshness ran", proc.stdout)
+        self.assertIn("stub: vendored.sh pins ran", proc.stdout)
+
+    def test_drift_is_only_a_warning_without_strict_mode(self):
+        # `all` runs `pins` without PINS_STRICT and stops at the first non-zero leg, so a
+        # fatal verdict here would skip every leg after `pins` because an upstream moved.
+        proc = run_pins(base_drift=True, external_rc=1, strict=False)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("WARNING: base image digest DRIFT", proc.stdout)
+        self.assertIn("WARNING: external pin DRIFT", proc.stdout)
 
 
 class AnchoringTest(unittest.TestCase):

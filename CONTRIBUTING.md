@@ -563,10 +563,11 @@ The `pins` leg has no `ci.yml` job: it is a verdict about the world rather than 
 commit, so it runs weekly in `scheduled.yml` as its own `pins` job (with `PINS_STRICT=1`),
 alongside `vendored-sync`.
 `scripts/vendored.sh pins` asserts that the userportal's deployed CKAN-extension refs, the
-gdi-metadata HealthDCAT-AP lineage, the GA4GH beacon-v2 latest release tag, the pinned
-GitHub Action tags and the Dockerfile's base-image digest all still resolve to what this
-tree pins. It needs network, and unauthenticated GitHub API calls are rate-limited per IP,
-so export `GITHUB_TOKEN` — sent to `api.github.com` only — to lift the budget. Real drift,
+gdi-metadata HealthDCAT-AP lineage, the GA4GH beacon-v2 latest release tag and the pinned
+GitHub Action tags all still resolve to what this tree pins, and `ci-local.sh` itself
+compares the Dockerfile's distroless runtime digest against upstream, through Docker. It
+needs network, and unauthenticated GitHub API calls are rate-limited per IP, so export
+`GITHUB_TOKEN` — sent to `api.github.com` only — to lift the budget. Real drift,
 including a pinned path that 404s, fails the gate. A rate-limited or unreachable host
 warns instead, because that is a verdict about your connection. `pins-strict`, which
 `release` runs, makes drift fatal.
@@ -629,9 +630,10 @@ inside the `release` meta-leg are marked.
   cached
   between runs. Local: `ci-local.sh corpus`.
 - **`pins`** — external pin freshness: the userportal deploy refs and gdi-metadata lineage
-  this tree follows, plus the Dockerfile base-image digests. Weekly because it is a verdict
-  about the world, not about the commit. Local: `PINS_STRICT=1 ci-local.sh pins` (the job
-  sets that so drift is fatal there; a working tree only warns).
+  this tree follows, plus the distroless runtime digest in the Dockerfile. Weekly because
+  it is a verdict about the world, not about the commit. Local:
+  `PINS_STRICT=1 ci-local.sh pins` (the job sets that so drift is fatal there; a working
+  tree only warns).
 - **`notify`** — opens or updates one tracking issue on a failed weekly run. No local
   equivalent.
 - **`e2e-smoke-full`** (`e2e-full.yml`) — the full Garage + OpenBao + PME crypt4gh

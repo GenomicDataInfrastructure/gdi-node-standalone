@@ -151,7 +151,8 @@ class BaseImagePinIsWatched(unittest.TestCase):
     """The freshness check must watch the pin the Dockerfile ships, not a copy of it.
 
     Extracting the pin is covered by test_dockerfile_digest_pins.py; this class only
-    checks that there is exactly one pin to watch and that the leg is wired up.
+    checks that there is exactly one pin to watch. That the `pins` leg runs the check is
+    covered by executing the leg, in test_gate_ordering.py.
     """
 
     def test_dockerfile_carries_exactly_one_distroless_nonroot_pin(self):
@@ -166,17 +167,6 @@ class BaseImagePinIsWatched(unittest.TestCase):
             len(pins),
             "expected exactly one gcr.io/distroless/cc-debian13:nonroot FROM pin in "
             "Dockerfile; the freshness check assumes there is one to watch",
-        )
-
-    def test_pins_leg_references_the_freshness_check(self):
-        text = SCRIPT.read_text(encoding="utf-8")
-        pins_body = re.search(r"^pins\(\) \{.*?^\}$", text, re.MULTILINE | re.DOTALL)
-        assert pins_body, "pins() not found in ci-local.sh; it was renamed or reshaped"
-        self.assertIn(
-            "_base_image_pin_gate",
-            pins_body.group(0),
-            "pins() no longer calls _base_image_pin_gate; the base-image digest "
-            "freshness check is unwired from the `pins` leg",
         )
 
 
