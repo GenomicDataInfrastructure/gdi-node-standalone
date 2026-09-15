@@ -214,6 +214,11 @@ IDENTITY_LOADED_LOG="loaded crypt4gh node identities from Vault"
 # the log reads as absent. scripts/tests/test_run_full_wait_log.py runs this function
 # against a 5 MB log with the needle on its first line.
 #
+# scripts/tests/test_run_full_needles.py binds every needle passed to it to a `tracing`
+# event in crates/: a message literal, or a declared field for a `"field":value` needle.
+# Nothing else checks these needles, so a reworded message would otherwise surface only
+# as a failed e2e-full run.
+#
 # Stdout only (no `2>&1`): a `docker compose` warning on stderr must not masquerade as the
 # needle or obscure it. Real stderr still reaches the terminal; it is just not compared.
 wait_log() {  # wait_log <needle> <what>
@@ -452,7 +457,7 @@ await_bucket_health() {  # await_bucket_health <channel> <want> <what>
 log "adding a [[s3.buckets]] entry and reloading with SIGHUP"
 append_reload_bucket "$S3_DEV_SECRET"
 sighup
-wait_log "config reload added this bucket" "SIGHUP did not report adding the new bucket"
+wait_log "config reload added this channel" "SIGHUP did not report adding the new bucket"
 await_bucket_health "$RELOAD_CHANNEL" "ok" \
     "the bucket added by SIGHUP never became healthy: the reload did not start its monitor"
 log "confirmed: a bucket added by SIGHUP polls without a restart"
