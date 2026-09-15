@@ -120,7 +120,7 @@ FROM ${BIN_SOURCE} AS binsrc
 # (or the registry manifest API) and bump tag+digest together. `ci-local.sh pins`
 # checks this digest against the current upstream one on every run (WARN in `all`,
 # fail under `PINS_STRICT=1`).
-FROM gcr.io/distroless/cc-debian13:nonroot@sha256:c31ff9abcb1910f3ab25c7957bdaf0bfe12a01eb546e8df2282f1c8f682b606c
+FROM gcr.io/distroless/cc-debian13:nonroot@sha256:54df941ed0d06a1bd95ef5e0ce391fd8d9f94b64782dc9a60062727849ee3f97
 
 # The service reads its config from GDI_CONFIG (default /etc/gdi-node-standalone/node.toml)
 # and persists state under data_dir; both are mounted at runtime (a ConfigMap/Secret +
