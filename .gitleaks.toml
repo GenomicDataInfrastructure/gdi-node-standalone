@@ -64,7 +64,7 @@ paths = [
   # vectors stay covered by the ordinary rules and a new key landing beside them fails
   # loudly instead of inheriting this exemption. Anchored (`^…$`), because gitleaks matches
   # path allowlists with an unanchored `regexp.MatchString`: a bare form would also exempt
-  # `recipient.sec.bak`, `recipient.secrets.env` and every file under a `recipient.sec.d/`
+  # `recipient.sec.bak`, `recipient.secrets.toml` and every file under a `recipient.sec.d/`
   # directory.
   '''^crates/core/tests/fixtures/crypt4gh_kat/recipient\.sec$''',
   # The node identity the documented S3 bring-up creates: docker-compose.s3.yml instructs

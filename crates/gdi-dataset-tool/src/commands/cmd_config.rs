@@ -13,12 +13,13 @@ use crate::cli::{ConfigArgs, ConfigCommand, ConfigInitArgs};
 
 /// The scaffolded `tool.toml` template: provider-wide root keys, one example
 /// `[profiles.<name>]` with its `[.s3]` (non-secret fields only) and `[.catalogs]`,
-/// and a comment block pointing at the `GDI_TOOL__…` env vars for the S3 credentials.
+/// and a comment block saying where the S3 credentials go.
 const TEMPLATE: &str = r#"# gdi-dataset-tool configuration.
 #
 # Precedence: a `--config <path>` file (or this default <config_dir>/tool.toml)
 # is overlaid by the `GDI_TOOL__...` environment overlay, which wins. S3 CREDENTIALS ARE
-# NEVER STORED HERE. Set them via env (or a sourced secrets file):
+# NEVER STORED HERE. Put them in tool-secrets.toml next to this file (`wizard setup`
+# writes it), under [profiles.default.s3], or set them via env, which wins:
 #   export GDI_TOOL__PROFILES__default__S3__ACCESS_KEY_ID=...
 #   export GDI_TOOL__PROFILES__default__S3__SECRET_ACCESS_KEY=...
 
@@ -49,7 +50,7 @@ service_url = "REPLACE: https://node.example"
 # header_policy = "minimal"
 
 [profiles.default.s3]
-# Non-secret S3 settings only (credentials come from the GDI_TOOL__... env overlay).
+# Non-secret S3 settings only (for credentials, see the top).
 # bucket = "REPLACE: my-bucket"
 # Key prefix inside the bucket; must match the node's [[s3.buckets]].prefix for this
 # channel, or the tool writes where the node does not look.

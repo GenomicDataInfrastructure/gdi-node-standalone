@@ -7,7 +7,6 @@
 //! testable with a [`crate::wizard::prompts::ScriptedPrompter`] without a real terminal.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::{Path, PathBuf};
 
 use gdi_node_standalone_core::config::{Profile, ProfileHeaderPolicy, ProfileS3, ToolConfig};
@@ -17,27 +16,11 @@ use crate::s3::S3Credentials;
 use crate::wizard::{fields, prompts::Prompter};
 use crate::{ToolError, catalogs, recipient, runtime};
 
-/// What `run_setup` produced: where it wrote, and what this run must carry in memory.
+/// What `run_setup` produced: where it wrote.
+#[derive(Debug)]
 pub struct SetupOutcome {
     /// The written config file.
     pub config_path: PathBuf,
-    /// The S3 credentials the operator typed, when they did. They are in `secrets.env` for
-    /// later runs; this run's Publish stage takes them from here, because a process cannot
-    /// `source` a file into its own environment.
-    pub s3_credentials: Option<S3Credentials>,
-}
-
-impl std::fmt::Debug for SetupOutcome {
-    /// Names whether credentials were collected, never what they are.
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SetupOutcome")
-            .field("config_path", &self.config_path)
-            .field(
-                "s3_credentials",
-                &self.s3_credentials.as_ref().map(|_| "<redacted>"),
-            )
-            .finish()
-    }
 }
 
 /// Whether the active profile is complete enough to skip setup: it names some way to
@@ -184,12 +167,12 @@ pub fn run_setup(
     };
 
     // Where this run's config-relative artifacts go: the recipient pin (step 3) and
-    // `secrets.env` (step 5). Beside the config file under `--config`, else the gdi config
-    // dir, which is the rule `[keys].identities`, `node_recipient_file` and the pin store
-    // already follow (`config_base_dir`). Without it a `--config` run scatters its key material,
-    // key beside the config and pin under `~/.config/gdi`. Absolute, because the pin path
-    // is recorded in the profile verbatim and must not depend on the cwd a later `pack`
-    // runs from.
+    // `tool-secrets.toml` (after the profile is saved). Beside the config file under
+    // `--config`, else the gdi config dir, which is the rule `[keys].identities`,
+    // `node_recipient_file` and the pin store already follow (`config_base_dir`). Without it
+    // a `--config` run scatters its key material, key beside the config and pin under
+    // `~/.config/gdi`. Absolute, because the pin path is recorded in the profile verbatim
+    // and must not depend on the cwd a later `pack` runs from.
     let base = gdi_node_standalone_core::config::config_base_dir(config_path).ok_or_else(|| {
         ToolError::user(
             "cannot resolve the gdi config directory: pass --config, or set \
@@ -348,44 +331,8 @@ pub fn run_setup(
             answer.trim().to_owned()
         };
 
-        let env_file = config_d.join("secrets.env");
-        // `name` is a lowercase `[a-z0-9_]` identifier (validated in step 1), so its
-        // upper-case is exactly the env-key segment figment lowercases back to `name`.
-        let name_upper = name.to_uppercase();
-        if let Some(parent) = env_file.parent() {
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "operator-chosen path; the files inside carry their own mode"
-            )]
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ToolError::user(format!("cannot create {}: {e}", parent.display())))?;
-        }
-        // Never truncate an existing secrets.env: a re-run only appends the stubs for
-        // keys not already present, preserving credentials the operator filled in for
-        // this or any other profile.
-        //
-        // The credentials themselves, hidden. Written to secrets.env for every later run and
-        // carried in memory through this one: the process that asked cannot `source` a file
-        // into its own environment, and with neither credential loaded the S3 client is
-        // built anonymous, so the wizard's own "Upload to S3" fails after build + pack.
+        // The credentials, typed hidden. They're written once the profile is saved (below).
         let credentials = prompt_s3_credentials(p)?;
-        if let Some(typed) = &credentials {
-            write_secret_values(&env_file, &name, &name_upper, typed)?;
-            crate::output::progress(&format!(
-                "stored the S3 credentials in {} (owner-only); this run carries them, later \
-                 runs need: source {}; verify the bucket with `gdi-dataset-tool doctor` \
-                 (it does a probe PUT/DELETE)",
-                env_file.display(),
-                env_file.display()
-            ));
-        } else {
-            write_secret_stub(&env_file, &name, &name_upper)?;
-            crate::output::progress(&format!(
-                "hint: fill in credentials in {} and run: source {}",
-                env_file.display(),
-                env_file.display()
-            ));
-        }
 
         // Ask for the node's channel name for this bucket — the node's
         // `[[s3.buckets]].name`, which arms the cross-channel guard:
@@ -532,6 +479,7 @@ pub fn run_setup(
     if !catalogs_map.is_empty() {
         profile.catalogs = catalogs_map;
     }
+    let s3_configured = s3.is_some();
     if s3.is_some() {
         // Every S3 field is prompted, each defaulting to the profile's current value, so the
         // prompted block is the whole answer: a re-run (the documented credential-rotation
@@ -581,6 +529,15 @@ pub fn run_setup(
         "ok: profile '{profile_label}' written to {}",
         target.display()
     ));
+    // Only after the profile is saved: the loader rejects credentials for a profile that has
+    // no S3 block yet (a re-run adding S3), and step 6 loads the config before it's written.
+    if s3_configured {
+        store_s3_credentials(
+            &config_d.join(gdi_node_standalone_core::config::SECRETS_FILE),
+            &profile_label,
+            s3_credentials.as_ref(),
+        )?;
+    }
     // Only when setup was the whole run. Mid-journey this would tell the operator to run
     // the command they are already inside, one line before `[2/5] Author`.
     if standalone {
@@ -592,7 +549,6 @@ pub fn run_setup(
 
     Ok(SetupOutcome {
         config_path: target,
-        s3_credentials,
     })
 }
 
@@ -644,12 +600,12 @@ pub fn store_profile_org(
     Ok(target)
 }
 
-/// Ask for the two S3 credentials, hidden. A blank access key skips both (the stub file
-/// is written instead), and so does a blank secret — one credential alone is a
+/// Ask for the two S3 credentials, hidden. A blank access key skips both (placeholders are
+/// written instead), and so does a blank secret — one credential alone is a
 /// configuration the S3 client refuses.
 fn prompt_s3_credentials(p: &dyn Prompter) -> Result<Option<S3Credentials>, ToolError> {
     let access_key_id = p
-        .secret("S3 access key id (blank to skip; secrets.env can be filled in later)")?
+        .secret("S3 access key id (blank to skip; fill in tool-secrets.toml later)")?
         .trim()
         .to_owned();
     if access_key_id.is_empty() {
@@ -658,8 +614,8 @@ fn prompt_s3_credentials(p: &dyn Prompter) -> Result<Option<S3Credentials>, Tool
     let secret_access_key = p.secret("S3 secret access key")?.trim().to_owned();
     if secret_access_key.is_empty() {
         crate::output::warn(
-            "warning: no secret access key entered. Both credentials are skipped; fill in \
-             secrets.env",
+            "warning: no secret access key entered. Both credentials are skipped; add them to \
+             tool-secrets.toml",
         );
         return Ok(None);
     }
@@ -669,60 +625,38 @@ fn prompt_s3_credentials(p: &dyn Prompter) -> Result<Option<S3Credentials>, Tool
     }))
 }
 
-/// Write this profile's two credential lines into `secrets.env`, replacing any earlier
-/// lines for the same two keys and keeping every other line (other profiles' credentials
-/// included). Atomic and owner-only like [`write_secret_file`]; the values are
-/// single-quoted so `source` reads them verbatim.
-fn write_secret_values(
-    path: &Path,
+/// Write the typed S3 credentials to `secrets_file`, or empty placeholders if none were
+/// typed, and say where they went.
+fn store_s3_credentials(
+    secrets_file: &Path,
     profile: &str,
-    name_upper: &str,
-    creds: &S3Credentials,
+    typed: Option<&S3Credentials>,
 ) -> Result<(), ToolError> {
-    use std::fmt::Write as _;
-    let access = format!("GDI_TOOL__PROFILES__{name_upper}__S3__ACCESS_KEY_ID");
-    let secret = format!("GDI_TOOL__PROFILES__{name_upper}__S3__SECRET_ACCESS_KEY");
-    let existing = match fs::read_to_string(path) {
-        Ok(text) => text,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(e) => {
-            return Err(ToolError::user(format!(
-                "cannot read {}: {e}",
-                path.display()
-            )));
-        }
+    let cannot_write = |e: std::io::Error| {
+        ToolError::user(format!("cannot write {}: {e}", secrets_file.display()))
     };
-    let mut out = String::new();
-    if existing.is_empty() {
-        out.push_str("# GDI S3 credentials: source this file before running gdi-dataset-tool.\n");
+    if let Some(typed) = typed {
+        gdi_node_standalone_core::config::set_s3_credentials(
+            secrets_file,
+            profile,
+            &typed.access_key_id,
+            &typed.secret_access_key,
+        )
+        .map_err(cannot_write)?;
+        crate::output::progress(&format!(
+            "stored the S3 credentials in {} (owner-only), where every later run reads them; \
+             verify the bucket with `gdi-dataset-tool doctor` (it does a probe PUT/DELETE)",
+            secrets_file.display()
+        ));
+    } else {
+        gdi_node_standalone_core::config::add_s3_credential_placeholders(secrets_file, profile)
+            .map_err(cannot_write)?;
+        crate::output::progress(&format!(
+            "hint: fill in the S3 credentials in {}",
+            secrets_file.display()
+        ));
     }
-    // Drop this profile's own lines — its two keys and the comment that heads them —
-    // because they are re-appended below. Keeping the comment would make every rotation
-    // add another `# profile 'x'` above the same pair.
-    let header = format!("# profile '{profile}'");
-    for line in existing.lines() {
-        let ours = line.trim_start().starts_with(&format!("{access}="))
-            || line.trim_start().starts_with(&format!("{secret}="))
-            || line.trim_end() == header;
-        if !ours {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    // Writing to a `String` via `fmt::Write` is infallible; discard the Result.
-    let _ = writeln!(out, "{header}");
-    let _ = writeln!(out, "{access}={}", shell_single_quote(&creds.access_key_id));
-    let _ = writeln!(
-        out,
-        "{secret}={}",
-        shell_single_quote(&creds.secret_access_key)
-    );
-    write_secret_file(path, &out)
-}
-
-/// `s` as a POSIX single-quoted word: verbatim except `'`, which becomes `'\''`.
-fn shell_single_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "'\\''"))
+    Ok(())
 }
 
 /// The `header_policy` choices `wizard setup` offers, in menu order. `minimal` comes first:
@@ -1053,77 +987,6 @@ fn recipient_recovery_menu(
     }
 }
 
-/// Ensure `secrets.env` carries this profile's two S3 credential keys, without ever
-/// truncating an existing file.
-///
-/// A fresh file is created (`0o600`) with a header and empty stubs. If the file already
-/// exists, it is read and only the keys it does not already contain are appended under a
-/// per-profile comment — so re-running `wizard setup` (to add a profile, fix a field, or
-/// re-run S3 setup) preserves credentials the operator filled in, for this profile and
-/// every other. Idempotent: when both keys are already present, nothing is written.
-fn write_secret_stub(path: &Path, profile: &str, name_upper: &str) -> Result<(), ToolError> {
-    use std::fmt::Write as _;
-    let access = format!("GDI_TOOL__PROFILES__{name_upper}__S3__ACCESS_KEY_ID");
-    let secret = format!("GDI_TOOL__PROFILES__{name_upper}__S3__SECRET_ACCESS_KEY");
-    if !path.exists() {
-        let content = format!(
-            "# GDI S3 credentials: source this file before running gdi-dataset-tool.\n\
-             # Fill in the values below; `wizard setup` only ever appends to this file.\n\
-             # profile '{profile}'\n\
-             {access}=\n\
-             {secret}=\n"
-        );
-        return write_secret_file(path, &content);
-    }
-
-    let existing = fs::read_to_string(path)
-        .map_err(|e| ToolError::user(format!("cannot read {}: {e}", path.display())))?;
-    let has = |key: &str| {
-        let prefix = format!("{key}=");
-        existing
-            .lines()
-            .any(|l| l.trim_start().starts_with(&prefix))
-    };
-    let (has_access, has_secret) = (has(&access), has(&secret));
-    if has_access && has_secret {
-        return Ok(());
-    }
-    // Writing to a `String` via `fmt::Write` is infallible; discard the Result.
-    let mut add = String::new();
-    let _ = writeln!(add, "\n# GDI S3 credentials for profile '{profile}'");
-    if !has_access {
-        let _ = writeln!(add, "{access}=");
-    }
-    if !has_secret {
-        let _ = writeln!(add, "{secret}=");
-    }
-    append_secret_file(path, &add)
-}
-
-/// Append `contents` to `path`, creating it `0o600` on Unix if absent. Unlike
-/// [`write_secret_file`] this never truncates, so it cannot destroy existing secrets.
-fn append_secret_file(path: &Path, contents: &str) -> Result<(), ToolError> {
-    use std::io::Write as _;
-    let cannot_write =
-        |e: std::io::Error| ToolError::user(format!("cannot write {}: {e}", path.display()));
-    let mut options = fs::OpenOptions::new();
-    options.append(true).create(true);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt as _;
-        options.mode(0o600);
-    }
-    let mut file = options.open(path).map_err(cannot_write)?;
-    file.write_all(contents.as_bytes()).map_err(cannot_write)
-}
-
-/// Write the credential `contents` to `path` atomically and durably, `0o600` on Unix —
-/// the same shared secret writer `keys generate` uses.
-fn write_secret_file(path: &Path, contents: &str) -> Result<(), ToolError> {
-    gdi_node_standalone_core::util::write_secret_durable(path, contents.as_bytes())
-        .map_err(|e| ToolError::user(format!("cannot write {}: {e}", path.display())))
-}
-
 #[cfg(test)]
 mod tests {
     #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
@@ -1182,12 +1045,11 @@ mod tests {
         );
     }
 
-    /// Under `--config`, every artifact setup writes lands beside the config file, not in
-    /// the environment's config dir: `secrets.env`, the recipient pin and the provider key.
-    /// Splitting them was the defect: the key went beside the config (`[keys].identities`
-    /// resolves there) while `secrets.env` and the pin went under `~/.config/gdi`, so the
-    /// `source` hint named a file in a directory the operator never chose, and the pin sat
-    /// where a later `--config` run only finds it through the legacy-location fallback.
+    /// Under `--config`, everything setup writes lands next to the config file, not in the
+    /// environment's config dir: `tool-secrets.toml`, the recipient pin and the provider key.
+    /// They used to be split, the key next to the config and the rest under `~/.config/gdi`,
+    /// where a later `--config` run doesn't read the credentials and only finds the pin
+    /// through the legacy fallback.
     #[test]
     #[serial_test::serial(env)]
     fn setup_under_config_keeps_secrets_pin_and_key_beside_the_config_file() {
@@ -1216,7 +1078,7 @@ mod tests {
                 true,  /*S3?*/
                 true,  /*path-style*/
             ])
-            .with_secrets(vec![""]) // blank: the stub is written instead
+            .with_secrets(vec![""]) // blank: placeholders are written instead
             .with_selects(vec![0]);
         let _prev = test_util::EnvGuard::set("GDI_CONFIG_DIR", env_dir.path());
 
@@ -1224,14 +1086,19 @@ mod tests {
 
         let beside = cfg_dir.path();
         assert!(
-            beside.join("secrets.env").is_file(),
-            "secrets.env goes beside the --config file"
+            beside.join("tool-secrets.toml").is_file(),
+            "tool-secrets.toml goes beside the --config file"
         );
         assert!(
             beside.join("keys").join("provider.c4gh").is_file(),
             "the provider key goes beside the --config file"
         );
         let cfg = ToolConfig::load(Some(&cfg_path)).unwrap();
+        let s3 = cfg.profiles["default"].s3.as_ref().expect("the S3 block");
+        assert!(
+            s3.access_key_id.is_none() && s3.secret_access_key.is_none(),
+            "unfilled placeholders load as unset, not as empty credentials"
+        );
         let recorded = cfg.profiles["default"]
             .node_recipient_file
             .clone()
@@ -1242,11 +1109,60 @@ mod tests {
             "the pin goes beside the --config file, recorded absolute"
         );
         assert!(
-            !env_dir.path().join("secrets.env").exists()
+            !env_dir.path().join("tool-secrets.toml").exists()
                 && !env_dir.path().join("recipients").exists()
                 && !env_dir.path().join("keys").exists(),
             "nothing lands in the environment's config dir when --config names another"
         );
+    }
+
+    /// Credentials left in `tool-secrets.toml` after `tool.toml` was deleted don't stop a
+    /// fresh `wizard setup`, which loads the config (step 6) before it writes the profile.
+    /// Once the profile is back with its S3 block, the old credentials apply again.
+    #[test]
+    #[serial_test::serial(env)]
+    fn setup_runs_with_credentials_left_from_a_deleted_config() {
+        use gdi_node_standalone_core::crypt4gh::{generate_keypair, serialize_public_key};
+        let (_sk, pk) = generate_keypair();
+        let base = stub_node(&serialize_public_key(&pk));
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("tool.toml");
+        gdi_node_standalone_core::config::set_s3_credentials(
+            &dir.path().join("tool-secrets.toml"),
+            "default",
+            "OLDKEY",
+            "OLDSECRET",
+        )
+        .unwrap();
+        let p = ScriptedPrompter::new()
+            .with_inputs(vec![
+                "default",
+                &base,
+                "", // management URL: none
+                "gdi-bucket",
+                "https://s3.example.org",
+                "us-east-1", // region
+                "",          // key prefix: whole bucket
+                "primary",   // channel
+                "EE",
+                "UTARTU",
+            ])
+            .with_confirms(vec![
+                true,  /*trust*/
+                false, /*catalogs*/
+                true,  /*S3?*/
+                true,  /*path-style*/
+            ])
+            .with_secrets(vec![""]) // blank: the file's credentials stay as they are
+            .with_selects(vec![0]);
+        let _prev = test_util::EnvGuard::set("GDI_CONFIG_DIR", dir.path());
+
+        run_setup(&p, Some(&cfg_path), None, None, true).unwrap();
+
+        let cfg = ToolConfig::load(Some(&cfg_path)).unwrap();
+        let s3 = cfg.profiles["default"].s3.as_ref().expect("the S3 block");
+        assert_eq!(s3.access_key_id.as_deref(), Some("OLDKEY"));
+        assert_eq!(s3.secret_access_key.as_deref(), Some("OLDSECRET"));
     }
 
     /// A first run offers no region default. `us-east-1` is right for minio and Ceph and
@@ -1427,49 +1343,6 @@ mod tests {
     }
 
     #[test]
-    fn secret_stub_preserves_filled_values_and_is_idempotent() {
-        // Re-running S3 setup must never truncate operator-filled credentials.
-        let dir = tempfile::tempdir().unwrap();
-        let env_file = dir.path().join("secrets.env");
-
-        // First profile: fresh file with empty stubs.
-        write_secret_stub(&env_file, "default", "DEFAULT").unwrap();
-        // Operator fills in the access key.
-        let filled = std::fs::read_to_string(&env_file).unwrap().replace(
-            "GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID=",
-            "GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID=AKIAFILLED",
-        );
-        std::fs::write(&env_file, &filled).unwrap();
-
-        // Re-running for the same profile must not clobber the filled value (both keys
-        // already present -> nothing written).
-        write_secret_stub(&env_file, "default", "DEFAULT").unwrap();
-        let after = std::fs::read_to_string(&env_file).unwrap();
-        assert!(
-            after.contains("GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID=AKIAFILLED"),
-            "the operator-filled value must be preserved on a re-run:\n{after}"
-        );
-
-        // Adding a second profile appends its stubs and still preserves the first.
-        write_secret_stub(&env_file, "other", "OTHER").unwrap();
-        let after = std::fs::read_to_string(&env_file).unwrap();
-        assert!(after.contains("GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID=AKIAFILLED"));
-        assert!(after.contains("GDI_TOOL__PROFILES__OTHER__S3__ACCESS_KEY_ID="));
-        assert!(after.contains("GDI_TOOL__PROFILES__OTHER__S3__SECRET_ACCESS_KEY="));
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn secret_stub_creates_file_0600() {
-        use std::os::unix::fs::PermissionsExt as _;
-        let dir = tempfile::tempdir().unwrap();
-        let env_file = dir.path().join("secrets.env");
-        write_secret_stub(&env_file, "default", "DEFAULT").unwrap();
-        let mode = std::fs::metadata(&env_file).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600, "secrets.env must be created 0600");
-    }
-
-    #[test]
     #[serial_test::serial(env)]
     fn run_setup_writes_profile_and_pins_recipient() {
         use gdi_node_standalone_core::crypt4gh::{generate_keypair, serialize_public_key};
@@ -1591,7 +1464,7 @@ mod tests {
                 true, /*S3?*/
                 true, /*path-style addressing*/
             ])
-            .with_secrets(vec![""]) // access key id: blank -> credentials skipped, stub written
+            .with_secrets(vec![""]) // access key id: blank -> placeholders written
             .with_selects(vec![0]); // header policy: 0 = minimal
 
         let _prev = test_util::EnvGuard::set("GDI_CONFIG_DIR", dir.path());
@@ -2624,11 +2497,11 @@ secret_access_key = "archive-secret-value"
         format!("http://{addr}")
     }
 
-    /// Typed S3 credentials land in `secrets.env` (owner-only, single-quoted for `source`),
-    /// never in the config file, and come back in the outcome for this run's Publish stage.
+    /// Typed S3 credentials go to `tool-secrets.toml` (owner-only, never the config file), and
+    /// a later load reads them from there. The old `source` step got this hand-off wrong.
     #[test]
     #[serial_test::serial(env)]
-    fn typed_s3_credentials_are_stored_owner_only_and_carried() {
+    fn typed_s3_credentials_are_stored_owner_only_and_read_by_a_later_load() {
         use gdi_node_standalone_core::crypt4gh::{generate_keypair, serialize_public_key};
         let (_sk, pk) = generate_keypair();
         let base = stub_node(&serialize_public_key(&pk));
@@ -2657,30 +2530,17 @@ secret_access_key = "archive-secret-value"
             .with_selects(vec![0]); // header policy
         let _prev = test_util::EnvGuard::set("GDI_CONFIG_DIR", dir.path());
 
-        let outcome = run_setup(&p, Some(&cfg_path), None, None, true).unwrap();
-        let carried = outcome
-            .s3_credentials
-            .expect("typed credentials are carried in the outcome");
-        assert_eq!(carried.access_key_id, "AKIAEXAMPLE");
-        assert_eq!(carried.secret_access_key, "it's/a+secret=");
+        run_setup(&p, Some(&cfg_path), None, None, true).unwrap();
 
-        let env_file = dir.path().join("secrets.env");
-        let text = std::fs::read_to_string(&env_file).unwrap();
-        assert!(
-            text.contains("GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID='AKIAEXAMPLE'"),
-            "{text}"
-        );
-        assert!(
-            text.contains(
-                "GDI_TOOL__PROFILES__DEFAULT__S3__SECRET_ACCESS_KEY='it'\\''s/a+secret='"
-            ),
-            "the secret is single-quoted for `source`, with its own quote escaped: {text}"
-        );
+        let secrets_file = dir.path().join("tool-secrets.toml");
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            let mode = std::fs::metadata(&env_file).unwrap().permissions().mode();
-            assert_eq!(mode & 0o777, 0o600, "secrets.env must be owner-only");
+            let mode = std::fs::metadata(&secrets_file)
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, 0o600, "tool-secrets.toml must be owner-only");
         }
         let cfg_text = std::fs::read_to_string(&cfg_path).unwrap();
         assert!(
@@ -2689,46 +2549,13 @@ secret_access_key = "archive-secret-value"
         );
         let cfg = ToolConfig::load(Some(&cfg_path)).unwrap();
         assert_eq!(cfg.profiles["default"].org.as_deref(), Some("UTARTU"));
-    }
-
-    #[test]
-    fn secret_values_replace_this_profiles_lines_and_keep_the_rest() {
-        let dir = tempfile::tempdir().unwrap();
-        let env_file = dir.path().join("secrets.env");
-        write_secret_stub(&env_file, "other", "OTHER").unwrap();
-        let first = S3Credentials {
-            access_key_id: "A1".into(),
-            secret_access_key: "S1".into(),
-        };
-        write_secret_values(&env_file, "default", "DEFAULT", &first).unwrap();
-        let rotated = S3Credentials {
-            access_key_id: "A2".into(),
-            secret_access_key: "S2".into(),
-        };
-        write_secret_values(&env_file, "default", "DEFAULT", &rotated).unwrap();
-        let text = std::fs::read_to_string(&env_file).unwrap();
-        assert!(
-            text.contains("GDI_TOOL__PROFILES__OTHER__S3__ACCESS_KEY_ID="),
-            "the other profile's stub is kept: {text}"
-        );
-        assert!(
-            !text.contains("'A1'"),
-            "an earlier value is replaced, not kept beside the new one: {text}"
-        );
+        let s3 = cfg.profiles["default"].s3.as_ref().expect("the S3 block");
+        assert_eq!(s3.access_key_id.as_deref(), Some("AKIAEXAMPLE"));
         assert_eq!(
-            text.matches("GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID=")
-                .count(),
-            1,
-            "{text}"
+            s3.secret_access_key.as_deref(),
+            Some("it's/a+secret="),
+            "the secret survives the file verbatim"
         );
-        assert!(text.contains("GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID='A2'"));
-        assert!(text.contains("GDI_TOOL__PROFILES__DEFAULT__S3__SECRET_ACCESS_KEY='S2'"));
-    }
-
-    #[test]
-    fn shell_single_quote_escapes_only_the_quote() {
-        assert_eq!(shell_single_quote("abc+/="), "'abc+/='");
-        assert_eq!(shell_single_quote("it's"), "'it'\\''s'");
     }
 
     /// The management URL and the org are recorded, and a re-run that presses Enter keeps

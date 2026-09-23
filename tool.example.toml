@@ -157,11 +157,13 @@ path_style = true
 # Type: bool. Default: false.
 allow_http = false
 # Credentials: set both, or neither for anonymous read of a public bucket. Writing or
-# listing a private bucket needs both. Prefer the environment overlay, such as
-# GDI_TOOL__PROFILES__EE_PROD__S3__SECRET_ACCESS_KEY, over committing the secret here.
+# listing a private bucket needs both. Put them in tool-secrets.toml next to this file,
+# under the same [profiles.ee_prod.s3] header (`wizard setup` writes it), or set
+# GDI_TOOL__PROFILES__EE_PROD__S3__ACCESS_KEY_ID / ..._SECRET_ACCESS_KEY. Values here
+# still work, but don't commit them.
 # Type: string. Optional.
-access_key_id = "<from GDI_TOOL__PROFILES__EE_PROD__S3__ACCESS_KEY_ID>"
-secret_access_key = "<from GDI_TOOL__PROFILES__EE_PROD__S3__SECRET_ACCESS_KEY>"
+# access_key_id = "…"
+# secret_access_key = "…"
 
 # Catalog allow-list: catalog name -> display title. A package whose
 # `metadata.catalog` is not listed here is rejected by `validate`/`build` when a

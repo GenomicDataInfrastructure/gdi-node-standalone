@@ -40,6 +40,7 @@ to prepare, package, and ship GDI dataset packages to a `gdi-node-standalone` no
   - [Tool config file](#tool-config-file)
   - [Sections and fields](#sections-and-fields)
   - [Environment variables](#environment-variables)
+  - [S3 credentials](#s3-credentials)
   - [Global flags](#global-flags)
 - [`package.yaml` authoring](#packageyaml-authoring)
   - [The `metadata` section](#the-metadata-section)
@@ -349,8 +350,9 @@ URLs, inbox, node recipient, S3 bucket, catalog allow-list, all switched togethe
 | `header_policy` | `build`, `package`, and the wizard's Build stage. What the packaged `headers/{vcfId}.vcf` members contain when no `--header-policy` or `--no-headers` flag is given: `minimal` (the built-in default), `with-identifiers`, or `none`. A flag always wins over the profile. `verbatim` is not accepted in a profile; it stays a per-invocation flag. The node drops these members at ingest (see [package format](package-format.md)). |
 
 **`[profiles.<name>.s3]`** — the profile's S3 bucket, endpoint-agnostic across Ceph+Rook,
-Garage and minio. Set both credentials or neither. Neither means anonymous unsigned read,
-which works for a public bucket but not for writing or listing a private one; setting
+Garage and minio. Set both credentials, in [`tool-secrets.toml`](#s3-credentials), or
+neither. Neither means anonymous unsigned read, which works for a public bucket but not
+for writing or listing a private one; setting
 exactly one is an error. `upload` and the lifecycle commands need a read/write token, and
 a read-only token fails writes with an access-denied error.
 
@@ -397,9 +399,27 @@ Git Bash sets `HOME` itself, to `%HOMEDRIVE%%HOMEPATH%` if that folder exists, e
 cmd/PowerShell therefore use different config dirs, each with its own key and pin. Set
 `GDI_CONFIG_DIR` if you use both.
 
-S3 credentials use the config keys `access_key_id` and `secret_access_key`, or their
-`GDI_TOOL__PROFILES__<NAME>__S3__…` env overrides. The tool does not read the standard
-`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` variables.
+### S3 credentials
+
+S3 credentials live in `tool-secrets.toml`, next to `tool.toml` (next to the `--config`
+file if you pass one). Every command that uses the config reads it, so there is nothing to
+load into your shell first. `wizard setup` creates it, owner-only, with the credentials you
+type or with empty placeholders to fill in:
+
+```toml
+[profiles.default.s3]
+access_key_id = "…"
+secret_access_key = "…"
+```
+
+Only these two keys are allowed. Credentials for a profile with no `[profiles.<name>.s3]`
+block are an error; those for a profile the config doesn't define are ignored until it
+does, so `wizard setup` can recreate a deleted `tool.toml`. Empty values count as unset.
+`GDI_TOOL__PROFILES__<NAME>__S3__…` environment variables override the file, which is
+handy in CI. Credentials written into `tool.toml` by hand still work but lose to both, and
+the tool never writes them there. The standard `AWS_ACCESS_KEY_ID` /
+`AWS_SECRET_ACCESS_KEY` variables are not read. `gdi-dataset-tool profiles` shows whether
+each credential is set.
 
 ### Global flags
 
@@ -1113,7 +1133,7 @@ primary identity is `<config-dir>/keys/provider.c4gh`:
 
 | File | Contents | Permissions |
 |------|----------|-------------|
-| `provider.c4gh` | the X25519 secret key (crypt4gh PEM, **unencrypted**) | `0o600` on Unix |
+| `provider.c4gh` | the X25519 secret key (crypt4gh PEM, **unencrypted**) | `0o600` on Unix; on Windows, inherited from the folder |
 | `provider.c4gh.pub` | the X25519 public recipient (crypt4gh PEM) | normal |
 
 Relative identity paths resolve against the config dir: the parent of the `--config` file
@@ -1135,6 +1155,12 @@ because the same identity is a recipient on all of them and there is no per-pack
 rotate away from. Keep it on an encrypted-at-rest volume (LUKS, FileVault, BitLocker, or a
 KMS-backed cloud disk), or hold it in a secrets manager and materialise it only for the
 duration of a `pack` or `rekey` run. The tool cannot enforce this and does not check it.
+
+On Windows the tool doesn't set file permissions: `provider.c4gh`, `tool.toml` and
+`tool-secrets.toml` inherit them from their folder. The default config dir is in your user
+profile, which only you, administrators and the system can read. If you point
+`GDI_CONFIG_DIR` or `--config` somewhere else, such as `C:\gdi` or a network share, lock
+that folder down before the first run.
 
 > Back up `provider.c4gh` out of band. It is your only key to your own packages. Lose
 > it, along with any `.bak-*` siblings, and you can neither decrypt nor `rekey` anything
@@ -1216,12 +1242,12 @@ The five stages:
   optional S3 (bucket, endpoint, region, key prefix, the two credentials, channel name),
   the country code, the institute abbreviation `org`, and the VCF header policy. It is
   skipped once the profile is complete, and a re-run pre-fills what the profile already
-  records. Credentials are typed hidden and stored owner-only in `secrets.env`, which
-  lives with the pin and the provider key in the config dir: the parent of the `--config`
-  file when set, else the gdi config dir. Adding a second profile asks one more question,
-  which of the configured profiles should be the default, because a config with several
-  profiles and no `default_profile` selects nothing and every command then stops with "no
-  profile selected".
+  records. Credentials are typed hidden and saved owner-only to `tool-secrets.toml`, next
+  to the pin and the provider key (next to the `--config` file if set, else in the gdi
+  config dir). Adding a second profile asks one more question, which of the configured
+  profiles should be the default, because a config with several profiles and no
+  `default_profile` selects nothing and every command then stops with "no profile
+  selected".
 - **Author** asks for the source VCFs, then the catalog entry, the access and legal
   fields, Beacon provenance and disclosure controls. It previews the VCF headers,
   pre-selects the assembly when they agree, offers the catalog allow-list with a refresh

@@ -17,7 +17,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use gdi_node_standalone_core::config::{DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_PATH, ServiceConfig};
+use gdi_node_standalone_core::config::{
+    DEFAULT_CONFIG_FILE, DEFAULT_CONFIG_PATH, SECRETS_FILE, ServiceConfig,
+};
 
 fn repo_path(rel: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -53,9 +55,9 @@ const DOC_SURFACES: &[&str] = &[
     "docs/package-format.md",
 ];
 
-/// Every `*.toml` name an operator may legitimately meet: the two code-declared config
-/// defaults, plus every `.toml` that exists in the repo (the shipped templates and the
-/// Compose configs).
+/// Every `*.toml` name an operator may legitimately meet: the code-declared names (the two
+/// config defaults and the tool's credentials file), plus every `.toml` that exists in the
+/// repo (the shipped templates and the Compose configs).
 fn legitimate_toml_names() -> BTreeMap<String, &'static str> {
     let mut ok: BTreeMap<String, &'static str> = BTreeMap::new();
     ok.insert(
@@ -63,6 +65,7 @@ fn legitimate_toml_names() -> BTreeMap<String, &'static str> {
         "the service config default",
     );
     ok.insert(DEFAULT_CONFIG_FILE.to_owned(), "the tool config default");
+    ok.insert(SECRETS_FILE.to_owned(), "the tool's S3 credentials file");
 
     // Anything that exists on disk is a real file a doc may name.
     for dir in ["", "compose"] {
@@ -145,7 +148,7 @@ fn toml_names_in(line: &str) -> Vec<String> {
 
 /// Seam: no operator-facing file may name a config file that does not exist.
 ///
-/// Derived, not banned: the legitimate set is the two code-declared defaults plus every
+/// Derived, not banned: the legitimate set is the code-declared config file names plus every
 /// `.toml` on disk. `config.toml` fails because it is neither a default nor a real file, and
 /// a future rename re-aims this test for free.
 #[test]
@@ -164,10 +167,11 @@ fn no_doc_names_a_config_file_that_does_not_exist() {
                 if !toml_name_is_legitimate(&name, &legitimate) {
                     bad.push(format!(
                         "{rel}:{}: names `{name}`, which is neither a code-declared config \
-                         default ({} / {}) nor a file in the repo",
+                         file ({} / {} / {}) nor a file in the repo",
                         n + 1,
                         service_config_file(),
                         DEFAULT_CONFIG_FILE,
+                        SECRETS_FILE,
                     ));
                 }
             }
