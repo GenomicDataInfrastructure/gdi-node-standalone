@@ -390,7 +390,12 @@ with an error naming the value rather than rewritten into a prefix you did not w
 | `GDI_TOOL__KEYS__IDENTITIES` | Overrides `[keys].identities`. |
 | `GDI_CONFIG_DIR` | Overrides the gdi config directory (where `keys/` lives, and where the default `tool.toml` is looked up when `--config` is omitted). |
 | `XDG_CONFIG_HOME` | If `GDI_CONFIG_DIR` is unset, the config dir is `$XDG_CONFIG_HOME/gdi`. |
-| `HOME` | Final fallback: `$HOME/.config/gdi`. |
+| `HOME` | Final fallback: `$HOME/.config/gdi`. On Windows, where `HOME` is normally unset, `%USERPROFILE%\.config\gdi`. |
+
+Git Bash sets `HOME` itself, to `%HOMEDRIVE%%HOMEPATH%` if that folder exists, else
+`%USERPROFILE%`. If your Windows home folder is on a network drive, Git Bash and
+cmd/PowerShell therefore use different config dirs, each with its own key and pin. Set
+`GDI_CONFIG_DIR` if you use both.
 
 S3 credentials use the config keys `access_key_id` and `secret_access_key`, or their
 `GDI_TOOL__PROFILES__<NAME>__S3__…` env overrides. The tool does not read the standard
@@ -1112,7 +1117,8 @@ primary identity is `<config-dir>/keys/provider.c4gh`:
 | `provider.c4gh.pub` | the X25519 public recipient (crypt4gh PEM) | normal |
 
 Relative identity paths resolve against the config dir: the parent of the `--config` file
-when set, else `$GDI_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gdi`, else `$HOME/.config/gdi`.
+when set, else `$GDI_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gdi`, else `$HOME/.config/gdi`
+(on Windows without `HOME`, `%USERPROFILE%\.config\gdi`).
 Each secret-key file gets a sibling `<name>.pub` recipient when generated.
 
 The secret key is stored unencrypted. The codec reads the plain crypt4gh secret-key
