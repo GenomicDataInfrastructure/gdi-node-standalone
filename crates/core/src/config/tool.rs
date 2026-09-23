@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use figment::{
     Figment,
-    providers::{Env, Format, Toml},
+    providers::{Env, Format, Serialized, Toml},
 };
 use serde::{Deserialize, Serialize};
 
@@ -436,8 +436,8 @@ impl ToolConfig {
             .map_err(Box::new)
     }
 
-    /// Load the tool config from an optional TOML file plus the `GDI_TOOL__*`
-    /// (and `GDI_TOOL__PROFILES__<NAME>__*`, `GDI_TOOL__KEYS__*`) env overlay.
+    /// Load the tool config from an optional TOML file, `tool-secrets.toml`, and the
+    /// `GDI_TOOL__*` (and `GDI_TOOL__PROFILES__<NAME>__*`, `GDI_TOOL__KEYS__*`) env overlay.
     ///
     /// When `path` is [`Some`] and the file is missing, figment's `Toml::file`
     /// provider treats it as empty rather than erroring, so a config-less run
@@ -449,10 +449,16 @@ impl ToolConfig {
     /// env overlay is then layered on top, so env always wins regardless of
     /// whether a default file was found.
     ///
+    /// `tool-secrets.toml` ([`secrets_path`](super::secrets_path)) sits between the file and
+    /// the env overlay. It may only hold `[profiles.<name>.s3]` credentials. Those for a
+    /// profile the config doesn't define are skipped; those for a profile without an S3
+    /// block are an error.
+    ///
     /// # Errors
     ///
     /// Returns a boxed [`figment::Error`] if the TOML is malformed or the merged
-    /// data does not deserialize into [`ToolConfig`]. The error is boxed because
+    /// data does not deserialize into [`ToolConfig`], or if `tool-secrets.toml` is unreadable
+    /// or invalid. The error is boxed because
     /// `figment::Error` is large.
     pub fn load(path: Option<&Path>) -> Result<Self, Box<figment::Error>> {
         let mut fig = Figment::new();
@@ -475,9 +481,29 @@ impl ToolConfig {
                 }
             }
         }
-        fig = fig.merge(Env::prefixed("GDI_TOOL__").split("__"));
+        let env = Env::prefixed("GDI_TOOL__").split("__");
+        if let Some(secrets_file) = super::secrets_path(path)
+            && let Some(secrets) = super::secrets::Secrets::read(&secrets_file)
+                .map_err(|e| Box::new(figment::Error::from(e)))?
+        {
+            // Fit to the config without the secrets, so a credential can't create a profile
+            // or an S3 block.
+            let without = Self::extract_merged(&fig.clone().merge(env.clone()), merged.as_deref())?;
+            if let Some(secrets) = secrets
+                .for_config(&without, &secrets_file)
+                .map_err(|e| Box::new(figment::Error::from(e)))?
+            {
+                fig = fig.merge(Serialized::defaults(secrets));
+            }
+        }
+        Self::extract_merged(&fig.merge(env), merged.as_deref())
+    }
+
+    /// Extract `fig`. If that fails and `merged` looks like the node's config, report the
+    /// mix-up instead.
+    fn extract_merged(fig: &Figment, merged: Option<&Path>) -> Result<Self, Box<figment::Error>> {
         fig.extract().map(Self::with_empty_s3_dropped).map_err(|e| {
-            if let Some(file) = merged.as_deref()
+            if let Some(file) = merged
                 && let Some(hint) = super::cross_config_hint(file, super::ConfigKind::Tool)
             {
                 return Box::new(figment::Error::from(hint));

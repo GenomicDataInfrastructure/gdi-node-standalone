@@ -10,9 +10,11 @@
 //! the other, so they live in sibling submodules, re-exported here to keep the public
 //! `crate::config::*` paths stable.
 
+mod secrets;
 mod service;
 mod tool;
 
+pub use secrets::{SECRETS_FILE, add_s3_credential_placeholders, secrets_path, set_s3_credentials};
 pub use service::*;
 pub use tool::*;
 // Named beside the glob so the `disallowed-methods` entry resolves: clippy matches a local

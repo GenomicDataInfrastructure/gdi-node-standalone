@@ -26,6 +26,7 @@ mod lifecycle_e2e;
 mod lint_e2e;
 mod pack_e2e;
 mod s3_plane_e2e;
+mod secrets_e2e;
 mod status_e2e;
 mod unpack_e2e;
 mod validate_e2e;

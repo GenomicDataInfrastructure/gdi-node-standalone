@@ -230,8 +230,7 @@ fn profile_s3<'a>(active: &'a Profile, verb: &str) -> Result<&'a ProfileS3, Tool
     })
 }
 
-/// A pair of S3 credentials the wizard collected in this process, for the one run whose
-/// environment cannot pick them up from `secrets.env` yet.
+/// S3 credentials typed at `wizard setup`, before they are written to `tool-secrets.toml`.
 ///
 /// No `Debug`, like [`ProfileS3`]: it must never reach a log line or an error message.
 #[derive(Clone)]

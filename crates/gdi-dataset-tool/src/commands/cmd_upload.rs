@@ -27,28 +27,7 @@ pub fn run(
     profile_name: Option<&str>,
     config_path: Option<&Path>,
 ) -> Result<(), ToolError> {
-    run_with_credentials(args, profile_name, config_path, None)
-}
-
-/// [`run`], with credentials the wizard collected in this process filled into the
-/// profile's `[s3]` block when the environment supplies none.
-///
-/// The wizard's setup writes the credentials to `secrets.env` for later runs, but the
-/// process that asked cannot `source` that file into its own environment — and with neither
-/// credential loaded the client is anonymous, so the same run's upload is refused after
-/// build + pack. Environment credentials, when present, still win.
-///
-/// # Errors
-///
-/// As [`run`].
-pub fn run_with_credentials(
-    args: &UploadArgs,
-    profile_name: Option<&str>,
-    config_path: Option<&Path>,
-    credentials: Option<&s3::S3Credentials>,
-) -> Result<(), ToolError> {
-    let mut active = profile::load_active(config_path, profile_name)?;
-    apply_carried_credentials(&mut active, credentials);
+    let active = profile::load_active(config_path, profile_name)?;
     // Two clients: the bounded one for `upload`'s small requests (the exists-check HEAD,
     // the visibility sidecar, the marker bump — a stalled endpoint must not hang a CI
     // upload forever), and the unbounded one for the multipart package body (each part is
@@ -134,23 +113,6 @@ pub fn run_with_credentials(
         );
     }
     Ok(())
-}
-
-/// Fill `credentials` into the profile's `[s3]` block — only when the block exists and the
-/// environment supplied neither credential, so a configured environment always wins and a
-/// profile without S3 stays without it.
-fn apply_carried_credentials(
-    profile: &mut gdi_node_standalone_core::config::Profile,
-    credentials: Option<&s3::S3Credentials>,
-) {
-    if let Some(carried) = credentials
-        && let Some(block) = profile.s3.as_mut()
-        && block.access_key_id.is_none()
-        && block.secret_access_key.is_none()
-    {
-        block.access_key_id = Some(carried.access_key_id.clone());
-        block.secret_access_key = Some(carried.secret_access_key.clone());
-    }
 }
 
 /// Build what `upload` reports: the human result line and the JSON result object.
@@ -268,7 +230,7 @@ pub fn run_with_store(
 
     let (text, json) = upload_result(&id, visibility, target, args.replace);
     // Under `--wait` the caller emits instead, after the wait, so a rejected upload cannot
-    // print a success object and then exit non-zero (see `run_with_credentials`). Same rule
+    // print a success object and then exit non-zero (see `run`). Same rule
     // `deploy` follows.
     if !args.wait {
         crate::output::emit_result(args.format, &text, &json);
@@ -328,51 +290,6 @@ mod tests {
         let (text, json) = upload_result("GDI-EE-UTARTU-1", s3::Visibility::Hidden, "buck", false);
         assert!(text.contains("(hidden)"), "{text}");
         assert_eq!(json["state"], "hidden");
-    }
-
-    /// Carried credentials fill an empty `[s3]` block only: the environment's win, and a
-    /// profile without S3 gains none.
-    #[test]
-    fn carried_credentials_fill_an_empty_s3_block_only() {
-        use gdi_node_standalone_core::config::{Profile, ProfileS3};
-        let carried = s3::S3Credentials {
-            access_key_id: "A".into(),
-            secret_access_key: "S".into(),
-        };
-        let key = |p: &Profile| p.s3.as_ref().and_then(|s| s.access_key_id.clone());
-
-        let mut none = Profile::default();
-        apply_carried_credentials(&mut none, Some(&carried));
-        assert!(none.s3.is_none(), "no block, nothing to fill");
-
-        let mut empty = Profile {
-            s3: Some(ProfileS3::default()),
-            ..Profile::default()
-        };
-        apply_carried_credentials(&mut empty, Some(&carried));
-        assert_eq!(key(&empty).as_deref(), Some("A"));
-
-        let mut from_env = Profile {
-            s3: Some(ProfileS3 {
-                access_key_id: Some("ENV".into()),
-                secret_access_key: Some("ENV".into()),
-                ..ProfileS3::default()
-            }),
-            ..Profile::default()
-        };
-        apply_carried_credentials(&mut from_env, Some(&carried));
-        assert_eq!(
-            key(&from_env).as_deref(),
-            Some("ENV"),
-            "the environment wins"
-        );
-
-        let mut untouched = Profile {
-            s3: Some(ProfileS3::default()),
-            ..Profile::default()
-        };
-        apply_carried_credentials(&mut untouched, None);
-        assert_eq!(key(&untouched), None);
     }
 
     /// A rejected `--wait` must not leave a success line on stdout: text and payload

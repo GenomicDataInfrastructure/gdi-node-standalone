@@ -208,12 +208,12 @@ const MAX_PROFILE_NAME_LEN: usize = 64;
 /// (trimmed, ≤ `MAX_PROFILE_NAME_LEN`).
 ///
 /// The charset is narrow for two reasons:
-/// 1. **Env-overlay round-trip.** S3 credentials are supplied via
+/// 1. **Env-overlay round-trip.** S3 credentials can also be set via
 ///    `GDI_TOOL__PROFILES__<NAME>__…`, which figment splits on `__` and lowercases —
 ///    so an env override can only ever address a *lowercase* profile key. A stored
 ///    name with uppercase or a `-` (e.g. `Prod`, `ee-prod`) would never receive its
 ///    credentials (they'd land in a phantom `prod`/`ee_prod` key), and `upload` would
-///    fail "missing credentials" despite a correctly-filled `secrets.env`. Restricting
+///    fail "missing credentials" despite correctly-set environment variables. Restricting
 ///    the name to what the env overlay can spell keeps the config key and the override
 ///    key in lockstep. See [`gdi_node_standalone_core::config::ToolConfig::phantom_profile_twins`].
 /// 2. **Path safety.** The name is interpolated into filesystem paths (the pinned

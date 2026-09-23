@@ -20,7 +20,6 @@ use crate::ToolError;
 use crate::cli::{
     BuildArgs, DeployArgs, OutputFormat, PackArgs, Stage, UploadArgs, WizardArgs, WizardCommand,
 };
-use crate::s3::S3Credentials;
 use crate::wizard::prompts::Prompter;
 
 /// Run the interactive wizard journey.
@@ -92,11 +91,6 @@ pub fn run(
     let in_range = |stage: Stage| args.from <= stage && stage <= args.to;
     // Carry the build output from the Build stage into Pack + Publish.
     let mut build_output: Option<crate::commands::cmd_build::BuildOutput> = None;
-    // S3 credentials this run's setup collected, carried to the Publish stage in memory:
-    // setup writes them to `secrets.env` for later runs, but nothing can `source` that file
-    // into the process that is already running — and with neither credential loaded the S3
-    // client is built anonymous, so the wizard's own upload fails after build + pack.
-    let mut carried_s3: Option<S3Credentials> = None;
     // The package.yaml this run builds: `-o`, unless the Author stage authors a new one
     // at another path.
     let mut package_yaml: PathBuf = args.output.clone();
@@ -121,14 +115,13 @@ pub fn run(
                 crate::output::progress(&format!("  using profile '{name}'"));
             }
             _ => {
-                let outcome = setup::run_setup(
+                setup::run_setup(
                     p,
                     config_path,
                     args.recipient.as_deref(),
                     profile_name,
                     false,
                 )?;
-                carried_s3 = outcome.s3_credentials;
             }
         }
     }
@@ -444,11 +437,11 @@ pub fn run(
             // The routes below move `package` into their args; the resume hint needs it
             // afterwards.
             let packed = package.clone();
-            let routes = publish_routes(active.as_ref(), carried_s3.is_some());
+            let routes = publish_routes(active.as_ref());
             if routes.is_empty() {
                 // One short warning — the operator must know nothing went anywhere —
                 // and the next step lands in the summary, split by cause: an S3 block
-                // with no credentials loaded wants `source secrets.env`, no publish
+                // with no credentials needs them in `tool-secrets.toml`, no publish
                 // channel at all wants setup (or a hand-off to the node operator).
                 crate::output::warn(
                     "warning: nothing was sent to the node: the profile has no loaded S3 \
@@ -457,8 +450,13 @@ pub fn run(
                 summary_publish = Some("nothing sent to the node".to_owned());
                 summary_next = Some(
                     if active.as_ref().is_some_and(|profile| profile.s3.is_some()) {
+                        let secrets = gdi_node_standalone_core::config::secrets_path(config_path)
+                            .map_or_else(
+                                || "tool-secrets.toml next to the tool config".to_owned(),
+                                |path| path.display().to_string(),
+                            );
                         format!(
-                            "load the credentials (`source <config-dir>/secrets.env`), then \
+                            "fill in the S3 credentials in {secrets}, then \
                              `gdi-dataset-tool upload {}`",
                             package.display()
                         )
@@ -497,11 +495,10 @@ pub fn run(
                             management_url: None,
                             format: OutputFormat::Text,
                         };
-                        let uploaded = crate::commands::cmd_upload::run_with_credentials(
+                        let uploaded = crate::commands::cmd_upload::run(
                             &upload_args,
                             profile_name,
                             config_path,
-                            carried_s3.as_ref(),
                         );
                         uploaded
                             .map_err(|e| resume_hint(e, staging_kept.as_deref(), Some(&packed)))?;
@@ -805,22 +802,20 @@ enum PublishRoute {
 ///
 /// A static menu would offer "Upload to S3" to a profile with no `[s3]` block and "Deploy
 /// to inbox" to one with no inbox, and each fails after build and pack with an error naming
-/// a flag the wizard does not have. S3 is offered only with credentials in hand, either the
-/// environment's or the ones this run's setup collected. With neither, the client is built
-/// anonymous and a private bucket refuses the PUT.
-fn publish_routes(active: Option<&Profile>, carried_credentials: bool) -> Vec<PublishRoute> {
+/// a flag the wizard does not have. S3 is offered only when credentials are set (in
+/// `tool-secrets.toml` or the environment); without them the client is anonymous and a
+/// private bucket refuses the PUT.
+fn publish_routes(active: Option<&Profile>) -> Vec<PublishRoute> {
     let mut routes = Vec::new();
     let Some(profile) = active else {
         return routes;
     };
     if let Some(s3) = profile.s3.as_ref() {
-        let has_credentials =
-            carried_credentials || (s3.access_key_id.is_some() && s3.secret_access_key.is_some());
-        if has_credentials {
+        if s3.access_key_id.is_some() && s3.secret_access_key.is_some() {
             routes.push(PublishRoute::UploadS3);
         } else {
             crate::output::progress(
-                "note: S3 is configured but no credentials are loaded (`source` secrets.env, or \
+                "note: S3 is configured but has no credentials (add them to tool-secrets.toml or \
                  re-run `wizard setup`); upload is not offered",
             );
         }
@@ -1234,8 +1229,8 @@ mod tests {
             .expect("no VCF group means nothing to confirm");
     }
 
-    /// The Publish menu follows the profile: S3 only with credentials in hand (the
-    /// environment's, or this run's), the inbox only when configured, nothing otherwise.
+    /// The Publish menu follows the profile: S3 only with credentials set, the inbox only
+    /// when configured, nothing otherwise.
     #[test]
     fn publish_routes_follow_the_profile() {
         use gdi_node_standalone_core::config::ProfileS3;
@@ -1246,9 +1241,9 @@ mod tests {
             secret_access_key: creds.then(|| "s".to_owned()),
             ..ProfileS3::default()
         };
-        assert!(publish_routes(None, false).is_empty());
+        assert!(publish_routes(None).is_empty());
         assert!(
-            publish_routes(Some(&Profile::default()), false).is_empty(),
+            publish_routes(Some(&Profile::default())).is_empty(),
             "nothing configured, nothing offered"
         );
         let s3_no_creds = Profile {
@@ -1256,29 +1251,21 @@ mod tests {
             ..Profile::default()
         };
         assert!(
-            publish_routes(Some(&s3_no_creds), false).is_empty(),
+            publish_routes(Some(&s3_no_creds)).is_empty(),
             "S3 without credentials would upload anonymously — not offered"
-        );
-        assert_eq!(
-            publish_routes(Some(&s3_no_creds), true),
-            [PublishRoute::UploadS3],
-            "…unless this run carries them"
         );
         let s3_env = Profile {
             s3: Some(s3(true)),
             ..Profile::default()
         };
-        assert_eq!(
-            publish_routes(Some(&s3_env), false),
-            [PublishRoute::UploadS3]
-        );
+        assert_eq!(publish_routes(Some(&s3_env)), [PublishRoute::UploadS3]);
         let both = Profile {
             s3: Some(s3(true)),
             inbox: Some("/var/lib/node/inbox".into()),
             ..Profile::default()
         };
         assert_eq!(
-            publish_routes(Some(&both), false),
+            publish_routes(Some(&both)),
             [PublishRoute::UploadS3, PublishRoute::DeployInbox]
         );
         assert!(
