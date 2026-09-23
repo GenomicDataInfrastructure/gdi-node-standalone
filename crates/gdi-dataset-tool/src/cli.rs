@@ -47,7 +47,8 @@ static LONG_VERSION: LazyLock<String> =
 pub struct Cli {
     /// Path to the tool configuration TOML. Without this flag, `<config-dir>/tool.toml`
     /// is still read when present (`$GDI_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gdi`, else
-    /// `$HOME/.config/gdi`); the `GDI_TOOL__` env overlay wins over whichever file is read.
+    /// `$HOME/.config/gdi`, or `%USERPROFILE%\.config\gdi` on Windows without `HOME`); the
+    /// `GDI_TOOL__` env overlay wins over whichever file is read.
     #[arg(long, global = true, value_name = "PATH")]
     pub config: Option<PathBuf>,
 
@@ -785,7 +786,7 @@ pub enum ConfigCommand {
 pub struct ConfigInitArgs {
     /// Output path for the scaffolded config TOML. Defaults to
     /// `<config_dir>/tool.toml` (`$GDI_CONFIG_DIR` / `$XDG_CONFIG_HOME/gdi` /
-    /// `$HOME/.config/gdi`).
+    /// `$HOME/.config/gdi`, or `%USERPROFILE%\.config\gdi` on Windows without `HOME`).
     #[arg(short, long, visible_alias = "out", value_name = "PATH")]
     pub output: Option<PathBuf>,
 

@@ -21,7 +21,7 @@ use super::{KeysConfig, redacted};
 const CONFIG_DIR_ENV: &str = "GDI_CONFIG_DIR";
 /// Standard XDG config-home env var.
 const XDG_CONFIG_HOME_ENV: &str = "XDG_CONFIG_HOME";
-/// The home-directory env var, the last config-dir anchor.
+/// The home-directory env var, the last config-dir anchor (see [`home_dir`]).
 const HOME_ENV: &str = "HOME";
 /// The default tool-config file name within the gdi config dir.
 ///
@@ -33,14 +33,16 @@ const HOME_ENV: &str = "HOME";
 pub const DEFAULT_CONFIG_FILE: &str = "tool.toml";
 
 /// The gdi config directory: `$GDI_CONFIG_DIR`, else `$XDG_CONFIG_HOME/gdi`, else
-/// `$HOME/.config/gdi`. Returns `None` when none of those env vars resolve.
+/// `$HOME/.config/gdi` (on Windows without `HOME`, `%USERPROFILE%\.config\gdi`). Returns
+/// `None` when none of those resolve.
 ///
 /// The one resolution used both by the tool's `config init` / `keys` commands and by
 /// [`ToolConfig::load`]'s default-file discovery, the `--config`-absent path.
 ///
 /// An empty value counts as unset at every one of the three anchors, so `HOME=` falls
 /// through rather than resolving a `.config/gdi` under the working directory. All three read
-/// the environment through one helper rather than repeating the check.
+/// the environment through one helper rather than repeating the check, and `home_dir`'s
+/// Windows fallback follows the same rule.
 #[must_use]
 pub fn config_dir() -> Option<PathBuf> {
     if let Some(dir) = non_empty_env(CONFIG_DIR_ENV) {
@@ -49,13 +51,34 @@ pub fn config_dir() -> Option<PathBuf> {
     if let Some(xdg) = non_empty_env(XDG_CONFIG_HOME_ENV) {
         return Some(PathBuf::from(xdg).join("gdi"));
     }
-    non_empty_env(HOME_ENV).map(|home| PathBuf::from(home).join(".config").join("gdi"))
+    home_dir().map(|home| home.join(".config").join("gdi"))
+}
+
+/// `$HOME`, else on Windows the user profile directory.
+///
+/// Windows has no `HOME`, so without the fallback the tool found no config dir from `cmd`
+/// or PowerShell. [`std::env::home_dir`] reads `%USERPROFILE%`, ignoring an empty value,
+/// and falls back to `GetUserProfileDirectoryW`. `$HOME` stays first, so Git Bash users keep
+/// the directory they already have.
+///
+/// Unix gets no fallback: there `std::env::home_dir` would use the passwd entry, and an
+/// empty home field would put the config dir under the working directory.
+fn home_dir() -> Option<PathBuf> {
+    if let Some(home) = non_empty_env(HOME_ENV) {
+        return Some(PathBuf::from(home));
+    }
+    if cfg!(windows) {
+        std::env::home_dir()
+    } else {
+        None
+    }
 }
 
 /// `key`'s value from the environment, treating an empty value as unset.
 ///
-/// Every anchor in [`config_dir`] reads the environment through here, and none reads it
-/// directly, so the emptiness rule cannot be omitted at one of them.
+/// Every env-var anchor in [`config_dir`] reads the environment through here, and none reads
+/// it directly, so the emptiness rule cannot be omitted at one of them. The Windows fallback
+/// in [`home_dir`] goes through `std`, which has the same rule.
 ///
 /// An empty value must not be taken literally. It is what a shell hands over for `VAR=`,
 /// or an unpopulated `env:` entry in a container spec, and using it makes every derived
@@ -72,7 +95,7 @@ fn non_empty_env(key: &str) -> Option<std::ffi::OsString> {
 
 /// The default tool-config file path: `<config_dir>/tool.toml`, or `None` when
 /// the config dir cannot be resolved (all of `$GDI_CONFIG_DIR`, `$XDG_CONFIG_HOME`,
-/// and `$HOME` are unset).
+/// and `$HOME` are unset, and on Windows there is no user profile directory).
 #[must_use]
 #[expect(
     clippy::disallowed_methods,
@@ -910,9 +933,16 @@ mod tests {
 
     /// The same hazard at the last anchor: `HOME=` must not resolve to a `.config/gdi` under
     /// the working directory, which would reach the trust-on-first-use pin-store hazard the
-    /// sibling test describes. All three anchors read the environment through
+    /// sibling test describes. All three env anchors read the environment through
     /// `non_empty_env`.
+    ///
+    /// Unix only: Windows always has a profile directory to fall back to.
     #[test]
+    #[cfg_attr(
+        windows,
+        ignore = "Windows falls back to the profile directory; see \
+                  the_user_profile_is_the_last_anchor_on_windows_only"
+    )]
     #[serial_test::serial(env)]
     #[expect(
         clippy::result_large_err,
@@ -943,6 +973,39 @@ mod tests {
 
             // Control: a non-empty HOME still anchors, so this test cannot pass by making
             // the HOME anchor useless.
+            let home = jail.directory().join("home");
+            jail.set_env("HOME", home.display().to_string());
+            assert_eq!(super::config_dir(), Some(home.join(".config").join("gdi")));
+            Ok(())
+        });
+    }
+
+    /// On Windows the user profile directory is the last anchor, after `$HOME`. Without it,
+    /// `cmd` and PowerShell (no `HOME`) failed with "cannot resolve the default config path".
+    /// On Unix `USERPROFILE` is ignored.
+    #[test]
+    #[serial_test::serial(env)]
+    #[expect(
+        clippy::result_large_err,
+        reason = "the figment::Jail::expect_with closure return type is fixed by the test API"
+    )]
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the resolver's own test reads the environment on purpose"
+    )]
+    fn the_user_profile_is_the_last_anchor_on_windows_only() {
+        figment::Jail::expect_with(|jail| {
+            let profile = jail.directory().join("profile");
+            jail.set_env("GDI_CONFIG_DIR", "");
+            jail.set_env("XDG_CONFIG_HOME", "");
+            jail.set_env("HOME", "");
+            jail.set_env("USERPROFILE", profile.display().to_string());
+
+            let expected = cfg!(windows).then(|| profile.join(".config").join("gdi"));
+            assert_eq!(super::config_dir(), expected);
+
+            // `$HOME` still wins, so Git Bash users and anyone who set `HOME` as a workaround
+            // keep their directory.
             let home = jail.directory().join("home");
             jail.set_env("HOME", home.display().to_string());
             assert_eq!(super::config_dir(), Some(home.join(".config").join("gdi")));
