@@ -758,10 +758,19 @@ class K8sManifestTest(unittest.TestCase):
                 f"[fairdp.{agent}.contact_point] is required; the submission model makes a "
                 f"contact point mandatory on this agent",
             )
-            for key in ("fn", "has_email"):
+            for key in ("name", "email"):
                 self.assertIn(
                     "<SET ME", str(contact.get(key, "")), f"{agent}.contact_point.{key}"
                 )
+        access_url = (
+            fairdp.get("distribution", {}).get("access_url", {}).get("aggregated", "")
+        )
+        self.assertIn(
+            "<SET ME",
+            str(access_url),
+            "[fairdp.distribution].access_url.aggregated is required; GDI makes "
+            "dcat:accessURL mandatory on every distribution",
+        )
 
     def test_the_beacon_network_registry_fields_are_shipped_with_their_warning(self):
         # `[beacon].alternative_url` and `[beacon.organization].logo_url` are optional in

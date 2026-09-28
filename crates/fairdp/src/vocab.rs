@@ -48,7 +48,7 @@ pub(crate) const DCT_CREATOR: &str = "http://purl.org/dc/terms/creator";
 pub(crate) const DCT_PUBLISHER: &str = "http://purl.org/dc/terms/publisher";
 /// `dct:conformsTo`.
 pub(crate) const DCT_CONFORMS_TO: &str = "http://purl.org/dc/terms/conformsTo";
-/// `dct:language` — the node-level `[fairdp].language` authority IRI, emitted on the
+/// `dct:language` — the node-level `[fairdp].language` authority IRIs, emitted on the
 /// FDP root, every catalog and every dataset. Not in the gdi-metadata shapes; the
 /// userportal's DCAT profile reads it.
 pub(crate) const DCT_LANGUAGE: &str = "http://purl.org/dc/terms/language";
@@ -68,6 +68,16 @@ pub(crate) const DCT_HAS_PART: &str = "http://purl.org/dc/terms/hasPart";
 
 /// `dcat:keyword`.
 pub(crate) const DCAT_KEYWORD: &str = "http://www.w3.org/ns/dcat#keyword";
+/// `dcat:endpointDescription` — where the FDP root's API is described.
+pub(crate) const DCAT_ENDPOINT_DESCRIPTION: &str = "http://www.w3.org/ns/dcat#endpointDescription";
+/// `cv:contactPoint` — HealthDCAT-AP release 7's contact point of an agent.
+pub(crate) const CV_CONTACT_POINT: &str = "http://data.europa.eu/m8g/contactPoint";
+/// `cv:ContactPoint` — the class of a release-7 contact point.
+pub(crate) const CV_CONTACT_POINT_CLASS: &str = "http://data.europa.eu/m8g/ContactPoint";
+/// `cv:email` — a release-7 contact point's e-mail, as text.
+pub(crate) const CV_EMAIL: &str = "http://data.europa.eu/m8g/email";
+/// `cv:contactPage` — a release-7 contact point's web page.
+pub(crate) const CV_CONTACT_PAGE: &str = "http://data.europa.eu/m8g/contactPage";
 /// `dcat:theme`.
 pub(crate) const DCAT_THEME: &str = "http://www.w3.org/ns/dcat#theme";
 /// `dcat:distribution`.
@@ -83,14 +93,14 @@ pub(crate) const DCT_FORMAT: &str = "http://purl.org/dc/terms/format";
 /// `dcat:accessService`.
 pub(crate) const DCAT_ACCESS_SERVICE: &str = "http://www.w3.org/ns/dcat#accessService";
 
-/// The IANA media-type IRI for `application/json` — the Beacon distribution's response
-/// media type, advertised via [`DCAT_MEDIA_TYPE`]. `ckanext-dcat` parses this into the
-/// GDI User Portal's `res_format` facet; without it the node's datasets are unfilterable
-/// by format.
+/// The IANA media-type IRI for `application/json`, the distribution's media type (the
+/// Beacon answers in JSON), advertised via [`DCAT_MEDIA_TYPE`]. `ckanext-dcat` parses this
+/// into the GDI User Portal's `res_format` facet; without it the node's datasets are
+/// unfilterable by format.
 pub(crate) const IANA_MEDIA_TYPE_APPLICATION_JSON: &str =
     "https://www.iana.org/assignments/media-types/application/json";
-/// The EU file-type authority IRI for JSON — the Beacon distribution's format,
-/// advertised via [`DCT_FORMAT`] beside [`IANA_MEDIA_TYPE_APPLICATION_JSON`].
+/// The EU file-type authority IRI for JSON — the distribution's format, advertised via
+/// [`DCT_FORMAT`] beside [`IANA_MEDIA_TYPE_APPLICATION_JSON`].
 ///
 /// `ckanext-dcat`'s `_distribution_format` unwraps an authority IRI only from
 /// `dct:format`. From `dcat:mediaType` it reads the IRI as a media-type string, misses it
@@ -109,7 +119,7 @@ pub(crate) const DCAT_SERVES_DATASET: &str = "http://www.w3.org/ns/dcat#servesDa
 /// `dcat:dataset` (Catalog -> each visible dataset; the DCAT membership
 /// predicate).
 pub(crate) const DCAT_DATASET_PRED: &str = "http://www.w3.org/ns/dcat#dataset";
-/// `dcat:themeTaxonomy` (Catalog -> the SKOS `ConceptScheme` of the node theme).
+/// `dcat:themeTaxonomy` (Catalog -> the SKOS `ConceptScheme`s of the node themes).
 pub(crate) const DCAT_THEME_TAXONOMY: &str = "http://www.w3.org/ns/dcat#themeTaxonomy";
 
 /// `dcatap:applicableLegislation`.
@@ -141,6 +151,8 @@ pub(crate) const ADMS_SCHEMA_AGENCY: &str = "http://www.w3.org/ns/adms#schemaAge
 
 /// `skos:notation`.
 pub(crate) const SKOS_NOTATION: &str = "http://www.w3.org/2004/02/skos/core#notation";
+/// `rdfs:label`.
+pub(crate) const RDFS_LABEL: &str = "http://www.w3.org/2000/01/rdf-schema#label";
 
 /// `foaf:name`.
 pub(crate) const FOAF_NAME: &str = "http://xmlns.com/foaf/0.1/name";
@@ -199,3 +211,9 @@ pub(crate) const XSD_DATE_TIME: &str = "http://www.w3.org/2001/XMLSchema#dateTim
 /// `xsd:nonNegativeInteger`.
 pub(crate) const XSD_NON_NEGATIVE_INTEGER: &str =
     "http://www.w3.org/2001/XMLSchema#nonNegativeInteger";
+/// `xsd:integer`.
+pub(crate) const XSD_INTEGER: &str = "http://www.w3.org/2001/XMLSchema#integer";
+/// `xsd:boolean`.
+pub(crate) const XSD_BOOLEAN: &str = "http://www.w3.org/2001/XMLSchema#boolean";
+/// `xsd:date`.
+pub(crate) const XSD_DATE: &str = "http://www.w3.org/2001/XMLSchema#date";

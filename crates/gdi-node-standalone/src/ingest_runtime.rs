@@ -1406,7 +1406,7 @@ async fn process_job(
     let bounds = extract_bounds(state);
     // Catalog validation reads the SIGHUP-reloadable snapshot, not the immutable boot
     // config, so a catalog added by a live reload is honoured by the next ingest job.
-    let catalogs = state.reloadable().catalogs.clone();
+    let catalogs = gdi_node_standalone_core::catalogs::titles(&state.reloadable().catalogs);
     // Capture the SIGHUP-reloadable writer policy and this channel's allow-list snapshot so
     // the store-time gate uses the same live values `note_unknown_writer_on_publish` reads: a
     // warn-to-enforce flip or an added fingerprint applies to the next ingest without a
@@ -3718,7 +3718,7 @@ mod shutdown_cancellation_tests {
     fn state_for(data_dir: &Path, inbox: &Path) -> AppState {
         let toml = format!(
             "[service]\nbase_url=\"https://x.example\"\ndata_dir=\"{}\"\ninbox=\"{}\"\n\
-             [beacon]\nid=\"o.x\"\nname=\"X\"\n[catalogs]\ngdi-aggregated=\"Agg\"\n",
+             [beacon]\nid=\"o.x\"\nname=\"X\"\n[catalogs]\ngdi-aggregated.title=\"Agg\"\ngdi-aggregated.description=\"Agg\"\n",
             data_dir.display(),
             inbox.display()
         );

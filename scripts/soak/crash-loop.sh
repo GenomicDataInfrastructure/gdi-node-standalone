@@ -60,7 +60,8 @@ inbox = "${INBOX}"
 rescan_interval_seconds = 2
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Allele frequencies aggregated from the Genome of Europe cohorts"
 
 [beacon]
 id = "org.gdi.soak.beacon"

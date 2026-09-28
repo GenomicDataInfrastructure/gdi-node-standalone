@@ -667,11 +667,14 @@
           "$ref": "#/$defs/LocalizedText"
         },
         "type": {
-          "description": "Dataset type IRI, set only for synthetic datasets.",
+          "description": "Dataset type IRIs, set only for synthetic datasets.",
           "type": [
-            "string",
+            "array",
             "null"
-          ]
+          ],
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [

@@ -14,6 +14,8 @@ pub use gdi_node_standalone_core::chrom::KNOWN_ASSEMBLIES as ASSEMBLIES;
 /// The dataset-id prefixes — re-exported from `core::id`, the single source (the ID
 /// regex, the mint-time check, and `validate_pkg` all read the same constant).
 pub use gdi_node_standalone_core::id::DATASET_ID_PREFIXES as PREFIXES;
+/// The prefix the wizard pre-selects: GDI's metadata guidelines allow only `GDI`.
+pub const DEFAULT_PREFIX: &str = "GDI";
 
 /// The last path segment of a closed-set IRI — the raw material for menu labels, so a
 /// re-vendored, wider set reaches the wizard menus with zero wizard edits.
@@ -292,6 +294,16 @@ pub fn resolve_u64(field: &str, s: &str) -> Result<u64, String> {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
     use super::*;
+
+    #[test]
+    fn the_default_prefix_is_one_the_wizard_offers() {
+        // `author` falls back to the first prefix when the default is missing, so renaming
+        // or dropping it must fail here instead of silently changing the default.
+        assert!(
+            PREFIXES.contains(&DEFAULT_PREFIX),
+            "{DEFAULT_PREFIX} not in {PREFIXES:?}"
+        );
+    }
 
     #[test]
     fn org_and_country_code_resolvers_enforce_id_rules() {

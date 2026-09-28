@@ -36,6 +36,8 @@ fn parse_and_preflight(rel: &str) {
         .unwrap_or_else(|e| panic!("{rel} no longer parses into ServiceConfig: {e}"));
     cfg.preflight()
         .unwrap_or_else(|e| panic!("{rel} fails preflight: {e}"));
+    gdi_node_standalone::preflight::check_fairdp_publish(&cfg)
+        .unwrap_or_else(|e| panic!("{rel}'s [fairdp.publish] does not compile: {e}"));
 }
 
 /// The `compose/` configs boot the dev stack unedited, so they must be valid as shipped. The
@@ -112,6 +114,8 @@ fn assert_placeheld_template(rel: &str) {
     cfg.preflight().unwrap_or_else(|e| {
         panic!("{rel} must preflight once its <SET ME> hints are filled in: {e}")
     });
+    gdi_node_standalone::preflight::check_fairdp_publish(&cfg)
+        .unwrap_or_else(|e| panic!("{rel}'s [fairdp.publish] does not compile: {e}"));
 }
 
 #[test]

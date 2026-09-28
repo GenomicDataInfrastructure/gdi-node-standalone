@@ -339,8 +339,9 @@ fn ingest_multi(
     }
 }
 
-/// A service config with two catalogs (one populated, one to receive a synthetic
-/// dataset) and the `[fairdp]` node identity.
+/// A service config with three catalogs (populated, synthetic, empty) and the `[fairdp]`
+/// node identity. It publishes with the `[fairdp.publish]` settings `node.example.toml`
+/// ships, so the shapes judge the records a real node serves.
 fn test_config(data_dir: &Path) -> ServiceConfig {
     let toml = format!(
         r#"
@@ -349,9 +350,12 @@ base_url = "{BASE_URL}"
 data_dir = "{}"
 
 [catalogs]
-{CATALOG_A} = "GoE Aggregated"
-{CATALOG_B} = "Synthetic Data"
-{CATALOG_EMPTY} = "Rare Disease Data"
+{CATALOG_A}.title = "GoE Aggregated"
+{CATALOG_A}.description = "GoE Aggregated"
+{CATALOG_B}.title = "Synthetic Data"
+{CATALOG_B}.description = "Synthetic Data"
+{CATALOG_EMPTY}.title = "Rare Disease Data"
+{CATALOG_EMPTY}.description = "Rare Disease Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -364,6 +368,7 @@ id = "ee.ut.gdi"
 name = "University of Tartu"
 
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 description = "Aggregated genomic metadata for GDI Estonia"
 issued = "2026-01-01T00:00:00Z"
@@ -374,22 +379,27 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 homepage = "https://gdi.ut.ee"
-mbox = "mailto:gdi@example.org"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
-has_url = "https://gdi.ut.ee/contact"
+name = "GDI Estonia"
+email = "gdi@example.org"
+url = "https://gdi.ut.ee/contact"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#,
         data_dir.display(),
     );
     let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
     cfg.preflight().unwrap();
+    assert!(
+        cfg.fairdp
+            .as_ref()
+            .is_some_and(|f| f.publish.add.dataset.is_some()),
+        "the loader adds the built-in release-7 dataset statements this harness validates"
+    );
     cfg
 }
 

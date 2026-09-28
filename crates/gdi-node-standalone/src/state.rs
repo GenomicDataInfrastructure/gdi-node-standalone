@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::time::Instant;
 
 use gdi_node_standalone_core::{
@@ -89,6 +89,11 @@ pub struct AppState {
     pub persist_seq: Arc<AtomicU64>,
     /// The loaded, preflighted service configuration.
     pub config: Arc<ServiceConfig>,
+    /// `[fairdp.publish]`, compiled on the first FAIR-DP request and kept for the life of
+    /// the process: compiling the shipped settings costs about as much as rendering a
+    /// record, and `[fairdp]` is not reloadable. `None` inside means it did not compile,
+    /// which the startup preflight rules out; the FAIR-DP handlers then answer `500`.
+    pub fairdp_publish: Arc<OnceLock<Option<gdi_node_standalone_fairdp::Publish>>>,
     /// Ids observed deleted from their source bucket while mid-ingest.
     ///
     /// The S3 reconcile records an id here when its `.tar.c4gh` vanishes from the bucket
@@ -472,6 +477,7 @@ impl AppState {
             // the initial last-written sentinel (0) and is always written.
             persist_seq: Arc::new(AtomicU64::new(1)),
             config: Arc::new(config),
+            fairdp_publish: Arc::new(OnceLock::new()),
             removal_requested: Arc::new(Mutex::new(HashSet::new())),
             removal_seeds: Arc::new(Mutex::new(HashSet::new())),
             overlay_errors: Arc::new(Mutex::new(HashMap::new())),
@@ -2885,7 +2891,8 @@ base_url = "https://x.example"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.x.beacon"
@@ -2917,8 +2924,10 @@ base_url = "https://x.example"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
-synthetic-data = "Synthetic"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
+synthetic-data.title = "Synthetic"
+synthetic-data.description = "Synthetic"
 
 [beacon]
 id = "org.x.beacon"
@@ -2970,7 +2979,8 @@ base_url = "https://x.example"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.x.beacon"
@@ -3024,7 +3034,8 @@ data_dir = "{}"
 inbox = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.x.beacon"
@@ -3055,7 +3066,8 @@ data_dir = "{}"
 inbox = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.x.beacon"
@@ -3104,15 +3116,25 @@ writer_policy = "enforce"
         let state = state_in(dir.path());
 
         let mut reloadable_a = Reloadable::default();
-        reloadable_a
-            .catalogs
-            .insert("cat-a".to_owned(), "A".to_owned());
+        reloadable_a.catalogs.insert(
+            "cat-a".to_owned(),
+            gdi_node_standalone_core::config::CatalogCfg {
+                title: "A".to_owned(),
+                description: "A".to_owned(),
+                issued: None,
+            },
+        );
         reloadable_a.inbox_allowed_writer_fingerprints = vec!["sha256:a".to_owned()];
 
         let mut reloadable_b = Reloadable::default();
-        reloadable_b
-            .catalogs
-            .insert("cat-b".to_owned(), "B".to_owned());
+        reloadable_b.catalogs.insert(
+            "cat-b".to_owned(),
+            gdi_node_standalone_core::config::CatalogCfg {
+                title: "B".to_owned(),
+                description: "B".to_owned(),
+                issued: None,
+            },
+        );
         reloadable_b.inbox_allowed_writer_fingerprints = vec!["sha256:b".to_owned()];
 
         // Prime the cell to `reloadable_a` before spawning the reader. The boot
@@ -3234,7 +3256,7 @@ writer_policy = "enforce"
         // Only `gdi-aggregated` is configured; `retired-catalog` has been removed.
         let state = state_with(
             dir.path(),
-            "\n[catalogs]\ngdi-aggregated = \"Aggregated\"\n",
+            "\n[catalogs]\ngdi-aggregated.title = \"Aggregated\"\ngdi-aggregated.description = \"Aggregated\"\n",
         );
 
         let mut kept = cached_entry(KEPT, DatasetState::Visible);
@@ -3279,7 +3301,7 @@ writer_policy = "enforce"
         let dir = tempfile::tempdir().expect("tempdir");
         let state = state_with(
             dir.path(),
-            "\n[catalogs]\ngdi-aggregated = \"Aggregated\"\n",
+            "\n[catalogs]\ngdi-aggregated.title = \"Aggregated\"\ngdi-aggregated.description = \"Aggregated\"\n",
         );
         state.cache.insert(
             StatusWrite::unshared(),

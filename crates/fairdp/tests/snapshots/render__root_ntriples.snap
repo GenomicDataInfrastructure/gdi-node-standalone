@@ -12,7 +12,10 @@ expression: nt
 <https://gdi-ee.example.org/fairdp> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://w3id.org/fdp/fdp-o#FAIRDataPoint>
 <https://gdi-ee.example.org/fairdp> <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> <https://w3id.org/fdp/fdp-o#MetadataService>
 <https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#contactPoint> _:c14n0
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#endpointDescription> <https://docs.example.org/fairdp/openapi.yaml>
 <https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#endpointURL> <https://gdi-ee.example.org/fairdp>
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#keyword> "allele frequency"
+<https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/dcat#keyword> "genomics"
 <https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/ldp#contains> <https://gdi-ee.example.org/fairdp/catalog/empty-cat>
 <https://gdi-ee.example.org/fairdp> <http://www.w3.org/ns/ldp#contains> <https://gdi-ee.example.org/fairdp/catalog/gdi-aggregated>
 <https://gdi-ee.example.org/fairdp> <https://w3id.org/fdp/fdp-o#conformsToFdpSpec> <https://specs.fairdatapoint.org/v1.2/fdp-specs-v1.2.html>

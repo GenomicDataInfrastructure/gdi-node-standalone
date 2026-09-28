@@ -57,7 +57,8 @@ const DOC_SURFACES: &[&str] = &[
 
 /// Every `*.toml` name an operator may legitimately meet: the code-declared names (the two
 /// config defaults and the tool's credentials file), plus every `.toml` that exists in the
-/// repo (the shipped templates and the Compose configs).
+/// repo (the shipped templates, the Compose configs, and the built-in `[fairdp.publish]`
+/// settings the docs point at).
 fn legitimate_toml_names() -> BTreeMap<String, &'static str> {
     let mut ok: BTreeMap<String, &'static str> = BTreeMap::new();
     ok.insert(
@@ -68,7 +69,7 @@ fn legitimate_toml_names() -> BTreeMap<String, &'static str> {
     ok.insert(SECRETS_FILE.to_owned(), "the tool's S3 credentials file");
 
     // Anything that exists on disk is a real file a doc may name.
-    for dir in ["", "compose"] {
+    for dir in ["", "compose", "crates/core/src/config"] {
         let Ok(entries) = std::fs::read_dir(repo_path(dir)) else {
             continue;
         };

@@ -552,7 +552,8 @@ base_url = "https://n.example.org/"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -634,7 +635,8 @@ override_dir = "{}"
 require_override_store = {require}
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -687,7 +689,7 @@ environment = "test"
 
         let pme_toml = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n\
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n\
              [vault]\naddress=\"http://vault:8200\"\ntransit_key=\"gdi-dek\"\n",
             data_dir.display(),
         );
@@ -722,7 +724,7 @@ environment = "test"
         // No PME configured: at-rest form is not a finding at all.
         let no_pme = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
             data_dir.display(),
         );
         let cfg2 = ServiceConfig::from_toml_str(&no_pme).unwrap();
@@ -749,7 +751,7 @@ environment = "test"
         std::fs::create_dir_all(&data_dir).unwrap();
         let toml = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\noverride_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
             data_dir.display(),
             root.display(),
         );
@@ -814,7 +816,7 @@ environment = "test"
         std::fs::create_dir_all(&data_dir).unwrap();
         let toml = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n[beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
             data_dir.display(),
         );
         let cfg = ServiceConfig::from_toml_str(&toml).unwrap();

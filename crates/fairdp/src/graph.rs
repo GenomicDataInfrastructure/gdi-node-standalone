@@ -9,7 +9,7 @@
 //! or package ingest, so a second parse would only add cost.
 
 use gdi_node_standalone_core::cache::DatasetEntry;
-use gdi_node_standalone_core::config::ContactPointCfg;
+use gdi_node_standalone_core::config::{ContactPointCfg, FairdpAgent};
 use gdi_node_standalone_core::model::{Agent, ContactPoint, LocalizedText, OtherIdentifier};
 use gdi_node_standalone_core::validate_pkg::canonical_bcp47;
 use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, Term, Triple};
@@ -17,6 +17,7 @@ use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, Term, Triple
 use crate::context::FdpContext;
 use crate::datetime::dataset_datetime;
 use crate::mapping::{DATASET_MAPPING, FieldMapping, MetaField};
+use crate::publish::Record;
 use crate::vocab;
 
 /// Thin builder over [`oxrdf::Graph`] with typed-add helpers for each RDF object
@@ -57,7 +58,7 @@ impl GraphBuilder {
     /// Attach a fresh, `rdf:type`d blank node under `parent`, i.e.
     /// `parent predicate [ a class ]`. Returns the new node's subject so the caller
     /// can hang the node's own properties off it.
-    fn add_blank_node(
+    pub(crate) fn add_blank_node(
         &mut self,
         parent: &NamedOrBlankNode,
         predicate: &str,
@@ -88,7 +89,7 @@ impl GraphBuilder {
     }
 
     /// `subject predicate "value"` for each plain-string literal in the list.
-    fn add_strings<'i>(
+    pub(crate) fn add_strings<'i>(
         &mut self,
         subject: &NamedOrBlankNode,
         predicate: &str,
@@ -168,14 +169,15 @@ impl GraphBuilder {
 #[must_use]
 pub fn dataset_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
     let mut b = GraphBuilder::new();
-    let subj: NamedOrBlankNode = NamedNode::new_unchecked(ctx.dataset_iri(&entry.id)).into();
+    let iri = ctx.dataset_iri(&entry.id);
+    let subj: NamedOrBlankNode = NamedNode::new_unchecked(&iri).into();
 
     b.add_type(subj.clone(), vocab::DCAT_DATASET);
     for m in DATASET_MAPPING {
         add_dataset_field(&mut b, &subj, entry, ctx, m);
     }
 
-    b.finish()
+    ctx.published(b.finish(), Record::Dataset, &iri, Some(&entry.id))
 }
 
 /// Emit the triples for one mapping-table row on the dataset record.
@@ -213,8 +215,8 @@ fn add_dataset_field(
                 add_creator(b, subj, m.predicate, agent);
             }
         }
-        MetaField::Publisher => add_publisher(b, subj, m.predicate, ctx),
-        MetaField::Hdab => add_hdab(b, subj, m.predicate, ctx),
+        MetaField::Publisher => add_agent(b, subj, m.predicate, &ctx.fairdp.publisher, true),
+        MetaField::Hdab => add_agent(b, subj, m.predicate, &ctx.fairdp.hdab, true),
         MetaField::HealthCategory => b.add_iris(subj, m.predicate, &meta.health_category),
         MetaField::Keyword => b.add_strings(subj, m.predicate, meta.keywords.iter().flatten()),
         MetaField::NumberOfUniqueIndividuals => {
@@ -238,11 +240,7 @@ fn add_dataset_field(
             }
         }
         MetaField::ConformsTo => b.add_iris(subj, m.predicate, meta.conforms_to.iter().flatten()),
-        MetaField::Type => {
-            if let Some(t) = &meta.type_ {
-                b.add_iri(subj.clone(), m.predicate, t);
-            }
-        }
+        MetaField::Type => b.add_iris(subj, m.predicate, meta.type_.iter().flatten()),
         MetaField::LegalBasis => b.add_iris(subj, m.predicate, meta.legal_basis.iter().flatten()),
         MetaField::IsReferencedBy => {
             b.add_iris(subj, m.predicate, meta.is_referenced_by.iter().flatten());
@@ -258,7 +256,7 @@ fn add_dataset_field(
             }
         }
         MetaField::Theme => b.add_iris(subj, m.predicate, &ctx.fairdp.theme),
-        MetaField::Language => b.add_iri(subj.clone(), m.predicate, &ctx.fairdp.language),
+        MetaField::Language => b.add_iris(subj, m.predicate, &ctx.fairdp.language),
         MetaField::Issued => {
             let dt = dataset_datetime(&entry.id).unwrap_or_else(|| ctx.fairdp.issued.clone());
             b.add_typed(subj.clone(), m.predicate, &dt, vocab::XSD_DATE_TIME);
@@ -299,73 +297,69 @@ pub(crate) fn dataset_modified(entry: &DatasetEntry, issued: &str) -> String {
         .unwrap_or_else(|| issued.to_owned())
 }
 
-/// `dct:publisher`: the node-config Organization (`AgentHdabShape`), its optional
-/// `foaf:homepage`, and always a `foaf:mbox`. The mbox is the configured
-/// `[fairdp.publisher].mbox` when set, else the contact point's mandatory
-/// `vcard:hasEmail`.
+/// A node-config agent, `dct:publisher` or `healthdcatap:hdab` (`AgentHdabShape`): its
+/// name, its homepage when set, a `dcat:contactPoint` vCard, and a `foaf:mbox` repeating
+/// the contact e-mail. `ckanext-dcat`'s `_agents_details` reads `foaf:mbox` on the agent and
+/// never looks inside `dcat:contactPoint`, so an agent with only the vCard harvests with an
+/// empty e-mail. With `release7` the agent also gets HealthDCAT-AP release 7's
+/// `cv:contactPoint` (dataset records only).
 ///
-/// The mbox is unconditional for the reason [`add_hdab`] states: `ckanext-dcat`'s
-/// `_agents_details` reads the address on the agent and never descends into
-/// `dcat:contactPoint`, and a config with a contact point but no `mbox` preflights
-/// clean.
-pub(crate) fn add_publisher(
+/// Every node-config agent goes through this function, so no call site can emit one
+/// without its `foaf:mbox`.
+pub(crate) fn add_agent(
     b: &mut GraphBuilder,
     parent: &NamedOrBlankNode,
     predicate: &str,
-    ctx: &FdpContext,
+    agent: &FairdpAgent,
+    release7: bool,
 ) {
-    let pubr = &ctx.fairdp.publisher;
-    let node = add_agent_hdab(b, parent, predicate, &pubr.name, &pubr.contact_point);
-    if let Some(homepage) = &pubr.homepage {
+    let node = add_agent_hdab(b, parent, predicate, &agent.name, &agent.contact_point);
+    if let Some(homepage) = &agent.homepage {
         b.add_iri(node.clone(), vocab::FOAF_HOMEPAGE, homepage);
     }
-    let mbox = pubr
-        .mbox
-        .as_deref()
-        .unwrap_or(&pubr.contact_point.has_email);
-    b.add_iri(node, vocab::FOAF_MBOX, mbox);
-}
-
-/// `healthdcatap:hdab`: the node-config Health Data Access Body (`AgentHdabShape`)
-/// plus the `foaf:mbox` its contact point's `vcard:hasEmail` already states.
-///
-/// The address is duplicated because `ckanext-dcat`'s `_agents_details` reads
-/// `foaf:mbox` on the agent and never descends into `dcat:contactPoint`, so an agent
-/// carrying only the vCard harvests with an empty e-mail. The vCard stays because
-/// `AgentHdabShape` mandates it.
-///
-/// Every HDAB agent goes through this one function, as the publisher goes through
-/// [`add_publisher`], so no call site can emit the agent without its `foaf:mbox`.
-pub(crate) fn add_hdab(
-    b: &mut GraphBuilder,
-    parent: &NamedOrBlankNode,
-    predicate: &str,
-    ctx: &FdpContext,
-) {
-    let hdab = &ctx.fairdp.hdab;
-    let node = add_agent_hdab(b, parent, predicate, &hdab.name, &hdab.contact_point);
-    b.add_iri(node, vocab::FOAF_MBOX, &hdab.contact_point.has_email);
+    b.add_iri(
+        node.clone(),
+        vocab::FOAF_MBOX,
+        &agent.contact_point.mailto(),
+    );
+    if release7 {
+        let cp = &agent.contact_point;
+        let cv = b.add_blank_node(
+            &node,
+            vocab::CV_CONTACT_POINT,
+            vocab::CV_CONTACT_POINT_CLASS,
+        );
+        b.add_string(cv.clone(), vocab::CV_EMAIL, cp.email_address());
+        if let Some(url) = &cp.url {
+            b.add_iri(cv, vocab::CV_CONTACT_PAGE, url);
+        }
+    }
 }
 
 /// Build the **Distribution** record graph for `entry`.
 ///
 /// The distribution is the dataset's 1:1 generated child: its
 /// `dcatap:applicableLegislation` and `dct:license` are inherited from the parent
-/// dataset. `dcat:accessURL` and the inline `dcat:accessService` `dcat:DataService` both
-/// point at the beacon `g_variants` endpoint.
+/// dataset. Its title and `dcat:accessURL` (where a user asks for access) come from
+/// `[fairdp.distribution]`; the inline `dcat:accessService` `dcat:DataService` is the
+/// aggregated Beacon.
 #[must_use]
 pub fn distribution_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
     let mut b = GraphBuilder::new();
     let dist_iri = ctx.distribution_iri(&entry.id);
     let dataset_iri = ctx.dataset_iri(&entry.id);
-    let g_variants = ctx.beacon_g_variants_url();
+    let distribution = &ctx.fairdp.distribution;
     let subj: NamedOrBlankNode = NamedNode::new_unchecked(&dist_iri).into();
 
     b.add_type(subj.clone(), vocab::DCAT_DISTRIBUTION);
-    b.add_string(subj.clone(), vocab::DCT_TITLE, "Beacon distribution");
-    b.add_iri(subj.clone(), vocab::DCAT_ACCESS_URL, &g_variants);
-    // The distribution's response media type. `ckanext-dcat` maps `dcat:mediaType` into
-    // the GDI User Portal's `res_format` facet; a Beacon endpoint answers `application/json`.
+    b.add_string(subj.clone(), vocab::DCT_TITLE, &distribution.title);
+    b.add_iri(
+        subj.clone(),
+        vocab::DCAT_ACCESS_URL,
+        &distribution.access_url.aggregated,
+    );
+    // The distribution's media type: `ckanext-dcat` maps `dcat:mediaType` into the GDI
+    // User Portal's `res_format` facet, and the Beacon answers `application/json`.
     b.add_iri(
         subj.clone(),
         vocab::DCAT_MEDIA_TYPE,
@@ -386,11 +380,15 @@ pub fn distribution_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
         b.add_blank_node(&subj, vocab::DCAT_ACCESS_SERVICE, vocab::DCAT_DATA_SERVICE);
     // Lowercase `dcat:endpointURL` (the DataServiceShape predicate), not the capital-P
     // FDP v1.2 spelling: an inline DataService carries only this one.
-    b.add_iri(service_subj.clone(), vocab::DCAT_ENDPOINT_URL, &g_variants);
+    b.add_iri(
+        service_subj.clone(),
+        vocab::DCAT_ENDPOINT_URL,
+        &ctx.beacon_endpoint_url(),
+    );
     b.add_string(service_subj.clone(), vocab::DCT_TITLE, "GDI Beacon");
     b.add_iri(service_subj, vocab::DCAT_SERVES_DATASET, &dataset_iri);
 
-    b.finish()
+    ctx.published(b.finish(), Record::Distribution, &dist_iri, Some(&entry.id))
 }
 
 /// `dct:creator [ a foaf:Agent ; foaf:name "<name>" ]` (`AgentCreatorShape`).
@@ -402,8 +400,8 @@ fn add_creator(b: &mut GraphBuilder, parent: &NamedOrBlankNode, predicate: &str,
 /// An `AgentHdabShape` agent (`foaf:Agent` + `foaf:name` + a mandatory
 /// `dcat:contactPoint` `vcard:Kind`). Used for both `dct:publisher` and
 /// `healthdcatap:hdab` from node config. Returns the agent's blank-node subject
-/// so the caller can attach agent-specific extras (e.g. the publisher's
-/// `foaf:homepage`/`foaf:mbox`).
+/// so [`add_agent`] can attach the rest (`foaf:homepage`, `foaf:mbox`, and release 7's
+/// `cv:contactPoint`).
 fn add_agent_hdab(
     b: &mut GraphBuilder,
     parent: &NamedOrBlankNode,
@@ -457,7 +455,8 @@ fn add_contact_point(
 }
 
 /// A node-config `vcard:Kind` contact point (publisher / HDAB / FDP root). The
-/// config type makes `fn`/`hasEmail` mandatory (validated at preflight).
+/// config type makes `name`/`email` mandatory (validated at preflight); the e-mail is
+/// published as a `mailto:` IRI.
 pub(crate) fn add_contact_point_cfg(
     b: &mut GraphBuilder,
     parent: &NamedOrBlankNode,
@@ -465,9 +464,9 @@ pub(crate) fn add_contact_point_cfg(
     cp: &ContactPointCfg,
 ) {
     let node_subj = b.add_blank_node(parent, predicate, vocab::VCARD_KIND);
-    b.add_string(node_subj.clone(), vocab::VCARD_FN, &cp.fn_);
-    b.add_iri(node_subj.clone(), vocab::VCARD_HAS_EMAIL, &cp.has_email);
-    if let Some(url) = &cp.has_url {
+    b.add_string(node_subj.clone(), vocab::VCARD_FN, &cp.name);
+    b.add_iri(node_subj.clone(), vocab::VCARD_HAS_EMAIL, &cp.mailto());
+    if let Some(url) = &cp.url {
         b.add_iri(node_subj, vocab::VCARD_HAS_URL, url);
     }
 }

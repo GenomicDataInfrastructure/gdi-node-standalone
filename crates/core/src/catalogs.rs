@@ -15,6 +15,8 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::CatalogCfg;
+
 /// One configured catalog: the `[catalogs]` key and its display title.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -22,7 +24,7 @@ pub struct CatalogEntry {
     /// The catalog id: the `[catalogs]` key, which a manifest's `metadata.catalog` must
     /// match for the node to accept the package, and the `{id}` of `/fairdp/catalog/{id}`.
     pub id: String,
-    /// The display title: the `[catalogs]` value, served as the catalog's `dct:title`.
+    /// The display title: `[catalogs.<id>].title`, served as the catalog's `dct:title`.
     pub title: String,
 }
 
@@ -35,20 +37,27 @@ pub struct CatalogList {
 }
 
 impl CatalogList {
-    /// The listing for a `[catalogs]` table (id → title). A `BTreeMap` iterates in key
-    /// order, so the wire order is stable across reloads and restarts.
+    /// The listing for a `[catalogs]` table. A `BTreeMap` iterates in key order, so the
+    /// wire order is stable across reloads and restarts.
     #[must_use]
-    pub fn from_config(catalogs: &BTreeMap<String, String>) -> Self {
+    pub fn from_config(catalogs: &BTreeMap<String, CatalogCfg>) -> Self {
         Self {
-            catalogs: catalogs
-                .iter()
-                .map(|(id, title)| CatalogEntry {
-                    id: id.clone(),
-                    title: title.clone(),
-                })
+            catalogs: titles(catalogs)
+                .into_iter()
+                .map(|(id, title)| CatalogEntry { id, title })
                 .collect(),
         }
     }
+}
+
+/// A `[catalogs]` table as id → title, the form package validation and the provider
+/// tool's profiles use.
+#[must_use]
+pub fn titles(catalogs: &BTreeMap<String, CatalogCfg>) -> BTreeMap<String, String> {
+    catalogs
+        .iter()
+        .map(|(id, catalog)| (id.clone(), catalog.title.clone()))
+        .collect()
 }
 
 #[cfg(test)]
@@ -59,9 +68,14 @@ mod tests {
 
     #[test]
     fn lists_every_configured_catalog_in_id_order() {
+        let catalog = |title: &str| CatalogCfg {
+            title: title.to_owned(),
+            description: format!("{title} description"),
+            issued: None,
+        };
         let mut table = BTreeMap::new();
-        table.insert("synthetic-data".to_owned(), "Synthetic Data".to_owned());
-        table.insert("gdi-aggregated".to_owned(), "Aggregated".to_owned());
+        table.insert("synthetic-data".to_owned(), catalog("Synthetic Data"));
+        table.insert("gdi-aggregated".to_owned(), catalog("Aggregated"));
         let list = CatalogList::from_config(&table);
         let ids: Vec<&str> = list.catalogs.iter().map(|c| c.id.as_str()).collect();
         assert_eq!(ids, ["gdi-aggregated", "synthetic-data"]);

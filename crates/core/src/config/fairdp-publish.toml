@@ -1,0 +1,35 @@
+# The node's built-in [fairdp.publish]: what HealthDCAT-AP release 7 asks for beyond the
+# records the node builds itself. Every node with a [fairdp] block publishes it. The
+# node's own [fairdp.publish] goes over it key by key: a key set there replaces the value
+# here, and `rename_properties = { "<property>" = [] }` drops a property added here.
+
+# Every value of these properties is also given this rdf:type.
+[fairdp.publish.type_values]
+"dcatap:applicableLegislation" = "eli:LegalResource"
+"dct:accessRights" = "dct:RightsStatement"
+"dct:license" = "dct:LicenseDocument"
+"dct:language" = "dct:LinguisticSystem"
+"dpv:hasLegalBasis" = "dpv:LegalBasis"
+
+# Whether the dataset holds structured data and, if so, its variables (a CSVW table
+# group). Every aggregated dataset has the same allele-frequency table.
+[fairdp.publish.add.dataset.aggregated]
+"healthdcatap:hasStructuredData" = true
+"healthdcatap:hasVariables".a = "csvw:TableGroup"
+"healthdcatap:hasVariables"."csvw:table".a = "csvw:Table"
+"healthdcatap:hasVariables"."csvw:table"."dct:title" = "Allele frequencies"
+"healthdcatap:hasVariables"."csvw:table"."dct:description" = "One row per variant and population. The data is split into one file per chromosome and block of positions."
+"healthdcatap:hasVariables"."csvw:table"."csvw:column" = [
+  { a = "csvw:Column", "csvw:name" = "CHROM", "csvw:titles" = "Chromosome", "dct:description" = "Chromosome of the variant, given by the file the row is in.", "csvw:datatype" = "string" },
+  { a = "csvw:Column", "csvw:name" = "POS", "csvw:titles" = "Position", "dct:description" = "Position of the variant on the chromosome, 1-based, in the dataset's reference assembly.", "csvw:datatype" = "integer" },
+  { a = "csvw:Column", "csvw:name" = "REF", "csvw:titles" = "Reference allele", "dct:description" = "Reference allele.", "csvw:datatype" = "string" },
+  { a = "csvw:Column", "csvw:name" = "ALT", "csvw:titles" = "Alternate allele", "dct:description" = "Alternate allele.", "csvw:datatype" = "string" },
+  { a = "csvw:Column", "csvw:name" = "VT", "csvw:titles" = "Variant type", "dct:description" = "Type of the variant, such as SNP or INDEL.", "csvw:datatype" = "string" },
+  { a = "csvw:Column", "csvw:name" = "POPULATION", "csvw:titles" = "Population", "dct:description" = "The group of people the counts are over. A two-letter country code, optionally with _M or _F for sex, M or F alone, or Total.", "csvw:datatype" = "string" },
+  { a = "csvw:Column", "csvw:name" = "AF", "csvw:titles" = "Allele frequency", "dct:description" = "Frequency of the alternate allele in the population.", "csvw:datatype" = "decimal" },
+  { a = "csvw:Column", "csvw:name" = "AC", "csvw:titles" = "Allele count", "dct:description" = "Number of alternate alleles in the population, if given.", "csvw:datatype" = "integer" },
+  { a = "csvw:Column", "csvw:name" = "AN", "csvw:titles" = "Allele number", "dct:description" = "Number of alleles called in the population, if given.", "csvw:datatype" = "integer" },
+  { a = "csvw:Column", "csvw:name" = "AC_HOM", "csvw:titles" = "Homozygous count", "dct:description" = "Number of homozygous carriers of the alternate allele, if given.", "csvw:datatype" = "integer" },
+  { a = "csvw:Column", "csvw:name" = "AC_HET", "csvw:titles" = "Heterozygous count", "dct:description" = "Number of heterozygous carriers of the alternate allele, if given.", "csvw:datatype" = "integer" },
+  { a = "csvw:Column", "csvw:name" = "AC_HEMI", "csvw:titles" = "Hemizygous count", "dct:description" = "Number of hemizygous carriers of the alternate allele, if given.", "csvw:datatype" = "integer" },
+]

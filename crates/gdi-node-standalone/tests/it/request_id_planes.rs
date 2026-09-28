@@ -29,7 +29,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"

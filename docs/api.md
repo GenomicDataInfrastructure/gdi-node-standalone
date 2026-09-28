@@ -474,18 +474,31 @@ against the `gdi-metadata` SHACL shapes by the harness in
     fdp-o:metadataIssued "2026-01-01T00:00:00Z"^^xsd:dateTime ;
     fdp-o:metadataModified "2026-01-01T00:00:00Z"^^xsd:dateTime ;
     dcat:endpointURL <https://node.example.org/fairdp> ;
-    dct:publisher [ a foaf:Agent ; foaf:name "Example Organisation" ] ;
+    dct:publisher [ a foaf:Agent ; foaf:name "Example Organisation" ; foaf:homepage <https://example.org> ;
+        foaf:mbox <mailto:gdi@example.org> ;
+        dcat:contactPoint [ a vcard:Kind ; vcard:fn "GDI Estonia" ; vcard:hasEmail <mailto:gdi@example.org> ] ] ;
+    dcat:keyword "genomics", "allele frequencies" ;
     dcat:contactPoint [ a vcard:Kind ; vcard:fn "GDI Estonia" ; vcard:hasEmail <mailto:gdi@example.org> ] ;
     ldp:contains          <https://node.example.org/fairdp/catalog/gdi-aggregated> ;
     fdp-o:metadataCatalog <https://node.example.org/fairdp/catalog/gdi-aggregated> .
+
+<http://publications.europa.eu/resource/authority/licence/CC_BY_4_0> a dct:LicenseDocument .
+<http://publications.europa.eu/resource/authority/language/ENG> a dct:LinguisticSystem .
 ```
 
 `dct:conformsTo` points at `/fairdp/profile/service`, which is unrouted (`404`): the
 profile marker is opaque, not a served document.
 
-`dct:language` is the node-level `[fairdp].language`, an EU language-authority IRI
-defaulting to English, and appears on all three record kinds — the root, every catalog and
-every dataset. There is no per-dataset language: a node publishes in one.
+`dct:language` comes from `[fairdp].language`, a list of EU language-authority IRIs that
+defaults to English. It appears on the root, every catalog and every dataset; there is no
+per-dataset language.
+
+HealthDCAT-AP release 7 asks for more, and every node publishes it: every record gives its
+licence, access-rights, language, legislation and legal-basis values an `rdf:type` (the last
+two lines above), and every dataset record carries `healthdcatap:hasStructuredData` and the
+variables table. These are built in
+([`fairdp-publish.toml`](../crates/core/src/config/fairdp-publish.toml));
+`[fairdp.publish]` in `node.example.toml` changes them.
 
 ## Management plane
 
@@ -541,8 +554,8 @@ Both provenance fields are strings, `unknown` included: `build_epoch` is not a n
 [operating.md §18](operating.md#18-upgrades-version-skew-and-rollback) for how each is
 resolved.
 
-**`GET /catalogs`** — the configured catalogs, always `200`. The `[catalogs]` table as
-plain JSON, sorted by id, read from the same `SIGHUP`-reloadable snapshot as the FDP root,
+**`GET /catalogs`** — the configured catalogs, always `200`. Each `[catalogs]` id and title
+as plain JSON, sorted by id, read from the same `SIGHUP`-reloadable snapshot as the FDP root,
 so the two cannot disagree. This is the surface an integrating system reads to learn which
 catalog ids this node accepts at ingest; harvesters keep reading the FDP root. The body is
 [`catalogs.schema.json`](catalogs.schema.json):

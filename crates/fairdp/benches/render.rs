@@ -27,7 +27,8 @@ use std::hint::black_box;
 use criterion::{Criterion, criterion_group, criterion_main};
 use gdi_node_standalone_core::cache::DatasetEntry;
 use gdi_node_standalone_core::config::{
-    ContactPointCfg, FairdpConfig, FairdpHdab, FairdpPublisher,
+    CatalogCfg, ContactPointCfg, FairdpAccessUrls, FairdpAgent, FairdpConfig, FairdpDistribution,
+    FairdpPublish, ServiceConfig,
 };
 use gdi_node_standalone_core::model::{
     Agent, Assembly, ContactPoint, DatasetMode, LocalizedText, ManifestConfig, ManifestMetadata,
@@ -35,7 +36,7 @@ use gdi_node_standalone_core::model::{
 };
 use gdi_node_standalone_core::state::DatasetState;
 use gdi_node_standalone_fairdp::{
-    FdpContext, catalog_graph, dataset_graph, serialize_jsonld, serialize_turtle,
+    FdpContext, Publish, catalog_graph, dataset_graph, serialize_jsonld, serialize_turtle,
 };
 
 const BASE_URL: &str = "https://gdi-ee.example.org";
@@ -118,28 +119,46 @@ fn fairdp_config() -> FairdpConfig {
         description: Some("Aggregated genomic metadata for GDI Estonia".to_owned()),
         issued: "2026-01-01T00:00:00Z".to_owned(),
         license: "https://creativecommons.org/licenses/by/4.0/".to_owned(),
-        language: "http://publications.europa.eu/resource/authority/language/ENG".to_owned(),
+        language: vec!["http://publications.europa.eu/resource/authority/language/ENG".to_owned()],
         theme: vec!["http://publications.europa.eu/resource/authority/data-theme/HEAL".to_owned()],
-        theme_taxonomy: None,
+        theme_taxonomy: Vec::new(),
+        keywords: vec!["genomics".to_owned()],
         applicable_legislation: vec!["http://data.europa.eu/eli/reg/2025/327/oj".to_owned()],
-        publisher: FairdpPublisher {
+        endpoint_description: None,
+        publisher: FairdpAgent {
             name: "University of Tartu".to_owned(),
             homepage: Some("https://gdi.ut.ee".to_owned()),
-            mbox: Some("mailto:gdi@example.org".to_owned()),
             contact_point: ContactPointCfg {
-                fn_: "GDI Estonia".to_owned(),
-                has_email: "mailto:gdi@example.org".to_owned(),
-                has_url: Some("https://gdi.ut.ee".to_owned()),
+                name: "GDI Estonia".to_owned(),
+                email: "gdi@example.org".to_owned(),
+                url: Some("https://gdi.ut.ee".to_owned()),
             },
         },
-        hdab: FairdpHdab {
+        hdab: FairdpAgent {
             name: "Estonian HDAB".to_owned(),
+            homepage: None,
             contact_point: ContactPointCfg {
-                fn_: "Estonian HDAB".to_owned(),
-                has_email: "mailto:hdab@example.org".to_owned(),
-                has_url: None,
+                name: "Estonian HDAB".to_owned(),
+                email: "hdab@example.org".to_owned(),
+                url: None,
             },
         },
+        distribution: FairdpDistribution {
+            title: "GDI User Portal".to_owned(),
+            access_url: FairdpAccessUrls {
+                aggregated: "https://portal.example.org/allele-frequency".to_owned(),
+            },
+        },
+        publish: FairdpPublish::default(),
+    }
+}
+
+/// The benched catalog's `[catalogs.<id>]` settings.
+fn catalog_cfg() -> CatalogCfg {
+    CatalogCfg {
+        title: CATALOG_TITLE.to_owned(),
+        description: "Allele frequencies of the benchmark datasets".to_owned(),
+        issued: None,
     }
 }
 
@@ -162,6 +181,7 @@ fn bench_render(c: &mut Criterion) {
     let dataset = covid_entry("GDI-EE-UTARTU-20260409143052837");
     let catalog_entries = synthetic_catalog_entries();
     let catalog_refs: Vec<&DatasetEntry> = catalog_entries.iter().collect();
+    let catalog = catalog_cfg();
 
     let mut group = c.benchmark_group("fairdp_render");
 
@@ -185,7 +205,7 @@ fn bench_render(c: &mut Criterion) {
         b.iter(|| {
             let graph = catalog_graph(
                 black_box(CATALOG_ID),
-                black_box(CATALOG_TITLE),
+                black_box(&catalog),
                 black_box(&catalog_refs),
                 black_box(&ctx),
             );
@@ -196,11 +216,32 @@ fn bench_render(c: &mut Criterion) {
         b.iter(|| {
             let graph = catalog_graph(
                 black_box(CATALOG_ID),
-                black_box(CATALOG_TITLE),
+                black_box(&catalog),
                 black_box(&catalog_refs),
                 black_box(&ctx),
             );
             black_box(serialize_jsonld(&graph));
+        });
+    });
+
+    // The node compiles `[fairdp.publish]` once, on the first FDP request, and every
+    // builder then applies it. Measure both with the built-in settings (the release-7
+    // variables table), which the loader gives any `[fairdp]`, to compare with the plain
+    // `dataset_turtle` above.
+    let built_in = ServiceConfig::from_toml_str("[fairdp]\n")
+        .expect("a bare [fairdp] parses")
+        .fairdp
+        .expect("[fairdp] present")
+        .publish;
+    group.bench_function("publish_compile", |b| {
+        b.iter(|| black_box(Publish::compile(black_box(&built_in)).expect("compiles")));
+    });
+    let publish = Publish::compile(&built_in).expect("compiles");
+    let published_ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp).with_publish(&publish);
+    group.bench_function("dataset_turtle_with_built_in_publish", |b| {
+        b.iter(|| {
+            let graph = dataset_graph(black_box(&dataset), black_box(&published_ctx));
+            black_box(serialize_turtle(&graph));
         });
     });
 

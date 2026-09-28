@@ -34,6 +34,7 @@ fn test_config(data_dir: &Path, fairdp: bool) -> ServiceConfig {
     let fairdp_block = if fairdp {
         r#"
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 issued = "2026-01-01T00:00:00Z"
 license = "https://creativecommons.org/licenses/by/4.0/"
@@ -43,14 +44,14 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
+name = "GDI Estonia"
+email = "gdi@example.org"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#
     } else {
         ""
@@ -62,7 +63,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -489,7 +491,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/aggregated/v2"
@@ -503,6 +506,7 @@ id = "ee.ut.gdi"
 name = "University of Tartu"
 
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 issued = "2026-01-01T00:00:00Z"
 license = "https://creativecommons.org/licenses/by/4.0/"
@@ -512,14 +516,14 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
+name = "GDI Estonia"
+email = "gdi@example.org"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#,
         data_dir.display(),
     );
@@ -601,7 +605,8 @@ ingest_concurrency = 1
 rescan_interval_seconds = 3600
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -614,6 +619,7 @@ id = "ee.ut.gdi"
 name = "University of Tartu"
 
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 issued = "2026-01-01T00:00:00Z"
 license = "https://creativecommons.org/licenses/by/4.0/"
@@ -623,14 +629,14 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
+name = "GDI Estonia"
+email = "gdi@example.org"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#,
         data_dir = data_dir.display(),
         inbox = inbox.display(),
@@ -916,5 +922,62 @@ async fn the_catalog_plane_forbids_intermediary_caching() {
             Some("no-store"),
             "{path} must forbid intermediary caching; got {cc:?}"
         );
+    }
+}
+
+/// Every served record goes through `[fairdp.publish]`: a statement configured for each
+/// record type reaches that record over HTTP, with `$FDP_URL` and `$FDP_ID` substituted.
+/// The builders apply the edits they are given; this checks the handlers pass them.
+#[tokio::test]
+async fn publish_settings_reach_every_served_record() {
+    let (mut state, _tmp) = state_with_fdp(true);
+    let mut config = (*state.config).clone();
+    config.fairdp.as_mut().unwrap().publish = toml::from_str(
+        r#"
+[add.fairdp.all]
+"dct:source" = "$FDP_URL"
+[add.catalog.all]
+"dct:source" = "$FDP_URL/catalog/$FDP_ID"
+[add.dataset.aggregated]
+"dct:source" = "$FDP_URL/dataset/$FDP_ID"
+[add.distribution.all]
+"dct:source" = "$FDP_URL/distribution/$FDP_ID"
+"#,
+    )
+    .unwrap();
+    state.config = std::sync::Arc::new(config);
+
+    let fdp = "https://test.example.org/fairdp";
+    for path in [
+        "/fairdp".to_owned(),
+        format!("/fairdp/catalog/{CATALOG}"),
+        format!("/fairdp/dataset/{VISIBLE_ID}"),
+        format!("/fairdp/distribution/{VISIBLE_ID}"),
+    ] {
+        let (status, _ct, body) = get(state.clone(), &path, Some("text/turtle")).await;
+        assert_eq!(status, StatusCode::OK, "{path}:\n{body}");
+        let subject = format!("https://test.example.org{path}");
+        assert!(
+            body.contains(&format!("dct:source <{subject}>")),
+            "{path} must carry its configured dct:source <{subject}> ({fdp}):\n{body}"
+        );
+    }
+}
+
+/// A node whose config has no `[fairdp.publish]` still serves the built-in HealthDCAT-AP
+/// release 7 statements: the loader puts them under the node's own settings, and the handler
+/// applies them.
+#[tokio::test]
+async fn the_built_in_publish_settings_reach_a_dataset_record() {
+    let (state, _tmp) = state_with_fdp(true);
+    let path = format!("/fairdp/dataset/{VISIBLE_ID}");
+    let (status, _ct, body) = get(state, &path, Some("text/turtle")).await;
+    assert_eq!(status, StatusCode::OK, "{path}:\n{body}");
+    for expected in [
+        "healthdcatap:hasStructuredData true",
+        "csvw:TableGroup",
+        "dct:LicenseDocument",
+    ] {
+        assert!(body.contains(expected), "{path} lacks {expected}:\n{body}");
     }
 }

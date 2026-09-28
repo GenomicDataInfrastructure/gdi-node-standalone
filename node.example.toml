@@ -21,8 +21,8 @@
 #     [[s3.buckets]] name/endpoint/bucket .. a data source (credentials via env or Vault)
 #     beacon.id / beacon.name ....... this Beacon's identity
 #     beacon.organization.id / .name  the operating organization
-#     [fairdp] title/license/publisher/hdab/contact_point .. FDP metadata, DCAT-AP mandated
-#     catalogs ...................... your dataset catalog id -> label map
+#     [fairdp] title/license/publisher/hdab/distribution .. FDP metadata, DCAT-AP mandated
+#     catalogs ...................... your dataset catalogs: id -> title, description
 #
 #   Recommended. Defaults exist, but each value is a policy decision:
 #     beacon.min_allele_count ....... k-anonymity floor, counted in alleles; 0 disables
@@ -43,9 +43,11 @@
 # -----------------------------------------------------------------------------
 #
 # Config loading, lowest precedence first:
-#   1. this TOML file, located via `--config <path>`, then the GDI_CONFIG env var,
+#   1. for a node with a [fairdp] block, the built-in [fairdp.publish] settings (see
+#      that section);
+#   2. this TOML file, located via `--config <path>`, then the GDI_CONFIG env var,
 #      then the default /etc/gdi-node-standalone/node.toml;
-#   2. the environment overlay GDI_NODE__SECTION__KEY, double underscore between
+#   3. the environment overlay GDI_NODE__SECTION__KEY, double underscore between
 #      segments, which always wins over the file:
 #        GDI_NODE__SERVICE__INGEST_CONCURRENCY=8        -> [service].ingest_concurrency
 #        GDI_NODE__VAULT__TOKEN=hvs.xxxx                -> [vault].token
@@ -439,22 +441,26 @@ expose_dataset_list = false
 
 
 # -----------------------------------------------------------------------------
-# [catalogs] — catalog name -> display title.
-# key   = the catalog name datasets reference in `metadata.catalog`
-# value = the FDP/UI display title (the FDP catalog description equals the title)
-# A catalog configures only its title. The Catalog record's license and
-# applicableLegislation come from the node-wide [fairdp] block; there is no
-# per-catalog override. Datasets carry their own license and applicableLegislation in
-# package.yaml. The service rejects a dataset naming an unknown catalog.
+# [catalogs] — the catalogs datasets are grouped in, one `<id>.<setting>` group each:
+#   <id>         the name a dataset gives in `metadata.catalog`, and the end of the
+#                catalog's address, /fairdp/catalog/<id>
+#   title        the catalog's name. Required.
+#   description  a sentence about what it holds. Required.
+#   issued       when it started (xsd:dateTime). Optional; [fairdp].issued if unset.
+# A dataset naming a catalog that isn't here is rejected. The catalog records take their
+# licence and legislation from [fairdp].
 # Reloadable without a restart: edit this section and send SIGHUP to the running node.
 # A new catalog is served, and clears an unknown-catalog ingest error, within one
 # reconcile pass. See docs/operating.md §14.
-# Type: table of string->string. Default: empty. Optional (recommended).
+# Type: table of id -> {title, description, issued}. Default: empty.
 # -----------------------------------------------------------------------------
 [catalogs]
-# TIER: REQUIRED — the dataset catalogs this node advertises (id = human label).
-synthetic-data = "Synthetic Data"
-gdi-aggregated = "Genome of Europe Aggregated Data"
+# TIER: REQUIRED — the dataset catalogs this node advertises.
+synthetic-data.title = "Synthetic Data"
+synthetic-data.description = "Non-sensitive derived datasets"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Allele frequencies aggregated from the Genome of Europe cohorts"
+# gdi-aggregated.issued = "2026-01-01T00:00:00Z"
 
 
 # -----------------------------------------------------------------------------
@@ -822,110 +828,188 @@ writer_policy = "off"
 
 
 # -----------------------------------------------------------------------------
-# [fairdp] — the FAIR Data Point node identity: the invariant fields the FDP-root and
-# Catalog records carry. Those records are not datasets. Omit the whole block for a
-# beacon-only node, since the FDP is optional and the beacon is the baseline. When the
-# block is present, preflight enforces that title, issued and license are non-empty,
-# that license is a valid IRI, that the publisher and HDAB names are non-empty with
-# complete contact points, that every IRI and email is well-formed, that there is at
-# least one theme and at least one applicable_legislation IRI, and the theme
-# in-scheme rule.
+# [fairdp] — the FAIR Data Point, which describes this node and its datasets for the GDI
+# User Portal. Omit the whole block (every [fairdp…] table) for a Beacon-only node.
 #
-# The license and applicable_legislation here belong to the FDP-root and Catalog
-# records; they are not applied to datasets, which carry their own in package.yaml.
-# `theme` and `language` are the exception: the node re-emits both on every dataset
-# record as well, and neither has a per-dataset override.
+# Most values describe the node itself: its name, licence, publisher, the Health Data
+# Access Body (HDAB) and where users ask for access. Each dataset brings its own title,
+# licence and legislation in package.yaml; the node adds its theme, language, publisher
+# and HDAB to it.
+#
+# If the block is present, the node refuses to start until the required values below are
+# set and well-formed; `check-config` names the first problem.
 # -----------------------------------------------------------------------------
 [fairdp]
 # TIER: REQUIRED if you expose a FAIR Data Point (the fields are DCAT-AP mandated);
 # omit the block otherwise.
 
-# FDP-root dct:title. Type: string. Default: "" (empty). Required when [fairdp] present.
+# The name of this FAIR Data Point (dct:title of the root record).
+# Type: string. Required.
 title = "GDI Estonia FAIR Data Point"
 
-# Optional FDP-root dct:description. Omit to unset.
-# Type: string. Default: none. Optional.
+# A sentence about the node (dct:description of the root record).
+# Type: string. Optional.
 description = "Aggregated genomic metadata for the GDI Estonia node"
 
-# FDP-root fdp-o:metadataIssued (xsd:dateTime). metadataModified is data-derived at
-# render time and falls back to this when nothing has changed.
-# Type: string (xsd:dateTime). Default: "" (empty). Required when [fairdp] present.
+# When this FAIR Data Point started publishing (fdp-o:metadataIssued of the root and of
+# every catalog without its own `issued`). Their last-modified date is this date until a
+# dataset changes.
+# Type: string (xsd:dateTime). Required.
 issued = "2026-01-01T00:00:00Z"
 
-# FDP-root and Catalog record license IRI, mandatory on both records. Datasets set their
-# own license in package.yaml.
-# Type: string (IRI). Default: "" (empty). Required when [fairdp] present.
+# The licence of the node's own records, the root and the catalogs. Each dataset gives
+# its own licence in package.yaml.
+# Type: string (IRI). Required.
 license = "http://publications.europa.eu/resource/authority/licence/CC_BY_4_0"
 
-# The language this node publishes in, emitted as dct:language on the FDP root, on every
-# catalog and on every dataset. It is one node-level value and datasets do not override
-# it. Give an EU language-authority IRI (…/authority/language/EST, /FIN, /DEU). The GDI
-# user portal reads it into the harvested dataset's `language` field, so an empty value
-# shows there as blank. Omit to publish in English.
-# Type: string (IRI). Optional.
-# Default: "http://publications.europa.eu/resource/authority/language/ENG".
-language = "http://publications.europa.eu/resource/authority/language/ENG"
+# The languages of the records, as EU language IRIs (…/authority/language/EST, /FIN,
+# /DEU). They go on the root, every catalog and every dataset, and the GDI User Portal
+# shows them as the dataset's language.
+# Type: array of IRI strings. Optional; omit it for English.
+# Default: ["http://publications.europa.eu/resource/authority/language/ENG"].
+language = ["http://publications.europa.eu/resource/authority/language/ENG"]
 
-# Node-wide dataset and catalog theme concept IRIs. Each dataset record carries these
-# directly as dcat:theme, and the Catalog's dcat:themeTaxonomy is derived from them, as
-# their shared SKOS scheme (the concept IRI minus its final path segment), so a normal
-# vocabulary needs no separate taxonomy config.
-# Type: array of IRI strings. Default: [] (empty). Required when [fairdp] present (at
-# least one theme IRI).
+# The node's themes as concept IRIs, such as the EU data theme HEAL (health). Every
+# dataset carries them as dcat:theme.
+# Type: array of IRI strings. Required (at least one).
 theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
 
-# Optional override for the SKOS ConceptScheme of `theme`, for a vocabulary whose scheme
-# is not the concept's parent path. When it is set, every theme must be in-scheme, which
-# preflight validates. Omit to derive it from `theme`.
-# Type: string (IRI). Default: none (derived). Optional.
-# theme_taxonomy = "http://publications.europa.eu/resource/authority/data-theme"
+# The vocabulary the themes come from (the catalogs' dcat:themeTaxonomy). Omit it: it is
+# the themes' shared scheme, each theme IRI without its last segment. Set it only for a
+# vocabulary where that rule doesn't hold; every theme must then be in one of these.
+# Type: array of IRI strings. Optional.
+# theme_taxonomy = ["http://publications.europa.eu/resource/authority/data-theme"]
 
-# Catalog record dcatap:applicableLegislation IRIs. Node-level, with no per-catalog
-# override; datasets carry their own in package.yaml.
-# Type: array of IRI strings. Default: [] (empty). Required when [fairdp] present (at
-# least one IRI).
+# Keywords for the node (dcat:keyword of the root record).
+# Type: array of strings. Optional.
+keywords = ["genomics", "allele frequencies"]
+
+# The legislation the node's catalogs fall under, as ELI IRIs
+# (dcatap:applicableLegislation), such as the EHDS regulation below. Each dataset gives
+# its own in package.yaml.
+# Type: array of IRI strings. Required (at least one).
 applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 
-# [fairdp.publisher] — dct:publisher, the node organisation (exactly one).
+# Where the node's API is described, such as an OpenAPI document
+# (dcat:endpointDescription of the root record).
+# Type: string (IRI). Optional.
+# endpoint_description = "https://example.org/fairdp/openapi.yaml"
+
+# [fairdp.publisher] — the organisation that runs this node and publishes its records
+# (dct:publisher). Its contact point is published as a vCard and, on datasets, as
+# HealthDCAT-AP release 7's cv:contactPoint; its e-mail also as foaf:mbox.
 [fairdp.publisher]
 # TIER: REQUIRED when [fairdp] is present — DCAT-AP mandates dct:publisher, so the
 # service refuses to start without it. Omit the whole [fairdp] block if this node serves
 # no FAIR Data Point.
-# foaf:name. Type: string. Default: "" (empty). Required when [fairdp] present.
+# The organisation's name (foaf:name). Type: string. Required.
 name = "Example Organisation"
-# foaf:homepage (optional). Omit to unset. Type: string (IRI). Default: none.
+# Its website (foaf:homepage). Type: string (IRI). Optional.
 homepage = "https://example.org"
-# foaf:mbox (optional; the Organization's own address, distinct from the contact point
-# below). Omit to unset. Type: string (IRI). Default: none.
-mbox = "mailto:gdi@example.org"
 [fairdp.publisher.contact_point]
 # TIER: REQUIRED when [fairdp] is present — the submission model makes a contact point
 # mandatory on the publisher agent; the service refuses to start if it is missing or
 # incomplete.
-# vcard:fn. The TOML key is `fn`, a Rust keyword internally, so it is serde-renamed.
-# Type: string. Default: "" (empty). Required.
-fn = "GDI Estonia"
-# vcard:hasEmail (must match ^mailto:.+@.+\..+$).
-# Type: string. Default: "" (empty). Required.
-has_email = "mailto:gdi@example.org"
-# vcard:hasURL (optional). Omit to unset. Type: string (URL). Default: none.
-has_url = "https://example.org"
+# Who to contact, usually a team or a role (vcard:fn). Type: string. Required.
+name = "GDI Estonia"
+# The contact e-mail, with or without `mailto:`. Type: string. Required.
+email = "gdi@example.org"
+# A contact web page (vcard:hasURL, cv:contactPage). Type: string (URL). Optional.
+url = "https://example.org/contact"
 
-# [fairdp.hdab] — healthdcatap:hdab, the Member-State Health Data Access Body.
+# [fairdp.hdab] — the Health Data Access Body named on every dataset
+# (healthdcatap:hdab). Until your country has one, GDI asks for the data controller's
+# details here.
 [fairdp.hdab]
 # TIER: REQUIRED when [fairdp] is present — healthdcatap mandates the Member-State
 # Health Data Access Body, and it is the GDI-specific half of the FDP metadata a
 # harvester expects.
-# HDAB name. Type: string. Default: "" (empty). Required when [fairdp] present.
+# The body's name (foaf:name). Type: string. Required.
 name = "Estonian HDAB"
+# Its website (foaf:homepage). Type: string (IRI). Optional.
+# homepage = "https://example.org"
 [fairdp.hdab.contact_point]
 # TIER: REQUIRED when [fairdp] is present — likewise mandatory on the HDAB agent.
-# vcard:fn (the TOML key is `fn`). Type: string. Default: "" (empty). Required.
-fn = "Estonian HDAB"
-# vcard:hasEmail (^mailto:.+@.+\..+$). Type: string. Default: "" (empty). Required.
-has_email = "mailto:hdab@example.org"
-# vcard:hasURL (optional). Omit to unset. Type: string (URL). Default: none.
-# has_url = "https://example.org"
+# Who to contact (vcard:fn). Type: string. Required.
+name = "Estonian HDAB"
+# The contact e-mail, with or without `mailto:`. Type: string. Required.
+email = "hdab@example.org"
+# A contact web page (vcard:hasURL, cv:contactPage). Type: string (URL). Optional.
+# url = "https://example.org"
+
+# [fairdp.distribution] — where a user asks for access to a dataset, stated on every
+# dataset's distribution record. Its data service is always this node's aggregated Beacon.
+[fairdp.distribution]
+# TIER: REQUIRED when [fairdp] is present — GDI requires dcat:accessURL on every
+# distribution.
+# The name of the place the access URL leads to (dct:title).
+# Type: string. Default: "GDI User Portal".
+title = "GDI User Portal"
+# Where a user asks for access to an aggregated dataset (dcat:accessURL): the GDI User
+# Portal's allele-frequency page, or this node's own Beacon URL if there is no portal.
+# The setting is per dataset kind; this node serves aggregated datasets only.
+# Type: string (IRI). Required.
+access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
+
+# [fairdp.publish] — changes to the published records, for following a change in GDI's
+# metadata model before a node release ships it. You don't need this block: every node
+# already publishes what HealthDCAT-AP release 7 asks for on top of its own records
+# (hasStructuredData, the allele-frequency variables table, and an rdf:type on licence,
+# access rights, language, legislation and legal basis values). Those built-in settings
+# are in crates/core/src/config/fairdp-publish.toml, written the same way as this block.
+#
+# When GDI announces a change, add what it asks for here. Your settings go over the
+# built-in ones key by key: a key you set replaces the built-in value, the rest stay.
+# Then check the config, restart, and look at a record:
+#   gdi-node-standalone --config node.toml check-config
+#   curl -H 'Accept: text/turtle' https://node.example.org/fairdp/dataset/<dataset id>
+#
+# Names are prefixed names such as dct:title, full IRIs, or `a` for rdf:type. The prefixes
+# the node knows are the @prefix lines of any record it serves; add others under
+# `namespaces`. An unknown prefix stops the node, and `check-config` names it.
+[fairdp.publish]
+# TIER: ADVANCED — empty unless GDI changes its metadata model.
+
+# Extra prefixes, for example to write ex:newProperty below.
+# Type: table of prefix -> IRI. Default: {} (none).
+# namespaces = { ex = "https://example.org/ns#" }
+
+# Publish a property under another name. List both names to publish both while GDI moves
+# from one to the other; `[]` stops publishing the property.
+# Type: table of name -> name or array of names. Default: {} (none).
+# rename_properties = { "ex:oldProperty" = ["ex:oldProperty", "ex:newProperty"] }
+
+# Publish another value in place of one, wherever it appears; `[]` drops the value. For
+# example, when GDI moves to the EHDS health categories. The tool's `check` compares the
+# served licence and access rights with the package, so replacing either shows there as
+# a mismatch.
+# Type: table of name -> name or array of names. Default: {} (none).
+# replace_values = { "gdi:HealthCategoryHumanGenomic" = "<the EHDS category's IRI>" }
+
+# Give every value of a property an rdf:type as well.
+# Type: table of name -> name. Default: the five built-in value types.
+# type_values = { "dct:conformsTo" = "dct:Standard" }
+
+# Add statements to records: [fairdp.publish.add.<record>.<part>], where <record> is
+# `fairdp` (the root), `catalog`, `dataset` or `distribution`, and <part> is `all`, or
+# `aggregated` for aggregated datasets and their distributions. The node publishes each
+# value as:
+#   "dct:title" = "Allele frequencies"      text (titles, descriptions, names, keywords)
+#   "dcat:landingPage" = "https://…"        an IRI; so is a prefixed name, a mailto: value
+#                                           or an e-mail address
+#   "healthdcatap:hasStructuredData" = true a boolean; an integer is typed too
+#   "dct:issued" = "2026-01-31"             a date, or a date-time
+#   "dct:publisher" = { … }                 more statements on the record's publisher, or
+#                                           a new node if the record has none
+#   "csvw:column" = [{ … }, { … }]          a new node for each table
+# Values may use $FDP_URL (the FDP root's address) and $FDP_ID (the catalog or dataset
+# id). Type: table. Default: the built-in release 7 statements on aggregated datasets.
+#
+# For example, once GDI's shapes accept STATISTICAL as a dataset type (today only
+# SYNTHETIC_DATA), with a provenance sentence true for every dataset on the node:
+# [fairdp.publish.add.dataset.aggregated]
+# "dct:type" = "http://publications.europa.eu/resource/authority/dataset-type/STATISTICAL"
+# "dct:provenance" = { a = "dct:ProvenanceStatement", "rdfs:label" = "<how the allele frequencies were aggregated>" }
 
 
 # =============================================================================

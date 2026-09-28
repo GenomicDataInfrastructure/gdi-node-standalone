@@ -145,7 +145,8 @@ base_url = "https://n.example.org/"
 data_dir = "/var/lib/gdi/datasets"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"

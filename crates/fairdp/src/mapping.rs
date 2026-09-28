@@ -54,7 +54,7 @@ pub(crate) enum MetaField {
     Modified,
     /// `dcat:theme` (node-config concept IRIs).
     Theme,
-    /// `dct:language` (the node-config authority IRI).
+    /// `dct:language` (the node-config authority IRIs).
     Language,
     /// `dct:publisher` (node-config `foaf:Agent` blank node, card. 1).
     Publisher,

@@ -36,8 +36,10 @@ rescan_interval_seconds = 60
 management_addr = "0.0.0.0:9090"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
-synthetic-data = "Synthetic Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Allele frequencies aggregated from the Genome of Europe cohorts"
+synthetic-data.title = "Synthetic Data"
+synthetic-data.description = "Non-sensitive derived datasets"
 
 # FAIR Data Point node identity; omit the whole [fairdp] block for a beacon-only node.
 # The publisher and HDAB contact points are mandatory and the service refuses to start
@@ -53,16 +55,18 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "Local Dev Org"
 homepage = "https://example.org"
-mbox = "mailto:dev@example.org"
 [fairdp.publisher.contact_point]
-fn = "GDI Local"
-has_email = "mailto:dev@example.org"
+name = "GDI Local"
+email = "dev@example.org"
 
 [fairdp.hdab]
 name = "Local HDAB"
 [fairdp.hdab.contact_point]
-fn = "Local HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Local HDAB"
+email = "hdab@example.org"
+
+[fairdp.distribution]
+access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"

@@ -61,7 +61,8 @@ base_url = "{BASE_URL}"
 data_dir = "{}"
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -74,6 +75,7 @@ id = "ee.ut.gdi"
 name = "University of Tartu"
 
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 issued = "2026-01-01T00:00:00Z"
 license = "https://creativecommons.org/licenses/by/4.0/"
@@ -83,14 +85,14 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
+name = "GDI Estonia"
+email = "gdi@example.org"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#,
         data_dir.display(),
     );

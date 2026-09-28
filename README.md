@@ -195,7 +195,8 @@ inbox = "$HOME/gdi-demo/inbox"
 rescan_interval_seconds = 10      # demo: pick up sidecars quickly (default 600)
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Allele frequencies aggregated from the Genome of Europe cohorts"
 
 [beacon]
 id = "org.example.af-beacon.dev"
@@ -254,8 +255,8 @@ production shape for public aggregated data ([`node.quickstart.toml`](node.quick
 full node (the download is one; from source, `--features full`) and an S3-compatible
 bucket: Garage, Ceph RGW, MinIO or AWS. The `[fairdp]`
 block is what makes the node a FAIR Data Point. Fill in every field, including the
-publisher, the Health Data Access Body and both contact points, or delete the block for a
-Beacon-only node.
+publisher, the Health Data Access Body, both contact points and the distribution's access
+URL, or delete the block for a Beacon-only node.
 
 **Operator**, on the node host:
 

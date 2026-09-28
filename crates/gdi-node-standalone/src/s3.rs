@@ -2924,7 +2924,8 @@ data_dir = "{}"
 override_dir = "{}"
 
 [catalogs]
-{catalog} = "Genome of Europe Aggregated Data"
+{catalog}.title = "Genome of Europe Aggregated Data"
+{catalog}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"

@@ -54,7 +54,8 @@ enabled = {control_enabled}
 min_interval_seconds = {min_interval_seconds}
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"

@@ -136,16 +136,18 @@ name = "<SET ME: Example Organisation>"
 logo_url = "<SET ME: https://gdi.example.org/assets/logo.svg>"
 
 [catalogs]
-gdi-aggregated = "<SET ME: Aggregated Data>"
+gdi-aggregated.title = "<SET ME: Aggregated Data>"
+gdi-aggregated.description = "<SET ME: Allele frequencies aggregated by the Example GDI node>"
 
 # The FAIR Data Point node identity. Present because this example is the node the README
 # describes, "GA4GH Beacon + FAIR Data Point". Without the block the node serves a 404 at
 # /fairdp, omits `fairdp` from GET /, and reports `fairdp = not-configured` with nothing
-# to say why. Delete the whole block (all four tables) for a Beacon-only node.
+# to say why. Delete the whole block (every [fairdp…] table) for a Beacon-only node.
 #
-# Every field below is required once the block is present: preflight rejects a partial
-# one, and at one replica under `strategy: Recreate` that rejection is a crash-loop, not a
-# failed apply. The publisher and HDAB contact points are the two most easily missed.
+# Every field below except `description` is required once the block is present:
+# preflight rejects a partial one, and at one replica under `strategy: Recreate` that
+# rejection is a crash-loop, not a failed apply. The publisher and HDAB contact points are
+# the two most easily missed.
 [fairdp]
 title = "<SET ME: Example GDI FAIR Data Point>"
 description = "<SET ME: Aggregated genomic metadata for the Example GDI node>"
@@ -162,9 +164,9 @@ applicable_legislation = ["<SET ME: http://data.europa.eu/eli/reg/2025/327/oj>"]
 name = "<SET ME: Example Organisation>"
 
 [fairdp.publisher.contact_point]
-# The TOML key is `fn` (vcard:fn). `has_email` must match ^mailto:.+@.+\..+$.
-fn = "<SET ME: Example GDI Node>"
-has_email = "<SET ME: mailto:gdi@example.org>"
+# The e-mail may be written with or without `mailto:`.
+name = "<SET ME: Example GDI Node>"
+email = "<SET ME: gdi@example.org>"
 
 # healthdcatap:hdab — the Member-State Health Data Access Body. Required, and the
 # GDI-specific half of the FDP metadata a harvester expects.
@@ -172,8 +174,13 @@ has_email = "<SET ME: mailto:gdi@example.org>"
 name = "<SET ME: Example HDAB>"
 
 [fairdp.hdab.contact_point]
-fn = "<SET ME: Example HDAB>"
-has_email = "<SET ME: mailto:hdab@example.org>"
+name = "<SET ME: Example HDAB>"
+email = "<SET ME: hdab@example.org>"
+
+# dcat:accessURL (required): where a user asks for access to a dataset. The GDI User
+# Portal, or this node's own Beacon URL if there is no portal.
+[fairdp.distribution]
+access_url.aggregated = "<SET ME: https://portal.testing.gdi.lu/allele-frequency>"
 
 # An ingest source is required, and none is supplied above: a node with no source has
 # nothing to serve. Filling the placeholders above is necessary, not sufficient.
