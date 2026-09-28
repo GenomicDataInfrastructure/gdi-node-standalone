@@ -346,7 +346,8 @@ override_dir = "{}"
 inbox = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -409,7 +410,8 @@ data_dir = "/var/lib/gdi/datasets"
 override_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"

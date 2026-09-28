@@ -103,7 +103,8 @@ ingest_concurrency = 2
 rescan_interval_seconds = 3600
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "{AGG_BASE_PATH}"

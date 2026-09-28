@@ -130,8 +130,8 @@ The package's first member. Serialized `camelCase`. Top level:
 | `keywords` | string array | no | Discovery tags. |
 | `numberOfUniqueIndividuals` | uint | no | Distinct sequenced subjects. |
 | `conformsTo` | IRI array | no | GDI standards-compliance IRIs, a closed set: `ExternallyGoverned`, `1MGCompliant` and `1MGCohort` under `http://data.gdi.eu/core/p2/`. Any other value is rejected. |
-| `type` | IRI string | no | Dataset-type IRI (set only for synthetic data). |
-| `legalBasis` | IRI array | no | DPV legal-basis IRIs. |
+| `type` | IRI array | no | Dataset-type IRIs (set only for synthetic data). |
+| `legalBasis` | IRI array | no | DPV legal-basis IRIs. GDI requires one for `NON_PUBLIC` data: without it the tool and the node warn. |
 | `isReferencedBy` | IRI array | no | Publication DOI IRIs. |
 | `otherIdentifier` | `[{notation, schemaAgency?, name?}]` | no | Secondary identifiers. |
 | `contactPoint` | `{fn?, hasEmail?, hasURL?}` | no | Dataset-level contact. |

@@ -609,7 +609,8 @@ ingest_timeout_seconds = 1
 rescan_interval_seconds = 3600
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"

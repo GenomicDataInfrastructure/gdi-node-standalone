@@ -97,7 +97,7 @@ into `target/conformance/union.ttl`. It then runs:
   - the site is structurally unexercisable. Every remaining `sh:uniqueLang` skip is this:
     the node emits those paths as plain literals because the model behind them is a string,
     not a language map (`Agent.name` and `OtherIdentifier.name` for `foaf:name`, the
-    catalog title and description, and the fixed `DataService` / `Distribution` titles). A
+    catalog title and description, and the `DataService` / `Distribution` titles). A
     literal with no language tag cannot violate `sh:uniqueLang`, so no output this node can
     produce would exercise the rule, and closing the gap would mean changing the wire model
     to suit a test. `dct:title` and `dct:description` on `dcat:Dataset` are the only

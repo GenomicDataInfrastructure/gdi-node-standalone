@@ -486,7 +486,8 @@ metadata:
   # --- Optional ---
   conformsTo:                    # closed set: ExternallyGoverned | 1MGCompliant | 1MGCohort
     - "http://data.gdi.eu/core/p2/1MGCompliant"
-  type: "https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA"  # synthetic only
+  type:                          # synthetic only
+    - "https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA"
   legalBasis:
     - "https://w3id.org/dpv#Consent"
   isReferencedBy:
@@ -1942,12 +1943,12 @@ gdi-dataset-tool publish GDI-EE-EXAMPLE-20260409143052837
 > `unpublish` on a node's only remaining dataset does not retract it from a GDI User
 > Portal harvest. The portal's FDP harvester computes new, changed and deleted ids only
 > when its crawl returns at least one dataset. A crawl of a node with zero visible datasets
-> is indistinguishable from a failed crawl, so it is a no-op rather than a retraction, and
-> the portal keeps the stale entry listed with an `access_url` that now answers
-> `exists:false`. This is consumer-side behaviour: the command still succeeds and the node
-> still reports `hidden`. A node with two or more datasets is unaffected. To retract the
-> last dataset from an affected portal, ask the portal operator to clear the source
-> (`harvester clearsource`) rather than relying on the next harvest. See
+> is indistinguishable from a failed crawl, so it is a no-op rather than a retraction. The
+> portal keeps listing the stale entry, whose Beacon now answers `exists:false`. This is
+> consumer-side behaviour: the command still succeeds and the node still reports `hidden`.
+> A node with two or more datasets is unaffected. To retract the last dataset from an
+> affected portal, ask the portal operator to clear the source (`harvester clearsource`)
+> rather than relying on the next harvest. See
 > `docs/operating.md` §12/§13 for the node-side lifecycle.
 
 #### `delete`

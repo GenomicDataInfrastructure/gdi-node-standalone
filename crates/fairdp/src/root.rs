@@ -13,18 +13,20 @@
 //!
 //! `fdp-o:metadataModified` is data-derived and restart-stable: the latest dataset
 //! change time (from each `datasetId` timestamp via [`crate::datetime`]), falling back
-//! to `[fairdp].issued` when nothing is contained. It is never a wall-clock value.
+//! to the record's `issued` when nothing is contained. It is never a wall-clock value.
 
 use gdi_node_standalone_core::cache::DatasetEntry;
+use gdi_node_standalone_core::config::CatalogCfg;
 use oxrdf::{Graph, NamedNode, NamedOrBlankNode};
 
 use crate::context::FdpContext;
 use crate::datetime::rfc3339_instant_nanos;
-use crate::graph::{GraphBuilder, add_contact_point_cfg, add_publisher, dataset_modified};
+use crate::graph::{GraphBuilder, add_agent, add_contact_point_cfg, dataset_modified};
+use crate::publish::Record;
 use crate::vocab;
 
-/// One configured catalog as listed under the FDP root: its id, display title,
-/// and its visible datasets (for the data-derived `fdp-o:metadataModified`).
+/// One configured catalog as listed under the FDP root: its id and its visible datasets
+/// (for the data-derived `fdp-o:metadataModified`).
 ///
 /// Carries the visible datasets rather than a pre-computed timestamp, so the root
 /// derives its own `metadataModified` (the latest across all catalogs) with the same
@@ -33,14 +35,12 @@ use crate::vocab;
 pub struct CatalogListing<'a> {
     /// The catalog id (the `[catalogs]` key; the resource-IRI slug).
     pub id: &'a str,
-    /// The catalog display title (the `[catalogs]` value).
-    pub title: &'a str,
     /// The catalog's visible datasets, already filtered by the caller.
     pub visible_datasets: Vec<&'a DatasetEntry>,
 }
 
 /// The data-derived metadata-modified time for a set of datasets: the latest
-/// dataset change time, floored at (and falling back to) `[fairdp].issued`.
+/// dataset change time, floored at (and falling back to) `issued`.
 ///
 /// Each dataset's change time is its `dct:modified`, taken from [`dataset_modified`] so
 /// the two cannot drift. The latest is the chronological maximum: dataset values are
@@ -122,14 +122,14 @@ fn add_common_fdp_metadata(
 #[must_use]
 pub fn catalog_graph(
     catalog_id: &str,
-    title: &str,
+    catalog: &CatalogCfg,
     visible_datasets: &[&DatasetEntry],
     ctx: &FdpContext,
 ) -> Graph {
     let mut b = GraphBuilder::new();
     let iri = ctx.catalog_iri(catalog_id);
     let subj: NamedOrBlankNode = NamedNode::new_unchecked(&iri).into();
-    let issued = &ctx.fairdp.issued;
+    let issued = catalog.issued.as_ref().unwrap_or(&ctx.fairdp.issued);
     let modified = metadata_modified(visible_datasets, issued);
 
     b.add_type(subj.clone(), vocab::DCAT_CATALOG);
@@ -142,20 +142,28 @@ pub fn catalog_graph(
         &modified,
     );
 
-    // Title; description always equals the title (CatalogShape mandates both).
-    b.add_string(subj.clone(), vocab::DCT_TITLE, title);
-    b.add_string(subj.clone(), vocab::DCT_DESCRIPTION, title);
+    // CatalogShape mandates both.
+    b.add_string(subj.clone(), vocab::DCT_TITLE, &catalog.title);
+    b.add_string(subj.clone(), vocab::DCT_DESCRIPTION, &catalog.description);
 
-    add_publisher(&mut b, &subj, vocab::DCT_PUBLISHER, ctx);
+    add_agent(
+        &mut b,
+        &subj,
+        vocab::DCT_PUBLISHER,
+        &ctx.fairdp.publisher,
+        false,
+    );
     b.add_iri(subj.clone(), vocab::DCT_LICENSE, &ctx.fairdp.license);
-    b.add_iri(subj.clone(), vocab::DCT_LANGUAGE, &ctx.fairdp.language);
+    b.add_iris(&subj, vocab::DCT_LANGUAGE, &ctx.fairdp.language);
     b.add_iri(subj.clone(), vocab::DCT_IS_PART_OF, &ctx.root_iri());
 
-    // themeTaxonomy: the SKOS ConceptScheme of the configured theme (bare IRI, no
-    // local rdf:type). Omitted only if no theme is configured.
-    if let Some(taxonomy) = ctx.fairdp.theme_taxonomy_iri() {
-        b.add_iri(subj.clone(), vocab::DCAT_THEME_TAXONOMY, &taxonomy);
-    }
+    // themeTaxonomy: `[fairdp].theme_taxonomy`, else the configured themes' SKOS
+    // ConceptScheme (bare IRIs, no local rdf:type).
+    b.add_iris(
+        &subj,
+        vocab::DCAT_THEME_TAXONOMY,
+        &ctx.fairdp.theme_taxonomy_iris(),
+    );
 
     // CatalogShape-mandated node-level applicableLegislation (datasets carry their
     // own).
@@ -173,7 +181,7 @@ pub fn catalog_graph(
         b.add_iri(subj.clone(), vocab::LDP_CONTAINS, &dataset_iri);
     }
 
-    b.finish()
+    ctx.published(b.finish(), Record::Catalog, &iri, Some(catalog_id))
 }
 
 /// Build the **FDP-root** record graph (`/fairdp`) and its LDP navigation.
@@ -218,9 +226,19 @@ pub fn fdp_root_graph(catalogs: &[CatalogListing], ctx: &FdpContext) -> Graph {
     );
 
     b.add_string(subj.clone(), vocab::DCT_TITLE, &ctx.fairdp.title);
-    add_publisher(&mut b, &subj, vocab::DCT_PUBLISHER, ctx);
+    add_agent(
+        &mut b,
+        &subj,
+        vocab::DCT_PUBLISHER,
+        &ctx.fairdp.publisher,
+        false,
+    );
     b.add_iri(subj.clone(), vocab::DCT_LICENSE, &ctx.fairdp.license);
-    b.add_iri(subj.clone(), vocab::DCT_LANGUAGE, &ctx.fairdp.language);
+    b.add_iris(&subj, vocab::DCT_LANGUAGE, &ctx.fairdp.language);
+    b.add_strings(&subj, vocab::DCAT_KEYWORD, &ctx.fairdp.keywords);
+    if let Some(description) = &ctx.fairdp.endpoint_description {
+        b.add_iri(subj.clone(), vocab::DCAT_ENDPOINT_DESCRIPTION, description);
+    }
 
     // The DCAT service endpoint: the canonical lowercase-`p` `dcat:endpointURL`,
     // satisfying both the FDP-root shape and gdi-metadata's DataServiceShape (the
@@ -246,5 +264,5 @@ pub fn fdp_root_graph(catalogs: &[CatalogListing], ctx: &FdpContext) -> Graph {
         b.add_iri(subj.clone(), vocab::LDP_CONTAINS, &catalog_iri);
     }
 
-    b.finish()
+    ctx.published(b.finish(), Record::Fairdp, &iri, None)
 }

@@ -1814,7 +1814,8 @@ base_url = "https://test.example.org"
 data_dir = "/tmp/gdi-node-standalone-applog-test"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -2011,7 +2012,8 @@ base_url = "https://test.example.org"
 data_dir = "/tmp/gdi-node-standalone-mount-test"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "{prefix}"

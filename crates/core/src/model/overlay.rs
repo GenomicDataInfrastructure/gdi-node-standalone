@@ -47,9 +47,9 @@ pub struct MetadataOverlay {
     /// Standards-compliance IRIs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conforms_to: Option<Vec<String>>,
-    /// Dataset type IRI, set only for synthetic datasets.
+    /// Dataset type IRIs, set only for synthetic datasets.
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
-    pub type_: Option<String>,
+    pub type_: Option<Vec<String>>,
     /// DPV legal basis IRIs (for real personal data).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub legal_basis: Option<Vec<String>>,
@@ -265,7 +265,7 @@ mod tests {
             "keywords": ["k"],
             "numberOfUniqueIndividuals": 7,
             "conformsTo": ["http://example.org/profile"],
-            "type": "http://example.org/type",
+            "type": ["http://example.org/type"],
             "legalBasis": ["http://example.org/lb"],
             "isReferencedBy": ["http://example.org/ref"],
             "otherIdentifier": [{"notation": "DOI:10.x"}],

@@ -122,7 +122,8 @@ override_dir = "{}"
 require_override_store = {require}
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -168,7 +169,8 @@ base_url = "https://n.example.org/"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"

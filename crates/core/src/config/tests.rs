@@ -435,8 +435,10 @@ rescan_interval_seconds = 300
 management_addr = "0.0.0.0:9090"
 
 [catalogs]
-synthetic-data = "Synthetic Data"
-gdi-aggregated = "Genome of Europe Aggregated Data"
+synthetic-data.title = "Synthetic Data"
+synthetic-data.description = "Synthetic Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "ee.ut.af-beacon.production"
@@ -454,6 +456,7 @@ production_status = "PROD"
 security_level = "PUBLIC"
 
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 description = "Aggregated genomic metadata for the GDI Estonia node"
 issued = "2026-01-01T00:00:00Z"
@@ -464,17 +467,16 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 homepage = "https://gdi.ut.ee"
-mbox = "mailto:gdi@example.org"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
-has_url = "https://gdi.ut.ee/contact"
+name = "GDI Estonia"
+email = "gdi@example.org"
+url = "https://gdi.ut.ee/contact"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#;
 
 #[test]
@@ -514,7 +516,7 @@ fn service_config_loads_with_defaults_and_strips_base_url_slash() {
     // Catalogs.
     assert_eq!(cfg.catalogs.len(), 2);
     assert_eq!(
-        cfg.catalogs.get("gdi-aggregated").map(String::as_str),
+        cfg.catalogs.get("gdi-aggregated").map(|c| c.title.as_str()),
         Some("Genome of Europe Aggregated Data")
     );
 
@@ -546,28 +548,22 @@ fn service_config_loads_with_defaults_and_strips_base_url_slash() {
         fairdp.publisher.homepage.as_deref(),
         Some("https://gdi.ut.ee")
     );
-    assert_eq!(fairdp.publisher.contact_point.fn_, "GDI Estonia");
-    assert_eq!(
-        fairdp.publisher.contact_point.has_email,
-        "mailto:gdi@example.org"
-    );
+    assert_eq!(fairdp.publisher.contact_point.name, "GDI Estonia");
+    assert_eq!(fairdp.publisher.contact_point.email, "gdi@example.org");
     // Distinct from `publisher.homepage` above — these are different predicates
     // (`vcard:hasURL` vs `foaf:homepage`) and the fixture must keep them apart, or a
     // renderer emitting one where the other belongs passes every assertion.
     assert_eq!(
-        fairdp.publisher.contact_point.has_url.as_deref(),
+        fairdp.publisher.contact_point.url.as_deref(),
         Some("https://gdi.ut.ee/contact")
     );
     assert_ne!(
-        fairdp.publisher.contact_point.has_url, fairdp.publisher.homepage,
+        fairdp.publisher.contact_point.url, fairdp.publisher.homepage,
         "the contact URL and the publisher homepage must not collapse to one IRI"
     );
     assert_eq!(fairdp.hdab.name, "Estonian HDAB");
-    assert_eq!(fairdp.hdab.contact_point.fn_, "Estonian HDAB");
-    assert_eq!(
-        fairdp.hdab.contact_point.has_email,
-        "mailto:hdab@example.org"
-    );
+    assert_eq!(fairdp.hdab.contact_point.name, "Estonian HDAB");
+    assert_eq!(fairdp.hdab.contact_point.email, "hdab@example.org");
 
     // The representative config passes preflight.
     cfg.preflight().unwrap();
@@ -803,7 +799,8 @@ data_dir = "/var/lib/gdi/datasets"
 override_dir = "relative/overrides"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"
@@ -1007,7 +1004,8 @@ base_url = "https://gdi-ee.example.org"
 data_dir = "/data"
 
 [catalogs]
-synthetic-data = "Synthetic Data"
+synthetic-data.title = "Synthetic Data"
+synthetic-data.description = "Synthetic Data"
 
 [beacon]
 id = "ee.ut.af-beacon.production"
@@ -1036,6 +1034,7 @@ id = "ee.ut.af-beacon.production"
 name = "GDI Estonia Beacon"
 
 [fairdp]
+distribution.access_url.aggregated = "https://portal.example.org/allele-frequency"
 title = "GDI Estonia FAIR Data Point"
 issued = "2026-01-01T00:00:00Z"
 license = "https://creativecommons.org/licenses/by/4.0/"
@@ -1046,14 +1045,14 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 [fairdp.publisher]
 name = "University of Tartu"
 [fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
+name = "GDI Estonia"
+email = "gdi@example.org"
 
 [fairdp.hdab]
 name = "Estonian HDAB"
 [fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#
     )
 }
@@ -1064,12 +1063,44 @@ fn fairdp_full_config_loads_and_preflights() {
     let cfg = ServiceConfig::from_toml_str(&fairdp_toml("")).unwrap();
     let fairdp = cfg.fairdp.as_ref().expect("[fairdp] present");
     assert_eq!(fairdp.title, "GDI Estonia FAIR Data Point");
-    assert_eq!(fairdp.publisher.contact_point.fn_, "GDI Estonia");
+    assert_eq!(fairdp.publisher.contact_point.name, "GDI Estonia");
+    assert_eq!(fairdp.hdab.contact_point.email, "hdab@example.org");
     assert_eq!(
-        fairdp.hdab.contact_point.has_email,
-        "mailto:hdab@example.org"
+        fairdp.distribution.access_url.aggregated,
+        "https://portal.example.org/allele-frequency"
+    );
+    assert_eq!(
+        fairdp.distribution.title, "GDI User Portal",
+        "the default title"
     );
     cfg.preflight().unwrap();
+}
+
+/// A contact e-mail may be written with or without `mailto:`; the node publishes the
+/// `mailto:` IRI where an IRI is wanted and the plain address where text is.
+#[test]
+#[serial(env)]
+fn a_contact_email_may_be_written_with_or_without_mailto() {
+    for written in [
+        "hdab@example.org",
+        "mailto:hdab@example.org",
+        "MAILTO:hdab@example.org",
+    ] {
+        let toml = fairdp_toml("").replace(
+            r#"email = "hdab@example.org""#,
+            &format!("email = {written:?}"),
+        );
+        let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
+        cfg.preflight().unwrap();
+        let cp = &cfg
+            .fairdp
+            .as_ref()
+            .expect("[fairdp] present")
+            .hdab
+            .contact_point;
+        assert_eq!(cp.email_address(), "hdab@example.org", "{written}");
+        assert_eq!(cp.mailto(), "mailto:hdab@example.org", "{written}");
+    }
 }
 
 /// `[fairdp].language` is optional with an English default, and any value that reaches the
@@ -1087,25 +1118,28 @@ fn fairdp_language_defaults_to_english_and_must_be_an_iri() {
     let cfg = ServiceConfig::from_toml_str(&fairdp_toml("")).unwrap();
     assert_eq!(
         cfg.fairdp.as_ref().unwrap().language,
-        "http://publications.europa.eu/resource/authority/language/ENG",
+        ["http://publications.europa.eu/resource/authority/language/ENG"],
         "an omitted [fairdp].language must default to the EU English authority IRI"
     );
     cfg.preflight().unwrap();
 
-    // An explicit value is kept verbatim.
+    // An explicit list is kept verbatim, in order.
     let cfg = ServiceConfig::from_toml_str(&fairdp_toml(
-        r#"language = "http://publications.europa.eu/resource/authority/language/EST""#,
+        r#"language = ["http://publications.europa.eu/resource/authority/language/EST", "http://publications.europa.eu/resource/authority/language/ENG"]"#,
     ))
     .unwrap();
     assert_eq!(
         cfg.fairdp.as_ref().unwrap().language,
-        "http://publications.europa.eu/resource/authority/language/EST"
+        [
+            "http://publications.europa.eu/resource/authority/language/EST",
+            "http://publications.europa.eu/resource/authority/language/ENG"
+        ]
     );
     cfg.preflight().unwrap();
 
     // Empty and scheme-less values are refusals, not warnings.
     for bad in ["", "eng"] {
-        let cfg = ServiceConfig::from_toml_str(&fairdp_toml(&format!("language = {bad:?}")))
+        let cfg = ServiceConfig::from_toml_str(&fairdp_toml(&format!("language = [{bad:?}]")))
             .unwrap_or_else(|e| panic!("language = {bad:?} must parse: {e}"));
         let err = cfg
             .preflight()
@@ -1150,41 +1184,57 @@ fn fairdp_issued_is_canonicalized_to_xsd_datetime_at_load() {
     assert_eq!(cfg.fairdp.as_ref().unwrap().issued, "2026-01-01T00:00:00Z");
 }
 
-/// A `[catalogs]` entry whose title value is empty must be rejected at preflight: it would
-/// otherwise serve a blank `dct:title`/`dct:description` on the Catalog record while
-/// `/health` stays green.
+/// A `[catalogs.<id>]` entry whose title or description is empty must be rejected at
+/// preflight: it would otherwise serve a blank `dct:title`/`dct:description` on the Catalog
+/// record while `/health` stays green.
 #[test]
 #[serial(env)]
-fn empty_catalog_title_is_rejected() {
-    let toml = fairdp_toml("") + "\n[catalogs]\ngdi-aggregated = \"\"\n";
-    let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
-    let err = cfg.preflight().unwrap_err();
-    assert!(
-        err.to_string().contains("[catalogs] title"),
-        "expected an empty-catalog-title error, got: {err}"
-    );
+fn empty_catalog_title_or_description_is_rejected() {
+    for (title, description, expected) in [
+        ("", "D", "[catalogs] title"),
+        ("T", "", "[catalogs] description"),
+    ] {
+        let toml = fairdp_toml("")
+            + &format!(
+                "\n[catalogs]\ngdi-aggregated.title = {title:?}\ngdi-aggregated.description = {description:?}\n"
+            );
+        let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
+        let err = cfg.preflight().unwrap_err();
+        assert!(
+            err.to_string().contains(expected),
+            "expected {expected:?}, got: {err}"
+        );
+    }
+
+    // A bare `id = "title"` string does not parse.
+    let toml = fairdp_toml("") + "\n[catalogs]\ngdi-aggregated = \"GoE aggregated\"\n";
+    assert!(ServiceConfig::from_toml_str(&toml).is_err());
 
     // A non-empty title preflights cleanly.
-    let toml = fairdp_toml("") + "\n[catalogs]\ngdi-aggregated = \"GoE aggregated\"\n";
+    let toml = fairdp_toml("")
+        + "\n[catalogs]\ngdi-aggregated.title = \"GoE aggregated\"\ngdi-aggregated.description = \"GoE aggregated\"\n";
     let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
     cfg.preflight().unwrap();
 }
 
-/// `FairdpConfig::theme_taxonomy_iri` derives the Catalog `dcat:themeTaxonomy` from the
-/// first `theme`'s parent path when `theme_taxonomy` is unset, returns `None` when there is
+/// `FairdpConfig::theme_taxonomy_iris` derives the Catalog `dcat:themeTaxonomy` from the
+/// first `theme`'s parent path when `theme_taxonomy` is unset, returns nothing when there is
 /// nothing to derive from (no themes, or a theme with no derivable parent path), strips a
 /// trailing slash before taking the parent — without which the derived scheme is the concept
-/// itself, one level too deep — and lets an explicit `theme_taxonomy` override win.
+/// itself, one level too deep — and lets an explicit `theme_taxonomy` list win.
 #[test]
-fn fairdp_config_theme_taxonomy_iri_derives_or_overrides() {
+fn fairdp_config_theme_taxonomy_iris_derive_or_override() {
     let mut fairdp = FairdpConfig::default();
-    assert_eq!(fairdp.theme_taxonomy_iri(), None, "no themes, no override");
+    assert!(
+        fairdp.theme_taxonomy_iris().is_empty(),
+        "no themes, no override"
+    );
 
     fairdp.theme =
         vec!["http://publications.europa.eu/resource/authority/data-theme/HEAL".to_owned()];
     assert_eq!(
-        fairdp.theme_taxonomy_iri().as_deref(),
-        Some("http://publications.europa.eu/resource/authority/data-theme"),
+        fairdp.theme_taxonomy_iris(),
+        ["http://publications.europa.eu/resource/authority/data-theme"],
         "derives the taxonomy from the first theme's parent path"
     );
 
@@ -1195,29 +1245,34 @@ fn fairdp_config_theme_taxonomy_iri_derives_or_overrides() {
     fairdp.theme =
         vec!["http://publications.europa.eu/resource/authority/data-theme/HEAL/".to_owned()];
     assert_eq!(
-        fairdp.theme_taxonomy_iri().as_deref(),
-        Some("http://publications.europa.eu/resource/authority/data-theme"),
+        fairdp.theme_taxonomy_iris(),
+        ["http://publications.europa.eu/resource/authority/data-theme"],
         "a trailing slash must not shift the derived scheme down a level"
     );
 
     fairdp.theme = vec!["no-slash-here".to_owned()];
-    assert_eq!(
-        fairdp.theme_taxonomy_iri(),
-        None,
+    assert!(
+        fairdp.theme_taxonomy_iris().is_empty(),
         "a theme with no parent path has nothing to derive"
     );
 
-    fairdp.theme_taxonomy = Some("http://example.org/custom-scheme".to_owned());
+    fairdp.theme_taxonomy = vec![
+        "http://example.org/custom-scheme".to_owned(),
+        "http://example.org/other-scheme".to_owned(),
+    ];
     assert_eq!(
-        fairdp.theme_taxonomy_iri().as_deref(),
-        Some("http://example.org/custom-scheme"),
-        "an explicit override wins over derivation"
+        fairdp.theme_taxonomy_iris(),
+        [
+            "http://example.org/custom-scheme",
+            "http://example.org/other-scheme"
+        ],
+        "an explicit list wins over derivation"
     );
 }
 
 /// `[fairdp]` structural validation: an empty `theme`, a missing publisher/HDAB
-/// contact point, or a non-`mailto:` contact email would each serve
-/// SHACL-non-conformant RDF, so preflight must reject all four.
+/// contact point, a contact e-mail that is not an address, or a missing distribution
+/// access URL would each serve SHACL-non-conformant RDF, so preflight must reject them.
 ///
 /// Each row is the valid `fairdp_toml("")` fixture with exactly one field broken, so the
 /// case states its defect instead of restating a whole config around it. (A perturbation
@@ -1228,15 +1283,17 @@ fn fairdp_config_theme_taxonomy_iri_derives_or_overrides() {
 fn preflight_validates_fairdp_contact_points_and_theme() {
     // The two contact-point sub-tables, verbatim from `fairdp_toml`, so a case can drop one.
     const PUBLISHER_CONTACT: &str = r#"[fairdp.publisher.contact_point]
-fn = "GDI Estonia"
-has_email = "mailto:gdi@example.org"
+name = "GDI Estonia"
+email = "gdi@example.org"
 "#;
     const HDAB_CONTACT: &str = r#"[fairdp.hdab.contact_point]
-fn = "Estonian HDAB"
-has_email = "mailto:hdab@example.org"
+name = "Estonian HDAB"
+email = "hdab@example.org"
 "#;
-    // The publisher contact point's email (the one `mailto:gdi@example.org` in the fixture).
-    const PUBLISHER_EMAIL: &str = r#"has_email = "mailto:gdi@example.org""#;
+    // The publisher contact point's email (the one `gdi@example.org` in the fixture).
+    const PUBLISHER_EMAIL: &str = r#"email = "gdi@example.org""#;
+    const ACCESS_URL: &str =
+        r#"distribution.access_url.aggregated = "https://portal.example.org/allele-frequency""#;
     let cases = [
         (
             "empty_theme",
@@ -1247,7 +1304,13 @@ has_email = "mailto:hdab@example.org"
             Expect::Fail("fairdp.theme"),
         ),
         (
-            // A publisher with no [contact_point] sub-table -> empty fn/has_email.
+            // GDI makes `dcat:accessURL` mandatory on every distribution.
+            "missing_distribution_access_url",
+            fairdp_toml("").replace(ACCESS_URL, ""),
+            Expect::Fail("fairdp.distribution.access_url.aggregated"),
+        ),
+        (
+            // A publisher with no [contact_point] sub-table -> empty name/email.
             "missing_publisher_contact_point",
             fairdp_toml("").replace(PUBLISHER_CONTACT, ""),
             Expect::Fail("fairdp.publisher.contact_point"),
@@ -1258,25 +1321,25 @@ has_email = "mailto:hdab@example.org"
             Expect::Fail("fairdp.hdab.contact_point"),
         ),
         (
-            // Override the publisher contact point's email with a non-mailto value.
+            // A publisher contact e-mail that is not an address.
             "bad_contact_email",
-            fairdp_toml("").replace(PUBLISHER_EMAIL, r#"has_email = "gdi@example.org""#),
-            Expect::Fail("has_email"),
+            fairdp_toml("").replace(PUBLISHER_EMAIL, r#"email = "not-an-address""#),
+            Expect::Fail("fairdp.publisher.contact_point.email is not an e-mail address"),
         ),
         (
-            // A contact point with a non-empty `fn` but no `has_email` at all (rather
+            // A contact point with a non-empty `name` but no `email` at all (rather
             // than a malformed one) must hit the dedicated empty-field check, not the
-            // mailto-pattern check.
-            "publisher_contact_empty_has_email",
-            fairdp_toml("").replace(PUBLISHER_EMAIL, r#"has_email = """#),
-            Expect::Fail("has_email"),
+            // pattern check.
+            "publisher_contact_empty_email",
+            fairdp_toml("").replace(PUBLISHER_EMAIL, r#"email = """#),
+            Expect::Fail("fairdp.publisher.contact_point.email is required"),
         ),
         (
-            // `has_email` matching the loose `.+@.+\..+` mailto pattern but carrying an
+            // An `email` matching the loose `.+@.+\..+` pattern but carrying an
             // IRIREF-forbidden character (here, an embedded space) must still be rejected:
             // the pattern check alone is not enough.
-            "publisher_contact_has_email_iri_unsafe_char",
-            fairdp_toml("").replace(PUBLISHER_EMAIL, r#"has_email = "mailto:a b@example.org""#),
+            "publisher_contact_email_iri_unsafe_char",
+            fairdp_toml("").replace(PUBLISHER_EMAIL, r#"email = "a b@example.org""#),
             Expect::Fail("not allowed in an IRI"),
         ),
     ];
@@ -2093,7 +2156,7 @@ fn preflight_rejects_unsafe_catalog_map_key() {
     let base = minimal_toml("");
     // The real-world catalog-name shapes preflight cleanly.
     let good = format!(
-        "{base}\n[catalogs]\n\"gdi-aggregated\" = \"GoE Aggregated\"\n\"cat.v2\" = \"Catalog v2\"\n"
+        "{base}\n[catalogs]\n\"gdi-aggregated\".title = \"GoE Aggregated\"\n\"gdi-aggregated\".description = \"GoE Aggregated\"\n\"cat.v2\".title = \"Catalog v2\"\n\"cat.v2\".description = \"Catalog v2\"\n"
     );
     ServiceConfig::from_toml_str(&good)
         .unwrap()
@@ -2103,7 +2166,8 @@ fn preflight_rejects_unsafe_catalog_map_key() {
     // Each unsafe key (space / traversal / leading dot / separator) is rejected,
     // naming the offending `[catalogs]` key.
     for bad in ["bad key", "../escape", ".hidden", "a/b"] {
-        let toml = format!("{base}\n[catalogs]\n{bad:?} = \"x\"\n");
+        let toml =
+            format!("{base}\n[catalogs]\n{bad:?}.title = \"x\"\n{bad:?}.description = \"x\"\n");
         let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
         let err = cfg.preflight().unwrap_err();
         assert_eq!(err.class(), crate::error::ErrorClass::InvalidConfig);
@@ -2308,8 +2372,8 @@ name = "utartu/prod"
 /// `[fairdp]` IRI-safety and taxonomy validation: a theme outside the configured
 /// `theme_taxonomy`, or with no shared derivable scheme when the override is absent, is
 /// rejected; a malformed `license` IRI is rejected; and because a config IRI is served
-/// verbatim in the FDP RDF, the scheme allow-list applies to `theme`, `publisher.mbox` and
-/// `contact_point.has_url` alike.
+/// verbatim in the FDP RDF, the scheme allow-list applies to `theme`, an agent's `homepage`
+/// and `contact_point.url` alike.
 #[test]
 #[serial(env)]
 fn preflight_validates_fairdp_iri_and_taxonomy_fields() {
@@ -2317,14 +2381,14 @@ fn preflight_validates_fairdp_iri_and_taxonomy_fields() {
         (
             "theme_not_in_taxonomy",
             fairdp_toml(
-                r#"theme_taxonomy = "http://publications.europa.eu/resource/authority/other-vocab""#,
+                r#"theme_taxonomy = ["http://publications.europa.eu/resource/authority/other-vocab"]"#,
             ),
             Expect::Fail("theme_taxonomy"),
         ),
         (
             "theme_in_taxonomy_accepted",
             fairdp_toml(
-                r#"theme_taxonomy = "http://publications.europa.eu/resource/authority/data-theme""#,
+                r#"theme_taxonomy = ["http://publications.europa.eu/resource/authority/data-theme"]"#,
             ),
             Expect::Pass,
         ),
@@ -2345,30 +2409,30 @@ fn preflight_validates_fairdp_iri_and_taxonomy_fields() {
             Expect::Fail("fairdp.license"),
         ),
         (
-            "mbox_javascript_scheme_rejected",
+            "hdab_homepage_javascript_scheme_rejected",
             fairdp_toml("").replace(
-                "name = \"University of Tartu\"",
-                "name = \"University of Tartu\"\nmbox = \"javascript:alert(1)\"",
+                "name = \"Estonian HDAB\"\n[fairdp.hdab.contact_point]",
+                "name = \"Estonian HDAB\"\nhomepage = \"javascript:alert(1)\"\n[fairdp.hdab.contact_point]",
             ),
-            Expect::Fail("fairdp.publisher.mbox"),
+            Expect::Fail("fairdp.hdab.homepage"),
         ),
         (
-            // A valid mailto: mbox alongside an https homepage still preflights.
-            "mbox_valid_mailto_accepted",
+            // An https homepage on the publisher preflights.
+            "publisher_homepage_accepted",
             fairdp_toml("").replace(
                 "name = \"University of Tartu\"",
-                "name = \"University of Tartu\"\nhomepage = \"https://gdi.ut.ee\"\nmbox = \"mailto:gdi@example.org\"",
+                "name = \"University of Tartu\"\nhomepage = \"https://gdi.ut.ee\"",
             ),
             Expect::Pass,
         ),
         (
             // `vcard:hasURL` is emitted as an IRI too, so it gets the scheme allow-list.
-            "contact_has_url_javascript_scheme_rejected",
+            "contact_url_javascript_scheme_rejected",
             fairdp_toml("").replace(
-                "has_email = \"mailto:gdi@example.org\"",
-                "has_email = \"mailto:gdi@example.org\"\nhas_url = \"javascript:alert(1)\"",
+                "email = \"gdi@example.org\"",
+                "email = \"gdi@example.org\"\nurl = \"javascript:alert(1)\"",
             ),
-            Expect::Fail("has_url"),
+            Expect::Fail("fairdp.publisher.contact_point.url"),
         ),
         (
             "theme_javascript_scheme_rejected",
@@ -2790,7 +2854,7 @@ fn audit_disabled_is_a_startup_advisory() {
 /// The config's contact-point email must enforce the same cap as the package validator.
 ///
 /// `check_contact_point` delegates to `validate_pkg::is_mailto_email` and the shared
-/// 254-char cap, two lines from where `has_email` already calls into that module for the
+/// 254-char cap, two lines from where `email` already calls into that module for the
 /// IRI-character half. A local copy of the rule would drop the cap.
 #[test]
 #[serial(env)]
@@ -2798,8 +2862,8 @@ fn contact_point_email_is_bounded_like_every_other_email() {
     // 254 is the cap; build a valid-shaped mailto comfortably past it.
     let long_local = "a".repeat(300);
     let toml = fairdp_toml("").replace(
-        r#"has_email = "mailto:gdi@example.org""#,
-        &format!(r#"has_email = "mailto:{long_local}@example.org""#),
+        r#"email = "gdi@example.org""#,
+        &format!(r#"email = "{long_local}@example.org""#),
     );
     let cfg = ServiceConfig::from_toml_str(&toml).unwrap();
     let err = cfg
@@ -2807,7 +2871,7 @@ fn contact_point_email_is_bounded_like_every_other_email() {
         .expect_err("an oversized contact email must be rejected");
     assert_eq!(err.class(), crate::error::ErrorClass::InvalidConfig);
     assert!(
-        err.to_string().contains("has_email"),
+        err.to_string().contains("contact_point.email"),
         "must name the field: {err}"
     );
 
@@ -3938,7 +4002,8 @@ base_url = "https://test.example.org"
 data_dir = "/tmp/gdi-dup-test"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -3987,7 +4052,8 @@ base_url = "https://test.example.org"
 data_dir = "/tmp/gdi-keyspace-test"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -4098,7 +4164,8 @@ base_url = "https://test.example.org"
 data_dir = "/tmp/gdi-s3-required"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -4225,7 +4292,8 @@ data_dir = "/var/lib/gdi/datasets"
 inbox = "/var/lib/gdi/inbox"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -4268,7 +4336,8 @@ data_dir = "/var/lib/gdi/datasets"
 inbox = "/var/lib/gdi/inbox"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -4406,7 +4475,8 @@ data_dir = "/var/lib/gdi/datasets"
 inbox = "/var/lib/gdi/inbox"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -4435,7 +4505,10 @@ fn reloadable_extracts_catalogs_and_writer_allowlists_only() {
     let cfg = ServiceConfig::from_toml_str(reload_base_toml()).expect("parses");
     let reloadable = Reloadable::from_config(&cfg);
 
-    assert_eq!(reloadable.catalogs.get("gdi-aggregated").unwrap(), "GoE");
+    assert_eq!(
+        reloadable.catalogs.get("gdi-aggregated").unwrap().title,
+        "GoE"
+    );
     assert_eq!(reloadable.writer_policy, WriterPolicy::Warn);
     assert_eq!(reloadable.writer_allowlist_for("inbox"), ["sha256:inbox1"]);
     assert_eq!(
@@ -4454,8 +4527,14 @@ fn changed_outside_reloadable_subset_ignores_catalogs_and_allowlist_edits() {
     // Add a catalog, flip the writer policy, extend both allow-lists and set the ack. Those
     // are every field the reloadable cell swaps, plus the ack, which preflight consults
     // transiently and never stores live, so none of them counts as a restart-worthy change.
-    new.catalogs
-        .insert("synthetic-data".to_owned(), "Synthetic".to_owned());
+    new.catalogs.insert(
+        "synthetic-data".to_owned(),
+        CatalogCfg {
+            title: "Synthetic".to_owned(),
+            description: "Synthetic".to_owned(),
+            issued: None,
+        },
+    );
     new.ingest.writer_policy = WriterPolicy::Enforce;
     new.ingest.allow_any_writer_ack = "DPIA-2027-01".to_owned();
     new.ingest
@@ -4926,7 +5005,8 @@ data_dir = "/var/lib/gdi/datasets"
 trust_sidecar_traceparent = true
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -4952,7 +5032,8 @@ data_dir = "/var/lib/gdi/datasets"
 trust_inbound_traceparent = true
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -4970,4 +5051,69 @@ fn both_traceparent_trust_flags_default_off() {
     let default = ServiceConfig::default();
     assert!(!default.service.trust_inbound_traceparent);
     assert!(!default.service.trust_sidecar_traceparent);
+}
+
+/// A node with `[fairdp]` publishes the built-in HealthDCAT-AP release 7 edits. Its own
+/// `[fairdp.publish]` goes over them key by key, down into nested tables, and a Beacon-only
+/// node does not get a `[fairdp]` from them.
+#[test]
+#[serial(env)]
+fn the_nodes_publish_settings_go_over_the_built_in_ones() {
+    let publish = |extra: &str| {
+        ServiceConfig::from_toml_str(&fairdp_toml(extra))
+            .unwrap()
+            .fairdp
+            .expect("[fairdp] present")
+            .publish
+    };
+    let variables_table = |p: &FairdpPublish| {
+        let dataset = p.add.dataset.as_ref().expect("a dataset block");
+        let Some(AddValue::Node(variables)) = dataset.aggregated.get("healthdcatap:hasVariables")
+        else {
+            panic!("no variables table: {dataset:?}");
+        };
+        let Some(AddValue::Node(table)) = variables.get("csvw:table") else {
+            panic!("no csvw:table: {variables:?}");
+        };
+        table.clone()
+    };
+
+    let built_in = publish("");
+    assert_eq!(built_in.type_values.len(), 5, "{:?}", built_in.type_values);
+    assert_eq!(built_in.type_values["dct:license"], "dct:LicenseDocument");
+    assert_eq!(
+        variables_table(&built_in)["dct:title"],
+        AddValue::Text("Allele frequencies".to_owned())
+    );
+
+    let own = publish(
+        r#"publish.type_values."dct:license" = "dct:Other"
+publish.add.dataset.aggregated."healthdcatap:hasVariables"."csvw:table"."dct:title" = "Variants""#,
+    );
+    assert_eq!(own.type_values["dct:license"], "dct:Other");
+    assert_eq!(
+        own.type_values.len(),
+        5,
+        "the other built-in value types stay"
+    );
+    let table = variables_table(&own);
+    assert_eq!(table["dct:title"], AddValue::Text("Variants".to_owned()));
+    let Some(AddValue::Many(columns)) = table.get("csvw:column") else {
+        panic!("the built-in columns are gone: {table:?}");
+    };
+    assert_eq!(columns.len(), 12);
+    assert_eq!(
+        own.add.dataset.as_ref().unwrap().aggregated["healthdcatap:hasStructuredData"],
+        AddValue::Bool(true)
+    );
+
+    let beacon_only = ServiceConfig::from_toml_str(
+        r#"
+[service]
+base_url = "https://gdi-ee.example.org"
+data_dir = "/data"
+"#,
+    )
+    .unwrap();
+    assert!(beacon_only.fairdp.is_none());
 }

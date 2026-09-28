@@ -116,11 +116,14 @@ const MAX_FILE_PATH_LEN: usize = 1024;
 
 // ── Enum vocabularies ──
 
+/// The `accessRights` value of data obtainable only through a data access application.
+const NON_PUBLIC: &str = "http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC";
+
 /// `accessRights` authority IRIs (the three EU access-right tokens).
 pub const ACCESS_RIGHTS: &[&str] = &[
     "http://publications.europa.eu/resource/authority/access-right/PUBLIC",
     "http://publications.europa.eu/resource/authority/access-right/RESTRICTED",
-    "http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC",
+    NON_PUBLIC,
 ];
 
 /// `type` IRIs — the single defined synthetic-data value.
@@ -192,6 +195,15 @@ pub const EHDS_ELI: &str = "http://data.europa.eu/eli/reg/2025/327/oj";
 #[must_use]
 pub fn ehds_absent_warning() -> String {
     format!("EHDS ELI absent; health datasets are expected to cite it (add {EHDS_ELI})")
+}
+
+/// The advisory for a `NON_PUBLIC` dataset without `legalBasis`, which GDI's metadata
+/// guidelines require for such data.
+#[must_use]
+pub fn non_public_without_legal_basis_warning() -> String {
+    "accessRights is NON_PUBLIC but legalBasis is absent; GDI requires a legal basis for \
+     non-public data (add metadata.legalBasis)"
+        .to_owned()
 }
 
 /// Whether `value` matches the `hasEmail` shape `^mailto:.+@.+\..+$`: a `mailto:`
@@ -364,6 +376,9 @@ fn validate_core_metadata(m: &PackageMetadata, warnings: &mut Vec<String>) -> Co
 
     validate_enum("accessRights", &m.access_rights, ACCESS_RIGHTS)?;
     validate_iri("accessRights", &m.access_rights)?;
+    if m.access_rights == NON_PUBLIC && m.legal_basis.as_ref().is_none_or(Vec::is_empty) {
+        warnings.push(non_public_without_legal_basis_warning());
+    }
 
     // `prefix` is optional in package.yaml (the manifest carries the generated datasetId
     // instead, so it is `None` there), but when present it is a closed {GOE,GDI}
@@ -443,9 +458,8 @@ fn validate_optional_metadata(m: &PackageMetadata, notes: &mut Vec<String>) -> C
             validate_conforms_to(iri)?;
         }
     }
-    if let Some(type_) = &m.type_ {
-        validate_enum("type", type_, DATASET_TYPES)?;
-        validate_iri("type", type_)?;
+    if let Some(types) = &m.type_ {
+        validate_types(types)?;
     }
     if let Some(legal) = &m.legal_basis {
         validate_iri_list("legalBasis", legal)?;
@@ -727,6 +741,23 @@ pub fn validate_enum(field: &str, value: &str, allowed: &[&str]) -> CoreResult<(
     } else {
         Err(invalid(&format!("{field} value {value:?} is not allowed")))
     }
+}
+
+/// Validate `type`: at least one IRI, each from the closed [`DATASET_TYPES`] set.
+///
+/// # Errors
+///
+/// Returns [`CoreError::InvalidManifest`] for an empty list, or for a value that is not
+/// in the set or not an IRI.
+pub fn validate_types(types: &[String]) -> CoreResult<()> {
+    if types.is_empty() {
+        return Err(invalid("type must list at least one IRI"));
+    }
+    for iri in types {
+        validate_enum("type", iri, DATASET_TYPES)?;
+        validate_iri("type", iri)?;
+    }
+    Ok(())
 }
 
 /// Validate `healthCategory`: one of the closed [`HEALTH_CATEGORIES`] set
@@ -1169,8 +1200,7 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
         }
     }
     if let Some(t) = type_ {
-        validate_enum("type", t, DATASET_TYPES)?;
-        validate_iri("type", t)?;
+        validate_types(t)?;
     }
     if let Some(legal) = legal_basis {
         validate_iri_list("legalBasis", legal)?;
@@ -2819,5 +2849,53 @@ mod tests {
                 cap + 1
             );
         }
+    }
+
+    /// Every IRI in `type` is checked, and an empty list is refused.
+    #[test]
+    fn type_checks_every_iri_and_refuses_an_empty_list() {
+        let synthetic = super::DATASET_TYPES[0].to_owned();
+        let mut p = sample_package();
+        p.metadata.type_ = Some(vec![synthetic.clone()]);
+        assert!(validate_package(&p, Some(&node_catalogs())).is_ok());
+
+        p.metadata.type_ = Some(vec![
+            synthetic,
+            "http://publications.europa.eu/resource/authority/dataset-type/STATISTICAL".to_owned(),
+        ]);
+        let msg = validate_package(&p, Some(&node_catalogs()))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            msg.contains("STATISTICAL"),
+            "every listed value is checked: {msg}"
+        );
+
+        p.metadata.type_ = Some(Vec::new());
+        let msg = validate_package(&p, Some(&node_catalogs()))
+            .unwrap_err()
+            .to_string();
+        assert!(msg.contains("at least one"), "{msg}");
+    }
+
+    /// GDI requires a legal basis for `NON_PUBLIC` data. Its absence is an advisory, which
+    /// `build --strict` turns into a failure, like the absent EHDS ELI.
+    #[test]
+    fn non_public_without_a_legal_basis_warns() {
+        let warning = non_public_without_legal_basis_warning();
+        let mut p = sample_package();
+        p.metadata.access_rights = super::NON_PUBLIC.to_owned();
+        p.metadata.legal_basis = None;
+        let report = validate_package(&p, Some(&node_catalogs())).unwrap();
+        assert!(report.warnings.contains(&warning), "{:?}", report.warnings);
+
+        p.metadata.legal_basis = Some(vec!["https://w3id.org/dpv#Consent".to_owned()]);
+        let report = validate_package(&p, Some(&node_catalogs())).unwrap();
+        assert!(!report.warnings.contains(&warning), "{:?}", report.warnings);
+
+        p.metadata.access_rights = super::ACCESS_RIGHTS[0].to_owned();
+        p.metadata.legal_basis = None;
+        let report = validate_package(&p, Some(&node_catalogs())).unwrap();
+        assert!(!report.warnings.contains(&warning), "{:?}", report.warnings);
     }
 }

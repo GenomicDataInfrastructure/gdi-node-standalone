@@ -66,7 +66,8 @@ data_dir = "{}"
 max_request_body_bytes = 2048
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"

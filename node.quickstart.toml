@@ -50,9 +50,11 @@ data_dir = "/var/lib/gdi-node-standalone/datasets"
 # and no --features full.
 # inbox = "/var/lib/gdi-node-standalone/inbox"
 
-# The catalogs this node advertises (id = human-readable label). One line each.
+# The catalogs this node advertises. Each needs `<id>.title` and `<id>.description`;
+# `<id>.issued` is optional.
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "<SET ME: Allele frequencies aggregated from the Genome of Europe cohorts>"
 
 # The node's crypt4gh identity, which decrypts inbound .tar.c4gh packages. Generate
 # the key file as in step 2 above. Omit this whole block for a keyless, plaintext-only
@@ -142,15 +144,20 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 name = "<SET ME: Your Organization>"
 
 [fairdp.publisher.contact_point]
-# Publisher contact (vCard fn and email).
-fn = "<SET ME: Your Contact Name>"
-has_email = "<SET ME: mailto:you@example.org>"
+# Publisher contact. The e-mail may be written with or without `mailto:`.
+name = "<SET ME: Your Contact Name>"
+email = "<SET ME: you@example.org>"
 
 [fairdp.hdab]
 # The Health Data Access Body.
 name = "<SET ME: Your HDAB>"
 
 [fairdp.hdab.contact_point]
-# HDAB contact (vCard fn and email).
-fn = "<SET ME: HDAB Contact Name>"
-has_email = "<SET ME: mailto:hdab@example.org>"
+# HDAB contact. The e-mail may be written with or without `mailto:`.
+name = "<SET ME: HDAB Contact Name>"
+email = "<SET ME: hdab@example.org>"
+
+[fairdp.distribution]
+# dcat:accessURL (required): where a user asks for access to a dataset. The GDI User
+# Portal, or this node's own Beacon URL if there is no portal.
+access_url.aggregated = "<SET ME: https://portal.testing.gdi.lu/allele-frequency>"

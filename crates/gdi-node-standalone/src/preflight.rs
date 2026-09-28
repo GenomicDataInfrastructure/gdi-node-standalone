@@ -100,9 +100,29 @@ pub fn check_mount_prefixes(config: &ServiceConfig) -> CoreResult<()> {
     Ok(())
 }
 
+/// Compile `[fairdp.publish]`, so an unknown prefix, a malformed IRI or a misplaced
+/// `$FDP_ID` stops the node at boot (and fails `check-config`) instead of failing every
+/// FAIR-DP request. This check lives here because the names resolve against the renderer's
+/// prefixes in the `fairdp` crate; [`ServiceConfig::preflight`] checks only the shape.
+///
+/// # Errors
+///
+/// Returns [`CoreError::InvalidConfig`] naming the setting that does not compile.
+pub fn check_fairdp_publish(config: &ServiceConfig) -> CoreResult<()> {
+    let Some(fairdp) = &config.fairdp else {
+        return Ok(());
+    };
+    gdi_node_standalone_fairdp::Publish::compile(&fairdp.publish)
+        .map(|_| ())
+        .map_err(|error| CoreError::InvalidConfig {
+            detail: error.to_string(),
+        })
+}
+
 /// Run the full service-side startup preflight: the feature-independent
 /// [`ServiceConfig::preflight`], the build-feature cross-checks ([`check_features`]),
-/// then the router-collision check ([`check_mount_prefixes`]).
+/// the router-collision check ([`check_mount_prefixes`]), then the `[fairdp.publish]`
+/// compilation ([`check_fairdp_publish`]).
 ///
 /// Callers run this before binding the listener. `check-config` runs this same pass and
 /// then exits, so it shares the live boot's code path.
@@ -127,6 +147,7 @@ pub fn run_with(config: &ServiceConfig, emit_advisories: bool) -> CoreResult<()>
     config.preflight()?;
     check_features(config)?;
     check_mount_prefixes(config)?;
+    check_fairdp_publish(config)?;
     if emit_advisories {
         config.emit_startup_advisories();
     }

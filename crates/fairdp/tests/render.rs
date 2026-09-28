@@ -8,7 +8,8 @@ use std::collections::BTreeMap;
 
 use gdi_node_standalone_core::cache::DatasetEntry;
 use gdi_node_standalone_core::config::{
-    ContactPointCfg, FairdpConfig, FairdpHdab, FairdpPublisher,
+    AddValue, CatalogCfg, ContactPointCfg, FairdpAccessUrls, FairdpAgent, FairdpConfig,
+    FairdpDistribution, FairdpPublish, PublishAdd, PublishParts,
 };
 use gdi_node_standalone_core::model::{
     Agent, Assembly, ContactPoint, DatasetMode, LocalizedText, ManifestConfig, ManifestMetadata,
@@ -17,8 +18,8 @@ use gdi_node_standalone_core::model::{
 use gdi_node_standalone_core::state::DatasetState;
 
 use gdi_node_standalone_fairdp::{
-    CatalogListing, FdpContext, catalog_graph, dataset_graph, distribution_graph, fdp_root_graph,
-    serialize_jsonld, serialize_turtle,
+    CatalogListing, FdpContext, Publish, catalog_graph, dataset_graph, distribution_graph,
+    fdp_root_graph, serialize_jsonld, serialize_turtle,
 };
 
 use oxrdf::dataset::CanonicalizationAlgorithm;
@@ -106,31 +107,55 @@ fn fairdp_config() -> FairdpConfig {
         license: "https://creativecommons.org/licenses/by/4.0/".to_owned(),
         // Not the built-in default (ENG): an emitter that hard-coded the default IRI
         // instead of reading config would render identically under an English fixture.
-        language: LANGUAGE.to_owned(),
+        language: vec![LANGUAGE.to_owned()],
         theme: vec!["http://publications.europa.eu/resource/authority/data-theme/HEAL".to_owned()],
-        theme_taxonomy: None,
+        theme_taxonomy: Vec::new(),
+        keywords: vec!["genomics".to_owned(), "allele frequency".to_owned()],
         applicable_legislation: vec!["http://data.europa.eu/eli/reg/2025/327/oj".to_owned()],
-        publisher: FairdpPublisher {
+        endpoint_description: Some("https://docs.example.org/fairdp/openapi.yaml".to_owned()),
+        publisher: FairdpAgent {
             name: "University of Tartu".to_owned(),
             homepage: Some("https://gdi.ut.ee".to_owned()),
-            mbox: Some("mailto:gdi@example.org".to_owned()),
             contact_point: ContactPointCfg {
-                fn_: "GDI Estonia".to_owned(),
-                has_email: "mailto:gdi@example.org".to_owned(),
+                name: "GDI Estonia".to_owned(),
+                // Written without `mailto:`: the renderer adds it where an IRI is published.
+                email: "gdi@example.org".to_owned(),
                 // Distinct from publisher.homepage above: with one IRI in both,
                 // foaf:homepage and vcard:hasURL render identically in the goldens, and
                 // emitting one where the other belongs would be invisible.
-                has_url: Some("https://gdi.ut.ee/contact".to_owned()),
+                url: Some("https://gdi.ut.ee/contact".to_owned()),
             },
         },
-        hdab: FairdpHdab {
+        hdab: FairdpAgent {
             name: "Estonian HDAB".to_owned(),
+            homepage: None,
             contact_point: ContactPointCfg {
-                fn_: "Estonian HDAB".to_owned(),
-                has_email: "mailto:hdab@example.org".to_owned(),
-                has_url: None,
+                name: "Estonian HDAB".to_owned(),
+                // Written with `mailto:`: both forms are accepted.
+                email: "mailto:hdab@example.org".to_owned(),
+                url: None,
             },
         },
+        distribution: FairdpDistribution {
+            title: "GDI User Portal".to_owned(),
+            access_url: FairdpAccessUrls {
+                aggregated: ACCESS_URL.to_owned(),
+            },
+        },
+        publish: FairdpPublish::default(),
+    }
+}
+
+/// The fixture's `[fairdp.distribution.access_url].aggregated`.
+const ACCESS_URL: &str = "https://portal.example.org/allele-frequency";
+
+/// The fixture's `[catalogs.gdi-aggregated]`. The description differs from the title, so
+/// emitting one in place of the other fails.
+fn catalog_cfg() -> CatalogCfg {
+    CatalogCfg {
+        title: CATALOG_TITLE.to_owned(),
+        description: CATALOG_DESCRIPTION.to_owned(),
+        issued: None,
     }
 }
 
@@ -345,16 +370,24 @@ fn dct_type_emitted_only_when_set() {
         "dct:type must not be emitted when type_ is None"
     );
 
-    // Case B: type_ = Some(iri) — dct:type must carry exactly that IRI.
+    // Case B: type_ = Some([iri]) — dct:type must carry exactly that IRI.
     let type_iri = "http://www.w3.org/ns/dcat#Dataset";
     let mut entry = covid_entry();
-    entry.metadata.type_ = Some(type_iri.to_owned());
+    entry.metadata.type_ = Some(vec![type_iri.to_owned()]);
     let graph_some = dataset_graph(&entry, &ctx);
     assert_eq!(
         iri_objects(&graph_some, &dataset_iri, &dct_type_pred),
         vec![type_iri.to_owned()],
         "dct:type must be emitted as the IRI set in type_ when Some"
     );
+
+    // Case C: several types — one dct:type each.
+    let other_iri = "http://www.w3.org/ns/dcat#Resource";
+    entry.metadata.type_ = Some(vec![type_iri.to_owned(), other_iri.to_owned()]);
+    let graph_many = dataset_graph(&entry, &ctx);
+    let mut emitted = iri_objects(&graph_many, &dataset_iri, &dct_type_pred);
+    emitted.sort();
+    assert_eq!(emitted, vec![type_iri.to_owned(), other_iri.to_owned()]);
 }
 
 /// One representative dual-encoding round-trip: the Turtle and JSON-LD serializers must
@@ -379,12 +412,12 @@ fn dataset_jsonld_turtle_isomorphic() {
 fn inline_data_service_has_lowercase_endpoint_url_and_title() {
     let fairdp = fairdp_config();
     let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
-    let ttl = serialize_turtle(&distribution_graph(&covid_entry(), &ctx));
-
-    let g_variants = format!("{BASE_URL}{BEACON_PATH}/g_variants");
+    let graph = distribution_graph(&covid_entry(), &ctx);
+    let ttl = serialize_turtle(&graph);
+    let dist_iri = format!("{BASE_URL}/fairdp/distribution/{DATASET_ID}");
 
     // The inline DataService is not type-only: it carries the lowercase
-    // dcat:endpointURL pointing at g_variants.
+    // dcat:endpointURL, the aggregated Beacon.
     assert!(
         ttl.contains("dcat:endpointURL"),
         "lowercase dcat:endpointURL missing:\n{ttl}"
@@ -399,8 +432,20 @@ fn inline_data_service_has_lowercase_endpoint_url_and_title() {
         ttl.contains("GDI Beacon"),
         "DataService title missing:\n{ttl}"
     );
-    // Both accessURL and the service endpoint point at g_variants.
-    assert!(ttl.contains(&g_variants), "g_variants URL missing:\n{ttl}");
+    // The access URL is the configured one (where a user asks for access); the service
+    // endpoint is the aggregated Beacon, derived from the base URL when not configured.
+    assert_eq!(
+        iri_objects(&graph, &dist_iri, &format!("{DCAT}accessURL")),
+        vec![ACCESS_URL.to_owned()]
+    );
+    assert!(
+        ttl.contains(&format!("dcat:endpointURL <{BASE_URL}{BEACON_PATH}>")),
+        "the service endpoint must be the aggregated Beacon:\n{ttl}"
+    );
+    assert_eq!(
+        literals(&graph, &dist_iri, &format!("{DCT}title")),
+        vec!["GDI User Portal".to_owned()]
+    );
     // servesDataset back to the dataset IRI.
     assert!(ttl.contains(&format!("{BASE_URL}/fairdp/dataset/{DATASET_ID}")));
     // dcat:accessService is present (the inline service link).
@@ -474,15 +519,12 @@ fn hdab_agent_carries_foaf_mbox_beside_its_vcard() {
     );
 }
 
-/// The publisher agent carries `foaf:mbox` even when `[fairdp.publisher].mbox` is unset,
-/// derived from its contact point's mandatory `vcard:hasEmail` as the HDAB agent's is. A
-/// config with `has_email` and no `mbox` preflights clean, so without this the publisher
-/// would reach the root, every catalog and every dataset with no address the harvester
-/// can read.
+/// The publisher agent's `foaf:mbox` and vCard `hasEmail` are both its contact point's
+/// e-mail, published as a `mailto:` IRI although the configuration writes it without the
+/// scheme.
 #[test]
-fn publisher_agent_carries_foaf_mbox_from_its_contact_point_when_mbox_is_unset() {
-    let mut fairdp = fairdp_config();
-    fairdp.publisher.mbox = None;
+fn publisher_agent_carries_its_contact_email_as_foaf_mbox() {
+    let fairdp = fairdp_config();
     let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
     let graph = dataset_graph(&covid_entry(), &ctx);
     let dataset_iri = format!("{BASE_URL}/fairdp/dataset/{DATASET_ID}");
@@ -494,24 +536,160 @@ fn publisher_agent_carries_foaf_mbox_from_its_contact_point_when_mbox_is_unset()
     );
     assert_eq!(
         iri_objects_of(&graph, publisher, FOAF_MBOX),
-        vec![fairdp.publisher.contact_point.has_email.clone()],
-        "with no explicit mbox the publisher must still carry one, from its contact point"
-    );
-
-    // An explicit `mbox` still wins over the derived one.
-    let graph = dataset_graph(
-        &covid_entry(),
-        &FdpContext::new(BASE_URL, BEACON_PATH, &fairdp_config()),
-    );
-    let publisher = blank_object(
-        &graph,
-        NamedNodeRef::new_unchecked(&dataset_iri),
-        DCT_PUBLISHER_IRI,
-    );
-    assert_eq!(
-        iri_objects_of(&graph, publisher, FOAF_MBOX),
         vec!["mailto:gdi@example.org".to_owned()]
     );
+    let vcard = blank_object(&graph, publisher, DCAT_CONTACT_POINT);
+    assert_eq!(
+        iri_objects_of(&graph, vcard, VCARD_HAS_EMAIL),
+        vec!["mailto:gdi@example.org".to_owned()]
+    );
+}
+
+/// HealthDCAT-AP release 7's `cv:contactPoint` hangs off the dataset record's publisher
+/// and HDAB, with the e-mail as text (no `mailto:`) and the contact page when set. The
+/// root and catalog publishers do not carry it.
+#[test]
+fn release_7_contact_point_is_on_the_dataset_agents_only() {
+    let fairdp = fairdp_config();
+    let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
+    let entry = covid_entry();
+    let graph = dataset_graph(&entry, &ctx);
+    let dataset = format!("{BASE_URL}/fairdp/dataset/{DATASET_ID}");
+    let dataset = NamedNodeRef::new_unchecked(&dataset);
+
+    for (agent, email, page) in [
+        (
+            DCT_PUBLISHER_IRI,
+            "gdi@example.org",
+            Some("https://gdi.ut.ee/contact"),
+        ),
+        (HEALTHDCATAP_HDAB, "hdab@example.org", None),
+    ] {
+        let agent = blank_object(&graph, dataset, agent);
+        let cv = blank_object(&graph, agent, CV_CONTACT_POINT);
+        let emails: Vec<String> = graph
+            .objects_for_subject_predicate(cv, NamedNodeRef::new_unchecked(CV_EMAIL))
+            .filter_map(|o| match o {
+                TermRef::Literal(l) => Some(l.value().to_owned()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            emails,
+            vec![email.to_owned()],
+            "cv:email is the plain address"
+        );
+        assert_eq!(
+            iri_objects_of(&graph, cv, CV_CONTACT_PAGE),
+            page.map(str::to_owned).into_iter().collect::<Vec<_>>()
+        );
+    }
+
+    for other in [
+        serialize_turtle(&catalog_graph(CATALOG_ID, &catalog_cfg(), &[&entry], &ctx)),
+        serialize_turtle(&fdp_root_graph(&[], &ctx)),
+    ] {
+        assert!(!other.contains("cv:contactPoint"), "{other}");
+    }
+}
+
+/// A catalog's title, description and start date (`fdp-o:metadataIssued`) come from its
+/// own `[catalogs.<id>]` settings; the start date falls back to `[fairdp].issued`.
+#[test]
+fn catalog_description_and_issued_come_from_its_own_settings() {
+    let fairdp = fairdp_config();
+    let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
+    let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
+
+    let graph = catalog_graph(CATALOG_ID, &catalog_cfg(), &[], &ctx);
+    assert_eq!(
+        literals(&graph, &catalog_iri, &format!("{DCT}title")),
+        vec![CATALOG_TITLE.to_owned()]
+    );
+    assert_eq!(
+        literals(&graph, &catalog_iri, &format!("{DCT}description")),
+        vec![CATALOG_DESCRIPTION.to_owned()]
+    );
+    assert_eq!(
+        literals(&graph, &catalog_iri, &format!("{FDP_O}metadataIssued")),
+        vec!["2026-01-01T00:00:00Z".to_owned()]
+    );
+
+    let own = CatalogCfg {
+        issued: Some("2026-03-01T00:00:00Z".to_owned()),
+        ..catalog_cfg()
+    };
+    let graph = catalog_graph(CATALOG_ID, &own, &[], &ctx);
+    assert_eq!(
+        literals(&graph, &catalog_iri, &format!("{FDP_O}metadataIssued")),
+        vec!["2026-03-01T00:00:00Z".to_owned()]
+    );
+}
+
+/// The FDP root carries `[fairdp].keywords` as `dcat:keyword` and
+/// `[fairdp].endpoint_description` as `dcat:endpointDescription`.
+#[test]
+fn root_carries_keywords_and_endpoint_description() {
+    let fairdp = fairdp_config();
+    let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
+    let graph = fdp_root_graph(&[], &ctx);
+    let root = format!("{BASE_URL}/fairdp");
+    assert_eq!(
+        literals(&graph, &root, &format!("{DCAT}keyword")),
+        vec!["allele frequency".to_owned(), "genomics".to_owned()]
+    );
+    assert_eq!(
+        iri_objects(&graph, &root, &format!("{DCAT}endpointDescription")),
+        vec!["https://docs.example.org/fairdp/openapi.yaml".to_owned()]
+    );
+}
+
+/// Every record builder applies `[fairdp.publish]`: a statement added to each record type
+/// appears on that record, with `$FDP_URL` and `$FDP_ID` substituted, and on no other.
+#[test]
+fn publish_edits_reach_every_record_builder() {
+    let marker = |text: &str| PublishParts {
+        all: std::collections::BTreeMap::from([(
+            "dct:source".to_owned(),
+            AddValue::Text(text.to_owned()),
+        )]),
+        ..PublishParts::default()
+    };
+    let mut fairdp = fairdp_config();
+    fairdp.publish = FairdpPublish {
+        add: PublishAdd {
+            fairdp: Some(marker("$FDP_URL")),
+            catalog: Some(marker("$FDP_URL/catalog/$FDP_ID")),
+            dataset: Some(marker("$FDP_URL/dataset/$FDP_ID")),
+            distribution: Some(marker("$FDP_URL/distribution/$FDP_ID")),
+        },
+        ..FairdpPublish::default()
+    };
+    let publish = Publish::compile(&fairdp.publish).expect("the publish settings compile");
+    let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp).with_publish(&publish);
+    let entry = covid_entry();
+    let source = format!("{DCT}source");
+    for (graph, subject) in [
+        (fdp_root_graph(&[], &ctx), format!("{BASE_URL}/fairdp")),
+        (
+            catalog_graph(CATALOG_ID, &catalog_cfg(), &[], &ctx),
+            format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}"),
+        ),
+        (
+            dataset_graph(&entry, &ctx),
+            format!("{BASE_URL}/fairdp/dataset/{DATASET_ID}"),
+        ),
+        (
+            distribution_graph(&entry, &ctx),
+            format!("{BASE_URL}/fairdp/distribution/{DATASET_ID}"),
+        ),
+    ] {
+        let sources: Vec<String> = graph
+            .triples_for_predicate(NamedNodeRef::new_unchecked(&source))
+            .map(|t| format!("{} {}", t.subject, t.object))
+            .collect();
+        assert_eq!(sources, vec![format!("<{subject}> <{subject}>")]);
+    }
 }
 
 /// A distribution carries `dct:format` beside `dcat:mediaType`.
@@ -546,6 +724,7 @@ fn distribution_carries_dct_format_beside_dcat_media_type() {
 const DATASET_ID_2: &str = "GDI-EE-UTARTU-20260512090000000";
 const CATALOG_ID: &str = "gdi-aggregated";
 const CATALOG_TITLE: &str = "GoE aggregated catalog";
+const CATALOG_DESCRIPTION: &str = "Allele frequencies of the fixture datasets";
 
 /// A second visible dataset (a later timestamp than [`covid_entry`]) so the
 /// catalog/root `metadataModified` derivation has a clear latest.
@@ -673,6 +852,9 @@ const FOAF_MBOX: &str = "http://xmlns.com/foaf/0.1/mbox";
 const DCT_PUBLISHER_IRI: &str = "http://purl.org/dc/terms/publisher";
 const DCAT_CONTACT_POINT: &str = "http://www.w3.org/ns/dcat#contactPoint";
 const VCARD_HAS_EMAIL: &str = "http://www.w3.org/2006/vcard/ns#hasEmail";
+const CV_CONTACT_POINT: &str = "http://data.europa.eu/m8g/contactPoint";
+const CV_EMAIL: &str = "http://data.europa.eu/m8g/email";
+const CV_CONTACT_PAGE: &str = "http://data.europa.eu/m8g/contactPage";
 
 #[test]
 fn catalog_three_membership_predicates_cover_every_visible_dataset() {
@@ -681,7 +863,7 @@ fn catalog_three_membership_predicates_cover_every_visible_dataset() {
     let e1 = covid_entry();
     let e2 = second_entry();
     let visible = [&e1, &e2];
-    let graph = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let graph = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
 
     let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
     let want: Vec<String> = vec![
@@ -741,7 +923,7 @@ fn catalog_three_membership_predicates_cover_every_visible_dataset() {
 fn empty_catalog_is_valid_with_no_membership_triples() {
     let fairdp = fairdp_config();
     let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
-    let graph = catalog_graph(CATALOG_ID, CATALOG_TITLE, &[], &ctx);
+    let graph = catalog_graph(CATALOG_ID, &catalog_cfg(), &[], &ctx);
 
     let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
 
@@ -781,12 +963,10 @@ fn root_lists_all_configured_catalogs_including_empty() {
     let catalogs = vec![
         CatalogListing {
             id: "gdi-aggregated",
-            title: "GoE aggregated catalog",
             visible_datasets: vec![&e1],
         },
         CatalogListing {
             id: "empty-cat",
-            title: "Empty catalog",
             visible_datasets: vec![],
         },
     ];
@@ -844,7 +1024,7 @@ fn root_lists_all_configured_catalogs_including_empty() {
 
 /// `[fairdp].language` is emitted as `dct:language` on the FDP root, on every catalog and
 /// on every dataset. The userportal's DCAT profile reads it into the dataset's `language`
-/// field. It is one node-level value; there is no per-dataset override.
+/// field. It is a node-level list; there is no per-dataset override.
 ///
 /// All three subjects are asserted from one configured value: emitting it on the root
 /// alone leaves the portal's dataset records with an empty `language`.
@@ -855,7 +1035,6 @@ fn configured_language_is_emitted_on_the_root_every_catalog_and_every_dataset() 
     let entry = covid_entry();
     let catalogs = vec![CatalogListing {
         id: CATALOG_ID,
-        title: "GoE aggregated catalog",
         visible_datasets: vec![&entry],
     }];
 
@@ -874,7 +1053,7 @@ fn configured_language_is_emitted_on_the_root_every_catalog_and_every_dataset() 
     );
     assert_eq!(
         iri_objects(
-            &catalog_graph(CATALOG_ID, "GoE aggregated catalog", &[&entry], &ctx),
+            &catalog_graph(CATALOG_ID, &catalog_cfg(), &[&entry], &ctx),
             &format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}"),
             &format!("{DCT}language")
         ),
@@ -917,8 +1096,8 @@ fn metadata_modified_is_data_derived_and_restart_stable() {
     let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
 
     // Rendering twice yields the same value (no wall-clock).
-    let g1 = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
-    let g2 = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let g1 = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
+    let g2 = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
     let m1 = modified(&g1, &catalog_iri);
     let m2 = modified(&g2, &catalog_iri);
     assert_eq!(m1, m2, "metadataModified must be restart-stable");
@@ -928,13 +1107,12 @@ fn metadata_modified_is_data_derived_and_restart_stable() {
     assert_eq!(m1, "2026-05-12T09:00:00.000Z");
 
     // An empty catalog falls back to [fairdp].issued.
-    let empty = catalog_graph(CATALOG_ID, CATALOG_TITLE, &[], &ctx);
+    let empty = catalog_graph(CATALOG_ID, &catalog_cfg(), &[], &ctx);
     assert_eq!(modified(&empty, &catalog_iri), fairdp.issued);
 
     // The root derives the latest across every catalog's datasets, restart-stable.
     let catalogs = vec![CatalogListing {
         id: CATALOG_ID,
-        title: CATALOG_TITLE,
         visible_datasets: vec![&e1, &e2],
     }];
     let r1 = fdp_root_graph(&catalogs, &ctx);
@@ -968,7 +1146,7 @@ fn metadata_modified_uses_chronological_not_lexical_max() {
 
     let modified_pred = format!("{FDP_O}metadataModified");
     let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
-    let g = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let g = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
     let subj = NamedOrBlankNodeRef::NamedNode(NamedNodeRef::new_unchecked(&catalog_iri));
     let pred = NamedNodeRef::new_unchecked(&modified_pred);
     let value = g
@@ -1061,7 +1239,7 @@ fn a_lenient_metadata_modified_override_is_canonicalized_not_discarded() {
     let mut entry = covid_entry();
     entry.metadata_modified = Some("2027-01-01 00:00:00Z".to_owned());
     let visible = [&entry];
-    let catalog = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let catalog = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
     let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
     let aggregated = literals(&catalog, &catalog_iri, &format!("{FDP_O}metadataModified"));
     assert!(
@@ -1086,7 +1264,7 @@ fn metadata_modified_is_floored_at_issued() {
 
     let entry = covid_entry();
     let visible = [&entry];
-    let g = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let g = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
 
     let catalog_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
     let subj = NamedOrBlankNodeRef::NamedNode(NamedNodeRef::new_unchecked(&catalog_iri));
@@ -1196,7 +1374,7 @@ fn catalog_and_root_metadata_modified_include_a_dataset_override_in_the_max() {
     let visible = [&base, &overridden];
     let modified_pred = format!("{FDP_O}metadataModified");
 
-    let catalog = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let catalog = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
     let cat_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
     assert_eq!(
         literals(&catalog, &cat_iri, &modified_pred),
@@ -1206,7 +1384,6 @@ fn catalog_and_root_metadata_modified_include_a_dataset_override_in_the_max() {
 
     let catalogs = vec![CatalogListing {
         id: CATALOG_ID,
-        title: CATALOG_TITLE,
         visible_datasets: vec![&base, &overridden],
     }];
     let root = fdp_root_graph(&catalogs, &ctx);
@@ -1228,7 +1405,7 @@ fn catalog_metadata_modified_prefers_a_later_sibling_over_an_earlier_override() 
     let mut earlier = covid_entry();
     earlier.metadata_modified = Some("2020-01-01T00:00:00.000Z".to_owned());
     let visible = [&sibling, &earlier];
-    let cat = catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx);
+    let cat = catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx);
     let cat_iri = format!("{BASE_URL}/fairdp/catalog/{CATALOG_ID}");
     assert_eq!(
         literals(&cat, &cat_iri, &format!("{FDP_O}metadataModified")),
@@ -1320,12 +1497,10 @@ fn root_graph_golden_snapshot() {
     let catalogs = vec![
         CatalogListing {
             id: "gdi-aggregated",
-            title: "GoE aggregated catalog",
             visible_datasets: vec![&e1],
         },
         CatalogListing {
             id: "empty-cat",
-            title: "Empty catalog",
             visible_datasets: vec![],
         },
     ];
@@ -1344,7 +1519,7 @@ fn catalog_graph_golden_snapshot() {
     let e1 = covid_entry();
     let e2 = second_entry();
     let visible = [&e1, &e2];
-    let nt = golden_ntriples(&catalog_graph(CATALOG_ID, CATALOG_TITLE, &visible, &ctx));
+    let nt = golden_ntriples(&catalog_graph(CATALOG_ID, &catalog_cfg(), &visible, &ctx));
     insta::assert_snapshot!("catalog_ntriples", nt);
 }
 
@@ -1515,8 +1690,8 @@ fn hostile_values_in_any_dataset_literal_field_round_trip_in_both_formats() {
 }
 
 /// The same hostile values through the three graph builders the dataset tests never
-/// reach, driven by the literals each one actually owns: the catalog title (which
-/// becomes both `dct:title` and `dct:description`) and the `[fairdp]` node-identity
+/// reach, driven by the literals each one actually owns: the catalog title and
+/// description, the distribution title, the root keywords, and the `[fairdp]` node-identity
 /// strings (which land on the root, every catalog and every dataset record via the
 /// publisher / HDAB blank nodes).
 #[test]
@@ -1526,9 +1701,16 @@ fn hostile_values_round_trip_through_the_catalog_root_and_distribution_builders(
         fairdp.title = (*evil).to_owned();
         fairdp.description = Some((*evil).to_owned());
         fairdp.publisher.name = (*evil).to_owned();
-        fairdp.publisher.contact_point.fn_ = (*evil).to_owned();
+        fairdp.publisher.contact_point.name = (*evil).to_owned();
         fairdp.hdab.name = (*evil).to_owned();
-        fairdp.hdab.contact_point.fn_ = (*evil).to_owned();
+        fairdp.hdab.contact_point.name = (*evil).to_owned();
+        fairdp.keywords = vec![(*evil).to_owned()];
+        fairdp.distribution.title = (*evil).to_owned();
+        let catalog = CatalogCfg {
+            title: (*evil).to_owned(),
+            description: (*evil).to_owned(),
+            issued: None,
+        };
         let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
 
         let entry = covid_entry();
@@ -1539,14 +1721,13 @@ fn hostile_values_round_trip_through_the_catalog_root_and_distribution_builders(
             &format!("distribution/{payload}"),
         );
         assert_round_trips_in_both_formats(
-            catalog_graph("gdi-aggregated", evil, &entries, &ctx),
+            catalog_graph("gdi-aggregated", &catalog, &entries, &ctx),
             &format!("catalog/{payload}"),
         );
         assert_round_trips_in_both_formats(
             fdp_root_graph(
                 &[CatalogListing {
                     id: "gdi-aggregated",
-                    title: evil,
                     visible_datasets: vec![&entry],
                 }],
                 &ctx,

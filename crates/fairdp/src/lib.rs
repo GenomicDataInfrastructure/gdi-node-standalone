@@ -31,11 +31,13 @@ pub mod graph;
 // The static SHACL mapping table is internal, consumed only by `graph`, so evolving
 // it is not a public-API change.
 pub(crate) mod mapping;
+pub mod publish;
 pub mod root;
 pub mod serialize;
 mod vocab;
 
 pub use context::FdpContext;
 pub use graph::{dataset_graph, distribution_graph};
+pub use publish::{Publish, PublishError};
 pub use root::{CatalogListing, catalog_graph, fdp_root_graph};
 pub use serialize::{serialize_jsonld, serialize_turtle};

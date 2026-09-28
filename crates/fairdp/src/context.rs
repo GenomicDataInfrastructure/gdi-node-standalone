@@ -2,6 +2,9 @@
 //! node identity) plus the IRI builders the graph builder uses.
 
 use gdi_node_standalone_core::config::FairdpConfig;
+use oxrdf::Graph;
+
+use crate::publish::{NO_EDITS, Publish, Record};
 
 /// The node-invariant inputs threaded through graph construction.
 ///
@@ -19,6 +22,9 @@ pub struct FdpContext<'a> {
     pub beacon_aggregated_path: &'a str,
     /// The FAIR Data Point node identity (publisher / HDAB / theme / license).
     pub fairdp: &'a FairdpConfig,
+    /// The compiled `[fairdp.publish]` edits every record builder applies last. No edits
+    /// unless set with [`FdpContext::with_publish`].
+    pub publish: &'a Publish,
 }
 
 impl<'a> FdpContext<'a> {
@@ -39,10 +45,7 @@ impl<'a> FdpContext<'a> {
     ///     ctx.dataset_iri("GDI-EE-UTARTU-20260409143052837"),
     ///     "https://gdi-ee.example.org/fairdp/dataset/GDI-EE-UTARTU-20260409143052837"
     /// );
-    /// assert_eq!(
-    ///     ctx.beacon_g_variants_url(),
-    ///     "https://gdi-ee.example.org/beacon/v2/g_variants"
-    /// );
+    /// assert_eq!(ctx.beacon_endpoint_url(), "https://gdi-ee.example.org/beacon/v2");
     /// ```
     #[must_use]
     pub fn new(
@@ -54,7 +57,29 @@ impl<'a> FdpContext<'a> {
             base_url,
             beacon_aggregated_path,
             fairdp,
+            publish: &NO_EDITS,
         }
+    }
+
+    /// This context with the compiled `[fairdp.publish]` edits.
+    #[must_use]
+    pub fn with_publish(self, publish: &'a Publish) -> Self {
+        Self { publish, ..self }
+    }
+
+    /// Apply the `[fairdp.publish]` edits to a finished record graph whose subject is
+    /// `subject` and whose id (for `$FDP_ID`) is `id`. Every record builder returns
+    /// through this, so none can serve a record without the edits.
+    pub(crate) fn published(
+        &self,
+        mut graph: Graph,
+        record: Record,
+        subject: &str,
+        id: Option<&str>,
+    ) -> Graph {
+        self.publish
+            .apply(&mut graph, record, subject, &self.root_iri(), id);
+        graph
     }
 
     /// The FDP-root resource IRI: `{base_url}/fairdp`.
@@ -96,13 +121,13 @@ impl<'a> FdpContext<'a> {
         format!("{}/fairdp/distribution/{id}", self.base_url)
     }
 
-    /// The beacon `g_variants` query URL:
-    /// `{base_url}{beacon_aggregated_path}/g_variants`.
+    /// The aggregated Beacon's base URL, `{base_url}{beacon_aggregated_path}`: the
+    /// `dcat:endpointURL` of every distribution's data service.
     #[must_use]
-    pub fn beacon_g_variants_url(&self) -> String {
+    pub fn beacon_endpoint_url(&self) -> String {
         format!(
-            "{}{}/g_variants",
-            self.base_url,
+            "{}{}",
+            self.base_url.trim_end_matches('/'),
             self.beacon_aggregated_path.trim_end_matches('/')
         )
     }

@@ -75,7 +75,7 @@ A Cargo workspace (edition 2024): four library crates, two binaries, and a dev-o
 | --- | --- | --- |
 | `gdi-node-standalone-core` (`crates/core`) | library | Shared types, config + preflight, validation, the crypt4gh codec, VCF→Parquet conversion, TAR packaging, and the ingest/overlay logic. |
 | `gdi-node-standalone-beacon` (`crates/beacon`) | library | GA4GH Beacon v2.2 request/response model, request parsing and classification, and query execution with `frequencyInPopulations` assembly over Parquet. Framework-agnostic; HTTP wiring lives in the service. |
-| `gdi-node-standalone-fairdp` (`crates/fairdp`) | library | FAIR Data Point / DCAT RDF emission (Turtle + JSON-LD via `oxrdf`), from one in-repo mapping table. |
+| `gdi-node-standalone-fairdp` (`crates/fairdp`) | library | FAIR Data Point / DCAT RDF emission (Turtle + JSON-LD via `oxrdf`), from one in-repo mapping table, then the `[fairdp.publish]` edits. |
 | `gdi-node-standalone` (`crates/gdi-node-standalone`) | service binary | Wires config and preflight, the ingest runtime, the Beacon and FDP HTTP surfaces with their resilience layers, and `/.well-known/c4gh-recipient`. S3, Vault and PME compile in only under their features. |
 | `gdi-dataset-tool` (`crates/gdi-dataset-tool`) | CLI binary | Provider tool: `build` (VCF→parquet), `validate`, `pack`, and the networked `upload`/`deploy` operations. |
 | `gdi-build-info` (`crates/build-info`) | library | Build provenance captured at compile time (`GIT_SHA`, version, build epoch) via `build.rs`. Consumed by both binaries; backs `GET /version` and the `gdi_build_info` metric. Not part of the semver-checked API surface. |

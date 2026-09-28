@@ -218,11 +218,8 @@ pub fn render_template(v: &AuthorValues) -> String {
         let _ = writeln!(meta_opt, "  description: {}", yaml_quote(&v.description));
     }
     if v.synthetic {
-        let _ = writeln!(
-            meta_opt,
-            "  type: {}",
-            yaml_quote(fields::SYNTHETIC_TYPE_IRI)
-        );
+        meta_opt.push_str("  type:\n");
+        let _ = writeln!(meta_opt, "    - {}", yaml_quote(fields::SYNTHETIC_TYPE_IRI));
     }
     if !v.keywords.is_empty() {
         meta_opt.push_str("  keywords:\n");
@@ -1170,10 +1167,14 @@ pub fn author_greenfield(
     // 2. The catalog entry — everything the node's FAIR Data Point publishes about
     //    the dataset, grouped so the provider knows where these answers surface.
     section("Catalog entry: published via the node's FAIR Data Point");
+    let default_prefix = fields::PREFIXES
+        .iter()
+        .position(|prefix| *prefix == fields::DEFAULT_PREFIX)
+        .unwrap_or(0);
     let prefix_idx = p.select(
         "Dataset ID prefix",
         fields::PREFIXES.map(String::from).as_ref(),
-        0,
+        default_prefix,
     )?;
     let prefix = fields::PREFIXES[prefix_idx].to_owned();
     // The org is the provider's identity, half of every dataset id: from the profile when

@@ -66,6 +66,7 @@ unprobeable.
 - [20. Verifying release artifacts + the container image](#20-verifying-release-artifacts--the-container-image)
 - [21. Audit log](#21-audit-log)
 - [22. One dataset's queries cost far more than its neighbours](#22-one-datasets-queries-cost-far-more-than-its-neighbours)
+- [23. Following a change in GDI's metadata model](#23-following-a-change-in-gdis-metadata-model)
 
 ---
 
@@ -1750,7 +1751,7 @@ ingest outcomes.
 > **Hiding or unpublishing the node's last dataset does not retract it from a portal
 > harvest.** The GDI User Portal's FDP harvester treats an empty-but-healthy crawl, with
 > every dataset now `hidden` or removed, the same as a failed crawl, so it never runs the
-> delete branch. The portal keeps listing the stale entry, whose `access_url` now answers
+> delete branch. The portal keeps listing the stale entry, whose Beacon now answers
 > `exists:false`. This is consumer-side behaviour: nothing the node emits changes it, and
 > `gdi-dataset-tool unpublish` succeeds regardless. A node with two or more datasets is
 > unaffected, because hiding one of several still yields a non-empty crawl, which the
@@ -3280,3 +3281,34 @@ choice is where to absorb the cost:
 
 A k-way merge across the block's files would stream this shape too. The node does not
 implement one, so a per-population split package always pays the buffer.
+
+## 23. Following a change in GDI's metadata model
+
+GDI's metadata model changes from time to time: a new HealthDCAT-AP release, a new dataset
+type, a replaced vocabulary. The FAIR Data Point records can follow such a change through
+`[fairdp.publish]` in `node.toml`, without waiting for a node release.
+
+Until then you don't need `[fairdp.publish]`. Every node already publishes what HealthDCAT-AP
+release 7 asks for beyond its own records. Those settings are built in
+([`fairdp-publish.toml`](../crates/core/src/config/fairdp-publish.toml)), and yours go over
+them key by key: a key you set replaces the built-in value, the rest stay.
+
+1. Add the change to `[fairdp.publish]`. The annotated block in
+   [`node.example.toml`](../node.example.toml) shows the four kinds of change (`add`,
+   `rename_properties`, `replace_values`, `type_values`) with an example of each.
+2. Check the config. An unknown prefix or a malformed name fails here, naming the setting:
+
+   ```bash
+   gdi-node-standalone --config node.toml check-config
+   ```
+
+3. Restart the node. `[fairdp]` is read at startup only: a reload (§14) leaves it as it was
+   and logs that a restart is needed.
+4. Look at a record:
+
+   ```bash
+   curl -s -H 'Accept: text/turtle' https://node.example.org/fairdp/dataset/<dataset id>
+   ```
+
+To undo a change, remove it and restart. To stop publishing a built-in statement, rename its
+property to nothing, for example `rename_properties = { "healthdcatap:hasVariables" = [] }`.

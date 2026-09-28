@@ -58,7 +58,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -160,7 +161,8 @@ data_dir = "{}"
 max_request_body_bytes = 16
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -758,7 +760,8 @@ data_dir = "{}"
 override_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.boot-staleness"
@@ -880,7 +883,8 @@ ingest_concurrency = 2
 rescan_interval_seconds = 3600
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"

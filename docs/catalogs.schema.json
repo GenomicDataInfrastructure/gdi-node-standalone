@@ -25,7 +25,7 @@
           "type": "string"
         },
         "title": {
-          "description": "The display title: the `[catalogs]` value, served as the catalog's `dct:title`.",
+          "description": "The display title: `[catalogs.<id>].title`, served as the catalog's `dct:title`.",
           "type": "string"
         }
       },

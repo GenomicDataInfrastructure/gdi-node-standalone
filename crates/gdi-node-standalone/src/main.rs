@@ -5496,7 +5496,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let toml = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n\
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n\
              [beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
             tmp.path().display()
         );

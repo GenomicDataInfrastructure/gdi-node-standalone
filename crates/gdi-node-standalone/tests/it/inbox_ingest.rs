@@ -969,7 +969,8 @@ rescan_interval_seconds = 3600
 ingest_timeout_seconds = 1
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"

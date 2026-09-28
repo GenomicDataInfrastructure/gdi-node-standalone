@@ -135,8 +135,8 @@ fn template(catalog_line: &str) -> String {
 
   # --- Optional fields (uncomment and fill in as needed) ---
   # {conforms_to}
-  # type: set ONLY for synthetic datasets; the single defined value is
-  #   "https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA".
+  # type:                            # set ONLY for synthetic datasets, to this one value
+  #   - "https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA"
   # legalBasis:                      # DPV legal basis IRIs (list); for real personal data
   #   - "https://w3id.org/dpv#Consent"
   # isReferencedBy:                  # Publication DOI IRIs (list)

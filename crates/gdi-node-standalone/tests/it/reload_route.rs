@@ -185,7 +185,8 @@ enabled = true
 log_level_revert_seconds = 0
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"
@@ -218,7 +219,8 @@ enabled = {control_enabled}
 min_interval_seconds = {min_interval_seconds}
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"
@@ -441,7 +443,8 @@ enabled = true
 min_interval_seconds = 0
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"

@@ -822,7 +822,7 @@ mod tests {
 
         let toml = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n\
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n\
              [beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
             data_dir.display()
         );
@@ -1059,7 +1059,7 @@ mod tests {
 
         let toml = format!(
             "[service]\nbase_url=\"https://n.example.org/\"\ndata_dir=\"{}\"\n\
-             [catalogs]\ngdi-aggregated=\"GoE\"\n\
+             [catalogs]\ngdi-aggregated.title=\"GoE\"\ngdi-aggregated.description=\"GoE\"\n\
              [beacon]\nid=\"o.n\"\nname=\"N\"\nenvironment=\"test\"\n",
             data_dir.display()
         );

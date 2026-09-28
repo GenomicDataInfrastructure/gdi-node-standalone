@@ -37,7 +37,8 @@ base_url = "https://beacon.example.org"
 data_dir = "/tmp/gdi-node-standalone-info-test"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 # Combined mount (aggregated == sensitive) so a single `/beacon/v2` endpoint

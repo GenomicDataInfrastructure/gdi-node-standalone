@@ -74,7 +74,8 @@ enabled = true
 enabled = true
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "{BEACON_PREFIX}"

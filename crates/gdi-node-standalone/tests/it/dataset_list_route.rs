@@ -34,7 +34,8 @@ data_dir = "{}"
 expose_dataset_list = {expose}
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"
@@ -474,7 +475,8 @@ data_dir = "{}"
 expose_dataset_list = true
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"

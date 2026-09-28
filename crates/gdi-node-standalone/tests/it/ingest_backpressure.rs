@@ -42,7 +42,8 @@ ingest_concurrency = {concurrency}
 rescan_interval_seconds = 3600
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"

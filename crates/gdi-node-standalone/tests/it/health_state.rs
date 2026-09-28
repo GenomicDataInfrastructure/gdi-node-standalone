@@ -40,7 +40,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -71,7 +72,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -298,14 +300,19 @@ async fn catalogs_route_lists_the_reloadable_catalog_table() {
     assert_eq!(ids, ["gdi-aggregated"], "body:\n{body}");
     assert_eq!(
         listed.catalogs[0].title, "Genome of Europe Aggregated Data",
-        "the title is the `[catalogs]` display value, not the id echoed back"
+        "the title is `[catalogs.<id>].title`, not the id echoed back"
     );
 
     // Swap the reloadable snapshot exactly as a reload does; the route follows it.
     let mut reloaded = (*state.reloadable()).clone();
-    reloaded
-        .catalogs
-        .insert("added-by-reload".to_owned(), "Added By Reload".to_owned());
+    reloaded.catalogs.insert(
+        "added-by-reload".to_owned(),
+        gdi_node_standalone_core::config::CatalogCfg {
+            title: "Added By Reload".to_owned(),
+            description: "Added By Reload".to_owned(),
+            issued: None,
+        },
+    );
     *state.reloadable.write().unwrap() = std::sync::Arc::new(reloaded);
     let (status, _h, body) = get(state, "/catalogs", &[]).await;
     assert_eq!(status, StatusCode::OK, "body:\n{body}");
@@ -350,7 +357,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "Genome of Europe Aggregated Data"
+gdi-aggregated.title = "Genome of Europe Aggregated Data"
+gdi-aggregated.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
@@ -967,7 +975,8 @@ enabled = true
 enabled = true
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.test.beacon"

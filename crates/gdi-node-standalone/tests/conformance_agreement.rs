@@ -31,7 +31,7 @@ use std::process::Command;
 
 use gdi_node_standalone_core::cache::DatasetEntry;
 use gdi_node_standalone_core::config::{
-    ContactPointCfg, FairdpConfig, FairdpHdab, FairdpPublisher,
+    ContactPointCfg, FairdpAccessUrls, FairdpAgent, FairdpConfig, FairdpDistribution, FairdpPublish,
 };
 use gdi_node_standalone_core::model::{
     Assembly, DatasetMode, ManifestConfig, ManifestMetadata, PackageYaml,
@@ -201,29 +201,38 @@ fn fairdp_config() -> FairdpConfig {
         description: Some("Aggregated genomic metadata for GDI Estonia".to_owned()),
         issued: "2026-01-01T00:00:00Z".to_owned(),
         license: "https://creativecommons.org/licenses/by/4.0/".to_owned(),
-        language: "http://publications.europa.eu/resource/authority/language/ENG".to_owned(),
+        language: vec!["http://publications.europa.eu/resource/authority/language/ENG".to_owned()],
         theme: vec!["http://publications.europa.eu/resource/authority/data-theme/HEAL".to_owned()],
-        theme_taxonomy: None,
+        theme_taxonomy: Vec::new(),
+        keywords: Vec::new(),
         applicable_legislation: vec!["http://data.europa.eu/eli/reg/2025/327/oj".to_owned()],
-        publisher: FairdpPublisher {
+        endpoint_description: None,
+        publisher: FairdpAgent {
             name: "University of Tartu".to_owned(),
             homepage: Some("https://gdi.ut.ee".to_owned()),
-            mbox: Some("mailto:gdi@example.org".to_owned()),
             contact_point: ContactPointCfg {
-                fn_: "GDI Estonia".to_owned(),
-                has_email: "mailto:gdi@example.org".to_owned(),
+                name: "GDI Estonia".to_owned(),
+                email: "gdi@example.org".to_owned(),
                 // Distinct from homepage (see fairdp/tests/render.rs).
-                has_url: Some("https://gdi.ut.ee/contact".to_owned()),
+                url: Some("https://gdi.ut.ee/contact".to_owned()),
             },
         },
-        hdab: FairdpHdab {
+        hdab: FairdpAgent {
             name: "Estonian HDAB".to_owned(),
+            homepage: None,
             contact_point: ContactPointCfg {
-                fn_: "Estonian HDAB".to_owned(),
-                has_email: "mailto:hdab@example.org".to_owned(),
-                has_url: None,
+                name: "Estonian HDAB".to_owned(),
+                email: "hdab@example.org".to_owned(),
+                url: None,
             },
         },
+        distribution: FairdpDistribution {
+            title: "GDI User Portal".to_owned(),
+            access_url: FairdpAccessUrls {
+                aggregated: "https://portal.example.org/allele-frequency".to_owned(),
+            },
+        },
+        publish: FairdpPublish::default(),
     }
 }
 

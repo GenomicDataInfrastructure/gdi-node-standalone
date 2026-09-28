@@ -139,7 +139,8 @@ rescan_interval_seconds = 3600
 {cap_line}
 
 [catalogs]
-{CATALOG} = "Genome of Europe Aggregated Data"
+{CATALOG}.title = "Genome of Europe Aggregated Data"
+{CATALOG}.description = "Genome of Europe Aggregated Data"
 
 [beacon]
 id = "org.test.beacon"

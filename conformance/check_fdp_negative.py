@@ -884,7 +884,7 @@ def main(argv: list[str]) -> int:
             "  (b) structurally unexercisable — every remaining `sh:uniqueLang` site. The "
             "node emits those paths as plain literals because the model behind them is a "
             "string, not a language map: `Agent.name` / `OtherIdentifier.name` "
-            "(`foaf:name`), the catalog title and description, and the fixed `DataService` "
+            "(`foaf:name`), the catalog title and description, and the `DataService` "
             "/ `Distribution` titles. A literal with no language tag cannot violate "
             "`sh:uniqueLang`, so no output this node can produce would exercise the rule; "
             "closing these would mean changing the wire model to suit a test. `dct:title` "

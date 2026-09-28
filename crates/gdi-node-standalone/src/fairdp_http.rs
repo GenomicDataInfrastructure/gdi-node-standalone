@@ -28,8 +28,8 @@ use gdi_node_standalone_core::cache::DatasetEntry;
 use gdi_node_standalone_core::config::{FairdpConfig, ServiceConfig};
 use gdi_node_standalone_core::state::DatasetState;
 use gdi_node_standalone_fairdp::{
-    CatalogListing, FdpContext, catalog_graph, dataset_graph, distribution_graph, fdp_root_graph,
-    serialize_jsonld, serialize_turtle,
+    CatalogListing, FdpContext, Publish, catalog_graph, dataset_graph, distribution_graph,
+    fdp_root_graph, serialize_jsonld, serialize_turtle,
 };
 use oxrdf::Graph;
 
@@ -104,7 +104,7 @@ fn render(graph: &Graph, format: Format, resource: &'static str) -> Response {
         // A dedicated counter, not just the 5xx bucket, so a serializer regression on
         // this internal-invariant path is page-able.
         crate::metrics::fairdp_serialization_failure();
-        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        return internal_error();
     }
     // The body is content-negotiated on `Accept`, so advertise `Vary: Accept`: a shared
     // cache must key on it rather than serve one format to a client that asked for the
@@ -136,14 +136,43 @@ pub(crate) async fn not_found_fallback() -> Response {
     not_found()
 }
 
-/// Build the [`FdpContext`] from the (present) `[fairdp]` config and the service's
-/// `base_url` + beacon `aggregated_base_path`.
-fn context<'a>(config: &'a ServiceConfig, fairdp: &'a FairdpConfig) -> FdpContext<'a> {
+/// Build the [`FdpContext`] from the (present) `[fairdp]` config, its compiled
+/// `[fairdp.publish]` edits, and the service's `base_url` + beacon `aggregated_base_path`.
+fn context<'a>(
+    config: &'a ServiceConfig,
+    fairdp: &'a FairdpConfig,
+    publish: &'a Publish,
+) -> FdpContext<'a> {
     FdpContext::new(
         &config.service.base_url,
         &config.beacon.aggregated_base_path,
         fairdp,
     )
+    .with_publish(publish)
+}
+
+/// `[fairdp.publish]`, compiled by the first FAIR-DP request and kept in
+/// [`AppState::fairdp_publish`].
+///
+/// The startup preflight refuses settings that do not compile, and `[fairdp]` is not
+/// reloadable, so `None` here breaks an internal invariant. It is logged once, and the
+/// caller answers `500` so no record is served without the configured edits.
+fn compiled_publish<'s>(state: &'s AppState, fairdp: &FairdpConfig) -> Option<&'s Publish> {
+    state
+        .fairdp_publish
+        .get_or_init(|| {
+            Publish::compile(&fairdp.publish)
+                .inspect_err(|error| {
+                    tracing::error!(%error, "[fairdp.publish] did not compile after passing preflight; FAIR-DP answers 500");
+                })
+                .ok()
+        })
+        .as_ref()
+}
+
+/// The bare `500` for an internal-invariant violation under `/fairdp`.
+fn internal_error() -> Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
 }
 
 /// `GET /fairdp` — the FDP root over all configured catalogs.
@@ -156,7 +185,10 @@ pub(crate) async fn root(State(state): State<AppState>, headers: HeaderMap) -> R
     let Some(fairdp) = config.fairdp.as_ref() else {
         return not_found();
     };
-    let ctx = context(config, fairdp);
+    let Some(publish) = compiled_publish(&state, fairdp) else {
+        return internal_error();
+    };
+    let ctx = context(config, fairdp, publish);
     // The served catalog list reads the SIGHUP-reloadable snapshot, not the immutable
     // boot config, so a catalog added by a live reload appears here (and at
     // `/fairdp/catalog/{id}`) without a restart. Kept alive for the whole handler:
@@ -179,10 +211,9 @@ pub(crate) async fn root(State(state): State<AppState>, headers: HeaderMap) -> R
     // (empty when no dataset declares that catalog).
     let listings: Vec<CatalogListing> = reloadable
         .catalogs
-        .iter()
-        .map(|(id, title)| CatalogListing {
+        .keys()
+        .map(|id| CatalogListing {
             id,
-            title,
             visible_datasets: by_catalog.get(id.as_str()).cloned().unwrap_or_default(),
         })
         .collect();
@@ -194,8 +225,7 @@ pub(crate) async fn root(State(state): State<AppState>, headers: HeaderMap) -> R
 
 /// `GET /fairdp/catalog/{id}` — one configured catalog with its visible datasets.
 ///
-/// `404` when `{id}` is not a configured catalog (its title is the `[catalogs]`
-/// display value).
+/// `404` when `{id}` is not a configured catalog.
 pub(crate) async fn catalog(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -214,10 +244,13 @@ pub(crate) async fn catalog(
     // Which ids count as configured catalogs reads the SIGHUP-reloadable snapshot; see
     // the `root` handler above.
     let reloadable = state.reloadable();
-    let Some(title) = reloadable.catalogs.get(&id) else {
+    let Some(catalog_cfg) = reloadable.catalogs.get(&id) else {
         return not_found();
     };
-    let ctx = context(config, fairdp);
+    let Some(publish) = compiled_publish(&state, fairdp) else {
+        return internal_error();
+    };
+    let ctx = context(config, fairdp, publish);
 
     let visible = state.fresh_visible_datasets();
     let datasets: Vec<&DatasetEntry> = visible
@@ -226,7 +259,7 @@ pub(crate) async fn catalog(
         .map(AsRef::as_ref)
         .collect();
 
-    let graph = catalog_graph(&id, title, &datasets, &ctx);
+    let graph = catalog_graph(&id, catalog_cfg, &datasets, &ctx);
     crate::audit::fairdp_read(&config.audit, "catalog", &id, datasets.len());
     render(&graph, negotiate(&headers), "catalog")
 }
@@ -257,7 +290,10 @@ fn single_visible_resource(
     let Some(entry) = visible_entry(state, id) else {
         return not_found();
     };
-    let ctx = context(config, fairdp);
+    let Some(publish) = compiled_publish(state, fairdp) else {
+        return internal_error();
+    };
+    let ctx = context(config, fairdp, publish);
     let graph = build(&entry, &ctx);
     crate::audit::fairdp_read(&config.audit, kind, id, 1);
     // `fairdpReads` is counted in the shared body of both single-dataset resources so a

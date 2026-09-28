@@ -295,7 +295,8 @@ data_dir = "{}"
 inbox = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"
@@ -321,7 +322,8 @@ base_url = "https://n.example.org/"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE"
+gdi-aggregated.title = "GoE"
+gdi-aggregated.description = "GoE"
 
 [beacon]
 id = "org.n.beacon"

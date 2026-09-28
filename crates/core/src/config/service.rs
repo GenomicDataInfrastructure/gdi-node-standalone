@@ -48,10 +48,9 @@ pub const SUPPORTED_BEACON_API_VERSION: &str = "v2.2.0";
 /// The built-in default for [`FairdpConfig::language`]: the EU authority IRI for
 /// English.
 ///
-/// English is what the node's own generated strings (the Beacon distribution and
-/// `DataService` titles, and the catalog titles most deployments write) are in. A node
-/// publishing in another language sets its own EU `language/…` IRI; there is no
-/// per-dataset override.
+/// The node's own strings (the `DataService` title, and the distribution and catalog
+/// titles most deployments write) are in English. A node publishing in other languages
+/// lists their EU `language/…` IRIs; there is no per-dataset override.
 pub const DEFAULT_FAIRDP_LANGUAGE: &str =
     "http://publications.europa.eu/resource/authority/language/ENG";
 
@@ -68,8 +67,8 @@ pub const DEFAULT_FAIRDP_LANGUAGE: &str =
 pub struct ServiceConfig {
     /// `[service]` block.
     pub service: ServiceSection,
-    /// `[catalogs]`: catalog name -> display title.
-    pub catalogs: BTreeMap<String, String>,
+    /// `[catalogs.<id>]`: the catalogs a dataset can belong to.
+    pub catalogs: BTreeMap<String, CatalogCfg>,
     /// `[beacon]` block (+ nested organization / configuration).
     pub beacon: BeaconConfig,
     /// `[keys]` block: the node's crypt4gh identity files. Default empty (keyless:
@@ -1357,11 +1356,13 @@ impl Default for BeaconConfiguration {
     }
 }
 
-/// The `[fairdp]` block — the FAIR Data Point node identity: the invariant fields the
-/// FDP-root and Catalog records carry. Those records are not datasets; datasets carry their
-/// own license and applicableLegislation from `package.yaml`. Optional on [`ServiceConfig`],
-/// since FDP is not required (beacon is). When present, [`ServiceConfig::preflight`]
-/// enforces the mandatory publisher/HDAB contact points and the theme/theme-taxonomy
+/// The `[fairdp]` block: the FAIR Data Point node identity. It holds what the FDP-root and
+/// Catalog records carry, the publisher and Health Data Access Body, the distribution
+/// record's links, and the publish edits. Datasets take their own license and
+/// applicableLegislation from `package.yaml`.
+///
+/// Optional on [`ServiceConfig`], since FDP is not required (beacon is). When present,
+/// [`ServiceConfig::preflight`] enforces the mandatory values and the theme/theme-taxonomy
 /// in-scheme rule.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1372,46 +1373,55 @@ pub struct FairdpConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     /// FDP-root `fdp-o:metadataIssued` (xsd:dateTime). `metadataModified` is
-    /// data-derived at render time, falling back to this when nothing changed.
+    /// data-derived at render time, falling back to this when nothing changed. Also each
+    /// catalog's `metadataIssued` unless the catalog sets its own.
     pub issued: String,
     /// FDP-root + Catalog record license IRI (node identity; mandatory on both
     /// records). Datasets set their own license in `package.yaml`.
     pub license: String,
-    /// `dct:language` for the FDP root, every catalog and every dataset: one node-level
-    /// value, with no per-dataset override, because the node publishes in one language.
-    ///
-    /// An EU authority `language/…` IRI. Defaults to [`DEFAULT_FAIRDP_LANGUAGE`] (English).
-    /// A harvester's DCAT profile reads it into the harvested dataset's `language` field, so
-    /// an omitted value shows there as empty.
-    pub language: String,
+    /// `dct:language` of the FDP root, every catalog and every dataset: EU authority
+    /// `language/…` IRIs, with no per-dataset override. Defaults to
+    /// [`DEFAULT_FAIRDP_LANGUAGE`] (English). A harvester's DCAT profile reads these into
+    /// the dataset's `language` field, which an empty list leaves empty.
+    pub language: Vec<String>,
     /// Node-wide dataset/catalog theme concept IRIs. Each dataset record carries
     /// these directly as `dcat:theme`; the Catalog's `dcat:themeTaxonomy` is
-    /// derived from them (their shared SKOS scheme).
+    /// derived from them (their shared SKOS scheme) unless `theme_taxonomy` is set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub theme: Vec<String>,
-    /// Optional override for the SKOS `ConceptScheme` of `theme` — only for a
-    /// vocabulary whose scheme is not the concept's parent path. When set, every
-    /// `theme` must be in-scheme (validated at preflight). Omit to derive it from
-    /// `theme` (the concept IRI minus its final path segment).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub theme_taxonomy: Option<String>,
-    /// Catalog record `dcatap:applicableLegislation` IRIs (node-level, no
+    /// Optional SKOS `ConceptScheme` IRIs for `dcat:themeTaxonomy`, for a vocabulary whose
+    /// scheme is not the concept's parent path. When set, preflight requires every `theme`
+    /// to be in one of them. When unset, the scheme is derived from `theme` (the concept
+    /// IRI minus its final path segment).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub theme_taxonomy: Vec<String>,
+    /// FDP-root `dcat:keyword` values (optional).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+    /// Root and catalog `dcatap:applicableLegislation` IRIs (node-level, no
     /// per-catalog override; datasets carry their own in `package.yaml`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub applicable_legislation: Vec<String>,
+    /// FDP-root `dcat:endpointDescription` (optional): where this node's API is described.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoint_description: Option<String>,
     /// `[fairdp.publisher]` — `dct:publisher` (the node organisation; exactly one).
-    pub publisher: FairdpPublisher,
-    /// `[fairdp.hdab]` — `healthdcatap:hdab` (Member-State Health Data Access Body).
-    pub hdab: FairdpHdab,
+    pub publisher: FairdpAgent,
+    /// `[fairdp.hdab]` — `healthdcatap:hdab`, the Health Data Access Body. Until the
+    /// country has one, GDI asks for the data controller's details here.
+    pub hdab: FairdpAgent,
+    /// `[fairdp.distribution]` — the distribution record every dataset has.
+    pub distribution: FairdpDistribution,
+    /// `[fairdp.publish]` — edits applied to every record just before it is served.
+    pub publish: FairdpPublish,
 }
 
-/// Every field is empty except `language`, which carries [`DEFAULT_FAIRDP_LANGUAGE`].
+/// Every field is empty except `language` ([`DEFAULT_FAIRDP_LANGUAGE`]) and the
+/// distribution title.
 ///
-/// Hand-written rather than derived because of that one field: the container-level
-/// `#[serde(default)]` fills each absent key from this value, so a `[fairdp]` block that
-/// omits `language` gets the English IRI while every other field stays the empty string
-/// preflight rejects. The empties are deliberate — the rest of this block is required
-/// deployment metadata, not defaulted knobs.
+/// Hand-written for `language`: the container-level `#[serde(default)]` fills each absent
+/// key from this value, so a `[fairdp]` block without `language` gets the English IRI.
+/// Required fields stay empty, so preflight rejects a block that omits them.
 impl Default for FairdpConfig {
     fn default() -> Self {
         Self {
@@ -1419,79 +1429,230 @@ impl Default for FairdpConfig {
             description: None,
             issued: String::new(),
             license: String::new(),
-            language: DEFAULT_FAIRDP_LANGUAGE.to_owned(),
+            language: vec![DEFAULT_FAIRDP_LANGUAGE.to_owned()],
             theme: Vec::new(),
-            theme_taxonomy: None,
+            theme_taxonomy: Vec::new(),
+            keywords: Vec::new(),
             applicable_legislation: Vec::new(),
-            publisher: FairdpPublisher::default(),
-            hdab: FairdpHdab::default(),
+            endpoint_description: None,
+            publisher: FairdpAgent::default(),
+            hdab: FairdpAgent::default(),
+            distribution: FairdpDistribution::default(),
+            publish: FairdpPublish::default(),
         }
     }
 }
 
 impl FairdpConfig {
-    /// The Catalog record's `dcat:themeTaxonomy` SKOS `ConceptScheme` IRI.
+    /// The Catalog record's `dcat:themeTaxonomy` SKOS `ConceptScheme` IRIs.
     ///
-    /// Returns the explicit `theme_taxonomy` override when set, else derives it
-    /// from the first configured `theme` concept IRI (its parent path — the IRI
-    /// minus its final `/`-segment). Returns [`None`] only when no themes are
-    /// configured and no override is set. The themes are validated to share one
-    /// derivable scheme at preflight (`ServiceConfig::check_theme_scheme`), so
-    /// deriving from the first theme is sufficient and matches that scheme.
+    /// Returns `theme_taxonomy` when set, else the scheme of the first `theme` (the IRI
+    /// minus its final `/`-segment), or nothing when neither is configured. Preflight
+    /// (`ServiceConfig::check_theme_scheme`) checks that all themes share one scheme, so the
+    /// first theme is enough.
     #[must_use]
-    pub fn theme_taxonomy_iri(&self) -> Option<String> {
-        if let Some(taxonomy) = &self.theme_taxonomy {
-            return Some(taxonomy.clone());
+    pub fn theme_taxonomy_iris(&self) -> Vec<String> {
+        if !self.theme_taxonomy.is_empty() {
+            return self.theme_taxonomy.clone();
         }
-        derived_theme_scheme(self.theme.first()?).map(ToOwned::to_owned)
+        self.theme
+            .first()
+            .and_then(|t| derived_theme_scheme(t))
+            .map(|scheme| vec![scheme.to_owned()])
+            .unwrap_or_default()
     }
 }
 
-/// The `[fairdp.publisher]` nested table — the node organisation (`foaf:Agent` /
-/// `foaf:Organization`).
+/// An organisation the records name: `[fairdp.publisher]` (`dct:publisher`) or
+/// `[fairdp.hdab]` (`healthdcatap:hdab`). Its `foaf:mbox` is its contact point's e-mail.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct FairdpPublisher {
+pub struct FairdpAgent {
     /// `foaf:name` (required).
     pub name: String,
     /// `foaf:homepage` (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub homepage: Option<String>,
-    /// `foaf:mbox` (optional; the Organization's own address — distinct from the
-    /// contact-point vCard below).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub mbox: Option<String>,
-    /// `[fairdp.publisher.contact_point]` — required (the gdi-metadata submission
-    /// model makes a contact point mandatory, card. 1, on the publisher agent).
+    /// The contact point (required: the gdi-metadata submission model requires one on the
+    /// publisher and the HDAB).
     pub contact_point: ContactPointCfg,
 }
 
-/// The `[fairdp.hdab]` nested table — the Member-State Health Data Access Body.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct FairdpHdab {
-    /// HDAB name (required).
-    pub name: String,
-    /// `[fairdp.hdab.contact_point]` — required (mandatory, card. 1, on the HDAB
-    /// agent in the gdi-metadata submission model).
-    pub contact_point: ContactPointCfg,
-}
-
-/// A vCard contact point (`[fairdp.publisher.contact_point]` /
-/// `[fairdp.hdab.contact_point]`). `fn` + `has_email` are required; preflight
-/// rejects an incomplete one.
+/// A contact point (`[fairdp.publisher.contact_point]` / `[fairdp.hdab.contact_point]`),
+/// published as a `dcat:contactPoint` vCard and, for HealthDCAT-AP release 7, as a
+/// `cv:contactPoint`. `name` and `email` are required; preflight rejects an incomplete one.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct ContactPointCfg {
-    /// `vcard:fn` (required). The TOML/JSON key is `fn` (a Rust keyword, so the
-    /// field is `fn_` with a serde rename).
-    #[serde(rename = "fn")]
-    pub fn_: String,
-    /// `vcard:hasEmail` (required; `^mailto:.+@.+\..+$`).
-    pub has_email: String,
-    /// `vcard:hasURL` (optional).
+    /// `vcard:fn` (required).
+    pub name: String,
+    /// The contact e-mail (required), written with or without `mailto:`. Published as a
+    /// `mailto:` IRI where one is wanted (`vcard:hasEmail`, the agent's `foaf:mbox`) and as
+    /// text in `cv:email`.
+    pub email: String,
+    /// `vcard:hasURL` and `cv:contactPage` (optional).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub has_url: Option<String>,
+    pub url: Option<String>,
+}
+
+impl ContactPointCfg {
+    /// The e-mail address without a `mailto:` prefix (matched case-insensitively).
+    #[must_use]
+    pub fn email_address(&self) -> &str {
+        match self.email.split_at_checked(7) {
+            Some((scheme, rest)) if scheme.eq_ignore_ascii_case("mailto:") => rest,
+            _ => &self.email,
+        }
+    }
+
+    /// The e-mail as a `mailto:` IRI.
+    #[must_use]
+    pub fn mailto(&self) -> String {
+        format!("mailto:{}", self.email_address())
+    }
+}
+
+/// One `[catalogs.<id>]` table: a catalog a dataset can belong to. GDI's shapes require a
+/// title and a description on every catalog record.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CatalogCfg {
+    /// `dct:title` (required).
+    pub title: String,
+    /// `dct:description` (required).
+    pub description: String,
+    /// The catalog's own `fdp-o:metadataIssued` (xsd:dateTime); `[fairdp].issued` when
+    /// unset.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub issued: Option<String>,
+}
+
+/// `[fairdp.distribution]` — the distribution record every dataset has.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FairdpDistribution {
+    /// `dct:title`. Default `GDI User Portal`, where the access URL leads.
+    pub title: String,
+    /// `[fairdp.distribution.access_url]` — where a user asks for access (required).
+    pub access_url: FairdpAccessUrls,
+}
+
+impl Default for FairdpDistribution {
+    fn default() -> Self {
+        Self {
+            title: "GDI User Portal".to_owned(),
+            access_url: FairdpAccessUrls::default(),
+        }
+    }
+}
+
+/// `[fairdp.distribution.access_url]`, by dataset kind. This node serves only aggregated
+/// (allele-frequency) datasets.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FairdpAccessUrls {
+    /// `dcat:accessURL` of an aggregated dataset's distribution (required by GDI).
+    pub aggregated: String,
+}
+
+/// The built-in `[fairdp.publish]` (HealthDCAT-AP release 7), which the loader puts under a
+/// node's own `[fairdp.publish]`.
+const FAIRDP_PUBLISH_DEFAULTS: &str = include_str!("fairdp-publish.toml");
+
+/// `[fairdp.publish]` — edits applied to every FAIR-DP record just before it is served, so
+/// the node can follow a change in GDI's metadata model without a code change. The loader
+/// starts from the built-in HealthDCAT-AP release 7 edits (`fairdp-publish.toml`) and puts
+/// the node's own over them key by key. Properties and values are prefixed names (the
+/// serializer's prefixes, or ones added under `namespaces`) or full IRIs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FairdpPublish {
+    /// Extra prefixes for the entries below, e.g. `ex = "https://example.org/ns#"`.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub namespaces: BTreeMap<String, String>,
+    /// Statements added to a record, per record type.
+    pub add: PublishAdd,
+    /// `old IRI = new IRI`, `= [new, …]`, or `= []` to drop the value, over every record.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub replace_values: BTreeMap<String, OneOrMany>,
+    /// `old property = [new, …]`; list the old property too to keep it, `= []` to stop
+    /// publishing it.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub rename_properties: BTreeMap<String, OneOrMany>,
+    /// `property = class`: every value of the property is also given that type.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub type_values: BTreeMap<String, String>,
+}
+
+/// `[fairdp.publish.add]`, per record type, written like a template block. A value is added
+/// beside the record's own values. A nested table fills the record's existing node for that
+/// property (such as the publisher), or a new node. An array of tables adds one node each.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PublishAdd {
+    /// The FDP root record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fairdp: Option<PublishParts>,
+    /// Every catalog record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub catalog: Option<PublishParts>,
+    /// Every dataset record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dataset: Option<PublishParts>,
+    /// Every distribution record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub distribution: Option<PublishParts>,
+}
+
+/// The statements added to one record type: `all`, and for datasets and distributions also
+/// `aggregated` (this node's only dataset kind).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PublishParts {
+    /// Added to every record of the type.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub all: BTreeMap<String, AddValue>,
+    /// Added to records of aggregated datasets (datasets and distributions only).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub aggregated: BTreeMap<String, AddValue>,
+}
+
+/// A value in a `[fairdp.publish.add]` block: text, a boolean or number, a nested node
+/// (table), or several values (array).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AddValue {
+    /// `true` / `false`, published as `xsd:boolean`.
+    Bool(bool),
+    /// An integer, published as `xsd:nonNegativeInteger` (or `xsd:integer` when negative).
+    Integer(i64),
+    /// Text, an IRI, or a prefixed name; the renderer tells them apart.
+    Text(String),
+    /// Several values of the property, or several nodes.
+    Many(Vec<AddValue>),
+    /// A nested node.
+    Node(BTreeMap<String, AddValue>),
+}
+
+/// One value or several, as in `replace_values` and `rename_properties`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OneOrMany {
+    /// A single value.
+    One(String),
+    /// Several values; an empty list means none.
+    Many(Vec<String>),
+}
+
+impl OneOrMany {
+    /// The values, in order.
+    #[must_use]
+    pub fn as_slice(&self) -> &[String] {
+        match self {
+            Self::One(value) => std::slice::from_ref(value),
+            Self::Many(values) => values,
+        }
+    }
 }
 
 impl ServiceConfig {
@@ -1573,8 +1734,9 @@ impl ServiceConfig {
         Self::from_figment(Figment::new().merge(Toml::string(toml)))
     }
 
-    /// Extract from a figment, applying the env overlay and load-time
-    /// normalization (`base_url` trailing-slash strip).
+    /// Extract from a figment: the env overlay goes over it and, for a node with `[fairdp]`,
+    /// the built-in `[fairdp.publish]` under it; then apply load-time normalization
+    /// (`base_url` trailing-slash strip).
     fn from_figment(fig: Figment) -> Result<Self, Box<figment::Error>> {
         // figment splits `GDI_NODE__S3__BUCKETS__0__SECRET_ACCESS_KEY` into a numeric-keyed
         // dict (`s3.buckets.0.secret_access_key`) that it cannot fold into the
@@ -1589,7 +1751,14 @@ impl ServiceConfig {
         let env = Env::prefixed("GDI_NODE__")
             .filter(|k| !k.starts_with("s3__buckets__"))
             .split("__");
-        let mut cfg: Self = fig.merge(env).extract().map_err(Box::new)?;
+        let mut fig = fig.merge(env);
+        // The built-in `[fairdp.publish]` goes under the node's own: `join` merges tables key
+        // by key and keeps the node's value wherever both set one. A Beacon-only node has no
+        // `[fairdp]`, and must not get one from this.
+        if fig.find_value("fairdp").is_ok() {
+            fig = fig.join(Toml::string(FAIRDP_PUBLISH_DEFAULTS));
+        }
+        let mut cfg: Self = fig.extract().map_err(Box::new)?;
         Self::apply_s3_bucket_env_overrides(&mut cfg.s3)?;
         while cfg.service.base_url.ends_with('/') {
             cfg.service.base_url.pop();
@@ -1607,6 +1776,13 @@ impl ServiceConfig {
             && let Some(canonical) = crate::datetime::to_xsd_datetime(&fairdp.issued)
         {
             fairdp.issued = canonical;
+        }
+        for catalog in cfg.catalogs.values_mut() {
+            if let Some(issued) = &catalog.issued
+                && let Some(canonical) = crate::datetime::to_xsd_datetime(issued)
+            {
+                catalog.issued = Some(canonical);
+            }
         }
         Ok(cfg)
     }
@@ -1818,11 +1994,13 @@ impl ServiceConfig {
     ///   allowed sets;
     /// - `request_timeout_seconds <= shutdown_drain_seconds` (a per-request
     ///   timeout must fit inside the shutdown drain);
+    /// - every `[catalogs.<id>]` has a safe id, a title and a description;
     /// - when `[fairdp]` is present (the node serves FDP): the publisher and HDAB
-    ///   contact points are complete, the theme/license/applicableLegislation/
-    ///   contact IRIs and emails are well-formed, and the configured themes share
-    ///   one SKOS scheme — overridden, if set, by `theme_taxonomy`, against which
-    ///   every theme must be in-scheme (see `ServiceConfig::preflight_fairdp`).
+    ///   contact points are complete, the distribution has an access URL, the
+    ///   theme/license/applicableLegislation/contact IRIs and e-mails are well-formed,
+    ///   and the themes pass the theme-taxonomy rule (see
+    ///   `ServiceConfig::preflight_fairdp`). The node binary's startup preflight resolves
+    ///   the `[fairdp.publish]` names, since it knows the renderer's prefixes.
     ///
     /// At least one catalog is recommended but not required, since a keyless inbox-only
     /// node may run with zero datasets, so it is deliberately not enforced here.
@@ -1879,7 +2057,7 @@ impl ServiceConfig {
         // The four GA4GH-closed beacon enum fields (extracted likewise).
         Self::preflight_beacon_enums(&self.beacon.configuration, &self.beacon.environment)?;
         // The two beacon mount base paths are emitted verbatim (un-normalized) into
-        // the `/map` `rootUrl` and the FDP `dcat:accessURL`/`dcat:endpointURL`, while
+        // the `/map` `rootUrl` and the FDP data service's `dcat:endpointURL`, while
         // the router mounts the routes at `app::normalize_prefix(..)` of them. Require
         // each to already be in canonical mount form so the advertised discovery URL
         // is exactly the served route — a non-canonical value (`beacon/v2`,
@@ -1905,30 +2083,8 @@ impl ServiceConfig {
         // Required beacon identity strings + OTLP endpoint validation (extracted to keep
         // this fn small).
         self.preflight_identity_and_otlp()?;
-        // `[catalogs]` map keys become public `/fairdp` root IRIs via
-        // `NamedNode::new_unchecked`, so an unsafe key (space, control char, `..`) would emit
-        // SHACL-non-conformant RDF a harvester silently rejects while `/health` stays green.
-        // Dataset-side catalog values must match one of these keys (`validate_catalog`), so
-        // validating the keys secures both.
-        for (key, title) in &self.catalogs {
-            if !is_safe_catalog_name(key) {
-                return Err(CoreError::InvalidConfig {
-                    detail: format!(
-                        "[catalogs] key {key:?} is not a valid catalog name (allowed: ASCII alphanumerics and `-_.`, at most {MAX_CATALOG_LEN} chars, no leading dot or `..`)"
-                    ),
-                });
-            }
-            // The catalog title value is emitted verbatim as the Catalog record's
-            // `dct:title`/`dct:description`. An empty (or whitespace-only) value serves a
-            // blank-titled `dcat:Catalog` — SHACL-conformant (the shapes carry no
-            // `minLength`) but useless in the userportal — while `/health` stays green.
-            // Reject it, mirroring the provider path which rejects an empty dataset title.
-            if title.trim().is_empty() {
-                return Err(CoreError::InvalidConfig {
-                    detail: format!("[catalogs] title for {key:?} must not be empty"),
-                });
-            }
-        }
+        // `[catalogs]` keys and values (extracted to keep this fn small).
+        self.preflight_catalogs()?;
         // All numeric zero-value + coherence bounds (request/package/parquet caps and
         // beacon pagination) — extracted to keep this fn small.
         Self::preflight_numeric_bounds(self)?;
@@ -2688,11 +2844,12 @@ impl ServiceConfig {
     /// Validate a beacon mount base path is in canonical mount form.
     ///
     /// The router mounts at the service crate's `normalize_prefix` of the value, but
-    /// the value is also emitted verbatim into the `/map` `rootUrl` and the FDP
-    /// `dcat:accessURL`/`dcat:endpointURL`. Requiring the stored value to already be
-    /// canonical keeps all three in agreement. Canonical means: non-empty,
-    /// starts with `/`, is not the lone root `/`, does not end with `/`, has no empty
-    /// path segment (`//`), and contains no whitespace or control characters.
+    /// the value is also emitted verbatim into the `/map` `rootUrl` and the FDP data
+    /// service's `dcat:endpointURL`. Requiring the stored value to already be canonical
+    /// keeps all three in agreement.
+    /// Canonical means: non-empty, starts with `/`, is not the lone root `/`, does not end
+    /// with `/`, has no empty path segment (`//`), and contains no whitespace or control
+    /// characters.
     ///
     /// # Errors
     ///
@@ -3080,15 +3237,70 @@ impl ServiceConfig {
         self.vault.as_ref().is_some_and(|v| v.transit_key.is_some())
     }
 
+    /// Validate `[catalogs]`: each key is a safe catalog name (it becomes a public `/fairdp`
+    /// IRI segment), each catalog has a non-empty title and description, and a catalog's own
+    /// `issued`, when set, is an RFC-3339 instant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CoreError::InvalidConfig`] naming the offending catalog key.
+    fn preflight_catalogs(&self) -> CoreResult<()> {
+        // `[catalogs]` map keys become public `/fairdp` root IRIs via
+        // `NamedNode::new_unchecked`, so an unsafe key (space, control char, `..`) would emit
+        // SHACL-non-conformant RDF a harvester silently rejects while `/health` stays green.
+        // Dataset-side catalog values must match one of these keys (`validate_catalog`), so
+        // validating the keys secures both.
+        for (key, catalog) in &self.catalogs {
+            if !is_safe_catalog_name(key) {
+                return Err(CoreError::InvalidConfig {
+                    detail: format!(
+                        "[catalogs] key {key:?} is not a valid catalog name (allowed: ASCII alphanumerics and `-_.`, at most {MAX_CATALOG_LEN} chars, no leading dot or `..`)"
+                    ),
+                });
+            }
+            // The title is emitted verbatim as the Catalog's `dct:title`. A blank one passes
+            // SHACL (the shapes carry no `minLength`) but is useless in the userportal,
+            // while `/health` stays green. Reject it, as the provider path rejects an empty
+            // dataset title.
+            if catalog.title.trim().is_empty() {
+                return Err(CoreError::InvalidConfig {
+                    detail: format!("[catalogs] title for {key:?} must not be empty"),
+                });
+            }
+            // GDI's CatalogShape requires dct:description on every catalog record.
+            if catalog.description.trim().is_empty() {
+                return Err(CoreError::InvalidConfig {
+                    detail: format!("[catalogs] description for {key:?} must not be empty"),
+                });
+            }
+            if let Some(issued) = &catalog.issued
+                && time::OffsetDateTime::parse(
+                    issued,
+                    &time::format_description::well_known::Rfc3339,
+                )
+                .is_err()
+            {
+                return Err(CoreError::InvalidConfig {
+                    detail: format!(
+                        "[catalogs] issued for {key:?} must be an RFC-3339 / xsd:dateTime instant"
+                    ),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Validate the `[fairdp]` block (only reached when it is present).
     ///
     /// Enforces, in order:
-    /// - `title`, `license`, `issued` and `language` are non-empty; `license` and
-    ///   `language` are valid IRIs;
-    /// - the publisher and HDAB contact points are each complete (`fn` non-empty,
-    ///   `has_email` matching `^mailto:.+@.+\..+$`, `has_url` a valid URL if set);
-    /// - the publisher `homepage`/`mbox`, every `theme`, and every
-    ///   `applicable_legislation` entry are valid IRIs;
+    /// - `title`, `license` and `issued` are non-empty; `license` and every `language`
+    ///   entry are valid IRIs; no `keywords` entry is empty;
+    /// - the publisher and HDAB contact points are each complete (`name` non-empty,
+    ///   `email` an address, with or without `mailto:`, `url` a valid URL if set);
+    /// - the publisher and HDAB `homepage`, `endpoint_description`, every `theme`, and
+    ///   every `applicable_legislation` entry are valid IRIs;
+    /// - the distribution has a title and an access URL, and its IRIs are valid;
+    /// - `[fairdp.publish]`: kinds only on datasets and distributions, namespace IRIs;
     /// - the theme/theme-taxonomy in-scheme rule (see
     ///   [`ServiceConfig::check_theme_scheme`]).
     ///
@@ -3118,16 +3330,23 @@ impl ServiceConfig {
         check_non_empty("fairdp.license", &fairdp.license)?;
         check_iri("fairdp.license", &fairdp.license)?;
 
-        // `language` defaults to the English authority IRI, so the only way to reach
-        // here with a bad one is an explicit override — which is emitted verbatim as
-        // `dct:language` on the root, every catalog and every dataset. An empty string
-        // would emit `<>` (the base IRI) on all of them.
-        check_non_empty("fairdp.language", &fairdp.language)?;
-        check_iri("fairdp.language", &fairdp.language)?;
+        // Each `language` entry is emitted verbatim as `dct:language` on the root, every
+        // catalog and every dataset. An empty string would emit `<>` (the base IRI) on all
+        // of them.
+        for language in &fairdp.language {
+            check_non_empty("fairdp.language", language)?;
+            check_iri("fairdp.language", language)?;
+        }
+        for keyword in &fairdp.keywords {
+            check_non_empty("fairdp.keywords", keyword)?;
+        }
+        if let Some(description) = &fairdp.endpoint_description {
+            check_iri("fairdp.endpoint_description", description)?;
+        }
 
-        // The publisher (`dct:publisher foaf:name`) and HDAB (`gdi:hasDataAuthorisation`)
-        // names are mandatory in the served FDP-root/Catalog RDF; both default empty and
-        // are emitted verbatim, so an empty value serves SHACL-non-conformant metadata.
+        // The publisher (`dct:publisher`) and HDAB (`healthdcatap:hdab`) names are
+        // mandatory in the served RDF; both default empty and are emitted verbatim as
+        // `foaf:name`, so an empty value serves SHACL-non-conformant metadata.
         check_non_empty("fairdp.publisher.name", &fairdp.publisher.name)?;
         check_non_empty("fairdp.hdab.name", &fairdp.hdab.name)?;
 
@@ -3140,13 +3359,20 @@ impl ServiceConfig {
         if let Some(homepage) = &fairdp.publisher.homepage {
             check_iri("fairdp.publisher.homepage", homepage)?;
         }
-        if let Some(mbox) = &fairdp.publisher.mbox {
-            // `foaf:mbox` is a `mailto:` IRI: validate it as an email — which pins the
-            // scheme to `mailto:` — not as a generic IRI, so a `javascript:`/`data:`
-            // value cannot slip through into the served RDF.
-            crate::validate_pkg::validate_email("fairdp.publisher.mbox", mbox)
-                .map_err(|e| invalid_config(&e.to_string()))?;
+        if let Some(homepage) = &fairdp.hdab.homepage {
+            check_iri("fairdp.hdab.homepage", homepage)?;
         }
+        // GDI makes dcat:accessURL mandatory on every distribution.
+        check_non_empty(
+            "fairdp.distribution.access_url.aggregated",
+            &fairdp.distribution.access_url.aggregated,
+        )?;
+        check_iri(
+            "fairdp.distribution.access_url.aggregated",
+            &fairdp.distribution.access_url.aggregated,
+        )?;
+        check_non_empty("fairdp.distribution.title", &fairdp.distribution.title)?;
+        Self::preflight_publish(&fairdp.publish)?;
         // The Catalog record carries `dcatap:applicableLegislation` (gdi-metadata
         // `CatalogShape` `sh:minCount 1`); with none configured the node would serve a
         // SHACL-non-conformant `dcat:Catalog`. Require at least one, mirroring `theme`.
@@ -3171,29 +3397,55 @@ impl ServiceConfig {
             check_iri("fairdp.theme", theme)?;
         }
 
-        Self::check_theme_scheme(&fairdp.theme, fairdp.theme_taxonomy.as_deref())?;
+        for taxonomy in &fairdp.theme_taxonomy {
+            check_iri("fairdp.theme_taxonomy", taxonomy)?;
+        }
+        Self::check_theme_scheme(&fairdp.theme, &fairdp.theme_taxonomy)?;
+        Ok(())
+    }
+
+    /// Validate what `[fairdp.publish]` compiling does not: only datasets and distributions
+    /// have a dataset kind, and namespace IRIs pass the same scheme check as every other
+    /// configured IRI. The node binary's startup preflight compiles the rest.
+    fn preflight_publish(publish: &FairdpPublish) -> CoreResult<()> {
+        for (record, parts) in [
+            ("fairdp", &publish.add.fairdp),
+            ("catalog", &publish.add.catalog),
+        ] {
+            if parts.as_ref().is_some_and(|p| !p.aggregated.is_empty()) {
+                return Err(invalid_config(&format!(
+                    "fairdp.publish.add.{record}: only datasets and distributions have a kind; use `all`"
+                )));
+            }
+        }
+        for (prefix, iri) in &publish.namespaces {
+            check_non_empty("fairdp.publish.namespaces", prefix)?;
+            check_iri(&format!("fairdp.publish.namespaces.{prefix}"), iri)?;
+        }
         Ok(())
     }
 
     /// Validate the theme / theme-taxonomy SKOS-scheme rule.
     ///
-    /// When `theme_taxonomy` is set, every `theme` must be in-scheme — that is, start with
-    /// `theme_taxonomy` + `/` — or the node refuses to start. When it is unset, the scheme
-    /// is derived from a theme concept IRI minus its final path segment, and all themes must
-    /// share one derivable scheme. An empty
-    /// `theme` list is tolerated here (a no-op), but [`ServiceConfig::preflight_fairdp`]
-    /// requires at least one theme before this is reached.
+    /// When `theme_taxonomy` is set, every `theme` must start with one of its values + `/`,
+    /// or the node refuses to start. When it is unset, a theme's scheme is its IRI minus the
+    /// final path segment, and all themes must share one. An empty `theme` list is a no-op
+    /// here, but [`ServiceConfig::preflight_fairdp`] requires at least one theme before this
+    /// is reached.
     ///
     /// # Errors
     ///
     /// Returns [`CoreError::InvalidConfig`] when a theme is not in the configured
     /// taxonomy, when a theme has no derivable scheme, or when the themes do not
     /// share one scheme.
-    fn check_theme_scheme(theme: &[String], theme_taxonomy: Option<&str>) -> CoreResult<()> {
-        if let Some(taxonomy) = theme_taxonomy {
-            let prefix = format!("{}/", taxonomy.trim_end_matches('/'));
+    fn check_theme_scheme(theme: &[String], theme_taxonomy: &[String]) -> CoreResult<()> {
+        if !theme_taxonomy.is_empty() {
+            let prefixes: Vec<String> = theme_taxonomy
+                .iter()
+                .map(|t| format!("{}/", t.trim_end_matches('/')))
+                .collect();
             for t in theme {
-                if !t.starts_with(&prefix) {
+                if !prefixes.iter().any(|prefix| t.starts_with(prefix)) {
                     return Err(invalid_config(
                         "fairdp.theme value is not in-scheme for fairdp.theme_taxonomy",
                     ));
@@ -3258,8 +3510,8 @@ fn check_non_empty(field: &str, value: &str) -> CoreResult<()> {
 /// complete old-or-new snapshot, never a torn mix of old catalogs with new fingerprints.
 #[derive(Debug, Clone, Default)]
 pub struct Reloadable {
-    /// `[catalogs]`: catalog name -> display title.
-    pub catalogs: BTreeMap<String, String>,
+    /// `[catalogs.<id>]`: the catalogs a dataset can belong to.
+    pub catalogs: BTreeMap<String, CatalogCfg>,
     /// `[ingest].writer_policy`.
     pub writer_policy: WriterPolicy,
     /// `[ingest].inbox_allowed_writer_fingerprints`.
@@ -3707,8 +3959,8 @@ fn check_iri(field: &str, value: &str) -> CoreResult<()> {
 
 /// Validate an optional `/info` link (`documentationUrl`, `alternativeUrl`, `welcomeUrl`,
 /// `contactUrl`, `logoUrl`): an absolute `http`/`https` URL, or — for `contactUrl` only,
-/// `allow_mailto` — a well-formed `mailto:` address (the same rule `has_email`/`mbox` pass,
-/// checked here on a lowercase-prefixed copy). The scheme itself is matched
+/// `allow_mailto` — a well-formed `mailto:` address (the rule a `[fairdp]` contact
+/// e-mail passes, checked here on a lowercase-prefixed copy). The scheme itself is matched
 /// case-insensitively (RFC 3986 §3.1); `is_mailto_email` stays lowercase-only because the
 /// FDP fields that share it are checked against SHACL shapes whose `^mailto:` pattern is
 /// case-sensitive — this `/info` link is not RDF, so it normalises here instead.
@@ -3750,7 +4002,7 @@ fn check_info_url(field: &str, value: &str, allow_mailto: bool) -> CoreResult<()
 /// The SKOS `ConceptScheme` a `dcat:theme` concept IRI belongs to: the IRI minus its
 /// final `/`-separated segment, or [`None`] when there is no non-empty parent path (an
 /// opaque IRI such as a `urn:`). Single-sources the derivation shared by
-/// [`FairdpConfig::theme_taxonomy_iri`] and [`ServiceConfig::check_theme_scheme`] — they
+/// [`FairdpConfig::theme_taxonomy_iris`] and [`ServiceConfig::check_theme_scheme`] — they
 /// must agree, since preflight validates the themes against the very scheme the renderer
 /// later derives from them.
 fn derived_theme_scheme(theme: &str) -> Option<&str> {
@@ -3767,40 +4019,42 @@ fn derived_theme_scheme(theme: &str) -> Option<&str> {
         .filter(|head| !head.is_empty())
 }
 
-/// Validate a contact point: `fn` non-empty, `has_email` matching the mailto
-/// pattern, `has_url` a valid URL when present.
+/// Validate a contact point: `name` non-empty, `email` an e-mail address (with or without
+/// `mailto:`), `url` a valid URL when present.
 fn check_contact_point(field: &str, cp: &ContactPointCfg) -> CoreResult<()> {
-    if cp.fn_.is_empty() {
-        return Err(invalid_config(&format!("{field}.fn is required")));
+    if cp.name.is_empty() {
+        return Err(invalid_config(&format!("{field}.name is required")));
     }
-    if cp.has_email.is_empty() {
-        return Err(invalid_config(&format!("{field}.has_email is required")));
+    if cp.email.is_empty() {
+        return Err(invalid_config(&format!("{field}.email is required")));
     }
     // The pattern and the cap both come from `validate_pkg`, which owns this rule for
     // package fields and which the IRI-character check below also calls into. A local copy
-    // here would drop the cap and need a static-regex `expect` waiver.
-    if cp.has_email.chars().count() > crate::validate_pkg::MAX_EMAIL_LEN {
+    // here would drop the cap and need a static-regex `expect` waiver. Both apply to the
+    // `mailto:` form the renderer publishes.
+    let mailto = cp.mailto();
+    if mailto.chars().count() > crate::validate_pkg::MAX_EMAIL_LEN {
         return Err(invalid_config(&format!(
-            "{field}.has_email exceeds the {}-char limit",
+            "{field}.email exceeds the {}-char limit",
             crate::validate_pkg::MAX_EMAIL_LEN
         )));
     }
-    if !crate::validate_pkg::is_mailto_email(&cp.has_email) {
+    if !crate::validate_pkg::is_mailto_email(&mailto) {
         return Err(invalid_config(&format!(
-            "{field}.has_email is not a mailto: email"
+            "{field}.email is not an e-mail address"
         )));
     }
     // The mailto and contact URL are both emitted verbatim as `<…>` IRIs, so guard both
     // against IRIREF-forbidden characters.
-    if let Some(c) = crate::validate_pkg::find_iri_unsafe_char(&cp.has_email) {
+    if let Some(c) = crate::validate_pkg::find_iri_unsafe_char(&mailto) {
         return Err(invalid_config(&format!(
-            "{field}.has_email contains a character not allowed in an IRI ({c:?})"
+            "{field}.email contains a character not allowed in an IRI ({c:?})"
         )));
     }
-    if let Some(url) = &cp.has_url {
+    if let Some(url) = &cp.url {
         // `vcard:hasURL` is emitted verbatim as an IRI, so it gets the same scheme
         // allow-list and IRIREF-char rejection as any other served IRI.
-        check_iri(&format!("{field}.has_url"), url)?;
+        check_iri(&format!("{field}.url"), url)?;
     }
     Ok(())
 }

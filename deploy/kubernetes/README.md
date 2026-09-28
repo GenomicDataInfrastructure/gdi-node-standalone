@@ -70,10 +70,10 @@ kustomize` and asserts the invariants below; `scripts/ci-local.sh k8s-manifests`
   [`docs/deployment.md`](../../docs/deployment.md).
 - **Fill every `<SET ME: …>`** in `base/node.toml` — including the `[fairdp]` block, which
   is **required in full** once present (`title`, `issued`, `license`, `theme`,
-  `applicable_legislation`, and both the publisher and HDAB agents with their contact
-  points). A partial block is rejected at preflight, and at one replica under `Recreate`
-  that is a crash-loop rather than a failed apply. Delete the whole block for a
-  Beacon-only node.
+  `applicable_legislation`, the publisher and HDAB agents with their contact points, and
+  the distribution's `access_url.aggregated`). A partial block is rejected at preflight,
+  and at one replica under `Recreate` that is a crash-loop rather than a failed apply.
+  Delete the whole block for a Beacon-only node.
 - **Gate the apply with `check-config`, from your workstation.** The in-pod spelling works
   only once the pod runs — i.e. never in the cases where you need it:
   ```bash

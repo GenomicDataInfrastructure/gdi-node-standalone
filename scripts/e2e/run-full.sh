@@ -745,8 +745,8 @@ before="$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/fairdp/catalog/$RELO
 # Insert into the existing [catalogs] table: a second header would be a duplicate-table
 # error. Use `edit_node_config`, never `sed -i`, because this leg reloads instead of
 # restarting, so the edit has to reach the container through the existing file mount.
-edit_node_config "/^\[catalogs\]/a $RELOAD_CATALOG = \"E2E Reload Check\""
-grep -q "^$RELOAD_CATALOG = " "$NODE_CONFIG" || fail "could not add $RELOAD_CATALOG to $NODE_CONFIG"
+edit_node_config "/^\[catalogs\]/a $RELOAD_CATALOG = { title = \"E2E Reload Check\", description = \"E2E Reload Check\" }"
+grep -q "^$RELOAD_CATALOG = { title" "$NODE_CONFIG" || fail "could not add $RELOAD_CATALOG to $NODE_CONFIG"
 
 reload_body="$(curl -fsS -X POST "$MGMT_URL/reload")" || fail "POST /reload failed with [control] enabled"
 echo "$reload_body" | jq -e '.applied == true' >/dev/null \

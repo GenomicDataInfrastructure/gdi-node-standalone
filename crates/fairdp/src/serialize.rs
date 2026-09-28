@@ -14,8 +14,13 @@ use oxttl::TurtleSerializer;
 /// `(prefix, namespace-IRI)` pairs registered on the Turtle and JSON-LD
 /// serializers. Turtle uses them for readability; JSON-LD folds them into
 /// `@context` (IRI abbreviation, not custom-context compaction).
-const PREFIXES: &[(&str, &str)] = &[
+///
+/// `[fairdp.publish]` names resolve against these too; `gdi`, `rdfs`, `csvw` and `eli` are
+/// here for the built-in publish settings and their documented examples, `cv` for
+/// HealthDCAT-AP release 7's contact point.
+pub(crate) const PREFIXES: &[(&str, &str)] = &[
     ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
+    ("rdfs", "http://www.w3.org/2000/01/rdf-schema#"),
     ("xsd", "http://www.w3.org/2001/XMLSchema#"),
     ("dcat", "http://www.w3.org/ns/dcat#"),
     ("dct", "http://purl.org/dc/terms/"),
@@ -24,7 +29,11 @@ const PREFIXES: &[(&str, &str)] = &[
     ("skos", "http://www.w3.org/2004/02/skos/core#"),
     ("dcatap", "http://data.europa.eu/r5r/"),
     ("healthdcatap", "http://healthdataportal.eu/ns/health#"),
+    ("gdi", "http://data.gdi.eu/core/p2/"),
     ("dpv", "https://w3id.org/dpv#"),
+    ("cv", "http://data.europa.eu/m8g/"),
+    ("csvw", "http://www.w3.org/ns/csvw#"),
+    ("eli", "http://data.europa.eu/eli/ontology#"),
     ("fdp-o", "https://w3id.org/fdp/fdp-o#"),
     ("ldp", "http://www.w3.org/ns/ldp#"),
     ("vcard", "http://www.w3.org/2006/vcard/ns#"),

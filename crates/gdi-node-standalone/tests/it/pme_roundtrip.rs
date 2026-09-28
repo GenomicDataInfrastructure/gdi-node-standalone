@@ -403,7 +403,8 @@ base_url = "https://test.example.org"
 data_dir = "{}"
 
 [catalogs]
-gdi-aggregated = "GoE Aggregated"
+gdi-aggregated.title = "GoE Aggregated"
+gdi-aggregated.description = "GoE Aggregated"
 
 [beacon]
 aggregated_base_path = "/beacon/v2"
