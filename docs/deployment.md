@@ -695,6 +695,21 @@ with `resultsCount > 0` and then intersects them with the catalogue, so a node r
 there drops out of every portal search carrying a Beacon facet. Register a combined mount in
 an individual-level network only if the node really serves individuals.
 
+**Validating with the EGA Beacon Verifier.** GDI asks new members to run the EGA
+[Beacon Verifier v2](https://github.com/EGA-archive/beacon-verifier-v2) first. Expect three
+quirks:
+
+- It builds correct endpoint URLs only for a one-segment base path. With
+  `[beacon].aggregated_base_path` at its default `/aggregated/beacon/v2`, it requests the
+  wrong paths and reports the node's `404`s as errors. A one-segment path such as `"/api"`
+  works; pick it before you register, since it is part of the registered URL.
+- Enter the URL without a trailing slash, or it is rejected as "not a root URL for a
+  beacon".
+- It checks `count` and `boolean` answers against the record-level schema, so `g_variants`
+  shows `'response' is a required property` for them. Those answers do match the
+  `beaconCountResponse` and `beaconBooleanResponse` schemas. Every other card should be
+  green.
+
 ## Compatibility
 
 The declared support set. Most rows ship as prebuilt binaries; build the rest from
