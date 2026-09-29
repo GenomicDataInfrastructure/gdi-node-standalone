@@ -1485,15 +1485,16 @@ pub(crate) async fn g_variants_post(
 /// Reject an obviously-malformed request envelope (`400`) rather than parsing it
 /// leniently into a misleading empty-query `200`.
 ///
-/// Two shapes are rejected: a bare top-level `requestParameters` with no `query`
-/// wrapper (the spec nests it under `query`), and a non-null `query` that is present but not
-/// an object (a `null` `query` is treated as empty). A genuinely empty query stays a valid
-/// `200` — `{}`, `{"query":{}}` and `{"query":{"requestParameters":{}}}` all qualify — as
-/// does a body the lenient JSON parse cannot map at all.
+/// Rejected: a bare top-level `requestParameters` with no `query` wrapper (the spec nests it
+/// under `query`), and a `query`, `query.requestParameters` or
+/// `query.requestParameters.g_variant` that is present and non-null but not an object (a
+/// `null` is treated as empty). A genuinely empty query stays a valid `200` — `{}`,
+/// `{"query":{}}` and `{"query":{"requestParameters":{}}}` all qualify — as does a body the
+/// lenient JSON parse cannot map at all.
 ///
 /// # Errors
 ///
-/// Returns a `400` [`BeaconReject`] for the two misplaced-envelope shapes above.
+/// Returns a `400` [`BeaconReject`] for the malformed-envelope shapes above.
 fn reject_malformed_envelope(body: &Value) -> Result<(), BeaconReject> {
     if let Some(obj) = body.as_object() {
         if obj.contains_key("requestParameters") && !obj.contains_key("query") {
@@ -1520,6 +1521,18 @@ fn reject_malformed_envelope(body: &Value) -> Result<(), BeaconReject> {
                 "`query.requestParameters` must be an object",
             ));
         }
+        // Likewise for the `g_variant` container one level down.
+        if let Some(gv) = obj
+            .get("query")
+            .and_then(|q| q.get("requestParameters"))
+            .and_then(|rp| rp.get("g_variant"))
+            && !gv.is_object()
+            && !gv.is_null()
+        {
+            return Err(BeaconReject::bad_request(
+                "`query.requestParameters.g_variant` must be an object",
+            ));
+        }
     }
     Ok(())
 }
@@ -1541,8 +1554,11 @@ pub(crate) async fn g_variants_get(
 /// `testMode`, `pagination`, `filters`) are siblings of `requestParameters` under `query`,
 /// which is where the reference client (`BeaconRequestQuery`) and the framework schema place
 /// them. This merges both into one flat map so envelope validation and handling, such as
-/// rejecting `testMode:true` and honouring `includeResultsetResponses`, granularity and
-/// pagination, sees them.
+/// rejecting a non-boolean `testMode` and honouring `includeResultsetResponses`, granularity
+/// and pagination, sees them.
+///
+/// Variant parameters sent under `requestParameters.g_variant`, as the GA4GH model keys
+/// them, are lifted into the flat map and win over the same key sent flat.
 ///
 /// A body that omits the nesting (a bare `requestParameters`, or an empty body) is
 /// handled leniently: missing → an empty map (an empty query → 200 empty results).
@@ -1557,6 +1573,9 @@ fn request_params_from_body(body: &Value) -> RequestParams {
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
+    if let Some(Value::Object(g_variant)) = map.remove("g_variant") {
+        map.extend(g_variant);
+    }
     // Overlay the envelope fields from `query.*` (the canonical location).
     if let Some(q) = query.and_then(Value::as_object) {
         for key in [
@@ -2010,6 +2029,22 @@ mod tests {
         }
     }
 
+    /// A non-object `g_variant` is a 400, like a non-object `requestParameters`, not an
+    /// empty query answered `exists:false`.
+    #[test]
+    fn a_non_object_g_variant_is_rejected_not_read_as_an_empty_query() {
+        let bad = serde_json::json!({"query": {"requestParameters": {"g_variant": "3"}}});
+        let err =
+            reject_malformed_envelope(&bad).expect_err("a non-object g_variant must be a 400");
+        assert!(
+            format!("{err:?}").contains("g_variant"),
+            "must name the field: {err:?}"
+        );
+
+        let null = serde_json::json!({"query": {"requestParameters": {"g_variant": null}}});
+        reject_malformed_envelope(&null).expect("a null g_variant is an empty query");
+    }
+
     /// The global scan ceiling sheds instead of piling on when detached scans have already
     /// filled the pool.
     ///
@@ -2231,8 +2266,8 @@ mod tests {
         // The Beacon v2 schema and real clients put includeResultsetResponses,
         // requestedGranularity, testMode, pagination and filters as siblings of
         // requestParameters under `query`, not inside it. They must reach the flat params
-        // map the handlers and validation read, or testMode:true is never rejected and
-        // granularity, include and pagination are silently ignored.
+        // map the handlers and validation read, or a non-boolean testMode is never rejected
+        // and granularity, include and pagination are silently ignored.
         let body = json!({
             "query": {
                 "requestParameters": { "referenceName": "3", "start": 45_823_239 },
@@ -2317,6 +2352,24 @@ mod tests {
         assert_eq!(
             params.get("requestedGranularity").and_then(Value::as_str),
             Some("boolean")
+        );
+    }
+
+    #[test]
+    fn body_params_keyed_g_variant_wins_over_a_flat_duplicate() {
+        // `g_variant` is how the GA4GH model keys variant parameters; flat is our leniency.
+        let body = json!({
+            "query": {
+                "requestParameters": {
+                    "referenceName": "1",
+                    "g_variant": { "referenceName": "3" }
+                }
+            }
+        });
+        let params = request_params_from_body(&body);
+        assert_eq!(
+            params.get("referenceName").and_then(Value::as_str),
+            Some("3")
         );
     }
 

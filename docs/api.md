@@ -123,6 +123,10 @@ query framework either as GET query-string parameters or as a POST JSON body
 (`query.requestParameters` plus the `query.filters`, `query.pagination`,
 `query.requestedGranularity` and `query.includeResultsetResponses` siblings).
 
+Variant parameters can sit directly in `query.requestParameters` or, as the GA4GH model has
+them, under `query.requestParameters.g_variant`. Both are read the same way; if a key is in
+both, `g_variant` wins. A `g_variant` that is not an object is a `400` on `g_variants`.
+
 The envelope fields live under `query`. Seven keys are read from `query.*`, the canonical
 location: `includeResultsetResponses`, `requestedGranularity`, `testMode`, `pagination`,
 `filters`, `requestedSchemas` and `datasetIds`. The same key nested inside

@@ -228,6 +228,41 @@ async fn get_g_variants_matches_equivalent_post() {
 }
 
 #[tokio::test]
+async fn post_g_variants_reads_the_keyed_g_variant_form() {
+    // The GA4GH model's own request shape. If ignored, the query has no selector and
+    // answers `exists:false` for a variant the node holds.
+    let (state, _tmp) = state_with_covid();
+    let body = serde_json::json!({
+        "query": {
+            "requestParameters": {
+                "g_variant": {
+                    "referenceName": "3",
+                    "start": [45_823_239],
+                    "referenceBases": "T",
+                    "alternateBases": "C",
+                    "assemblyId": "GRCh38"
+                }
+            },
+            "requestedGranularity": "count"
+        }
+    });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/beacon/v2/g_variants")
+        .header("content-type", "application/json")
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = build_router(state).oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let v = body_json(resp.into_body()).await;
+    assert_eq!(
+        v["responseSummary"],
+        serde_json::json!({ "exists": true, "numTotalResults": 1 })
+    );
+}
+
+#[tokio::test]
 async fn g_variants_count_drops_record_body_and_sets_returned_granularity() {
     let (state, _tmp) = state_with_covid();
     let router = build_router(state);
