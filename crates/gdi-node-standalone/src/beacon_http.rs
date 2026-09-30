@@ -1486,11 +1486,12 @@ pub(crate) async fn g_variants_post(
 /// leniently into a misleading empty-query `200`.
 ///
 /// Rejected: a bare top-level `requestParameters` with no `query` wrapper (the spec nests it
-/// under `query`), and a `query`, `query.requestParameters` or
-/// `query.requestParameters.g_variant` that is present and non-null but not an object (a
-/// `null` is treated as empty). A genuinely empty query stays a valid `200` — `{}`,
-/// `{"query":{}}` and `{"query":{"requestParameters":{}}}` all qualify — as does a body the
-/// lenient JSON parse cannot map at all.
+/// under `query`), and a `query`, `requestParameters` or `requestParameters.g_variant` that
+/// is present and non-null but not an object (a `null` is treated as empty), taking
+/// `requestParameters` where the body reader does: under `query`, or else beside it. A
+/// genuinely empty query stays a valid `200` — `{}`, `{"query":{}}` and
+/// `{"query":{"requestParameters":{}}}` all qualify — as does a body the lenient JSON parse
+/// cannot map at all.
 ///
 /// # Errors
 ///
@@ -1513,24 +1514,25 @@ fn reject_malformed_envelope(body: &Value) -> Result<(), BeaconReject> {
         // handler answers 200 `exists:false`, reporting "I do not hold this variant" for a
         // variant the node may hold, which a federated aggregator then records.
         // Absent and explicitly-null stay lenient: an empty query is a legitimate 200.
-        if let Some(rp) = obj.get("query").and_then(|q| q.get("requestParameters"))
+        let rp = obj
+            .get("query")
+            .and_then(|q| q.get("requestParameters"))
+            .or_else(|| obj.get("requestParameters"));
+        if let Some(rp) = rp
             && !rp.is_object()
             && !rp.is_null()
         {
             return Err(BeaconReject::bad_request(
-                "`query.requestParameters` must be an object",
+                "`requestParameters` must be an object",
             ));
         }
         // Likewise for the `g_variant` container one level down.
-        if let Some(gv) = obj
-            .get("query")
-            .and_then(|q| q.get("requestParameters"))
-            .and_then(|rp| rp.get("g_variant"))
+        if let Some(gv) = rp.and_then(|rp| rp.get("g_variant"))
             && !gv.is_object()
             && !gv.is_null()
         {
             return Err(BeaconReject::bad_request(
-                "`query.requestParameters.g_variant` must be an object",
+                "`requestParameters.g_variant` must be an object",
             ));
         }
     }
@@ -2040,6 +2042,10 @@ mod tests {
             format!("{err:?}").contains("g_variant"),
             "must name the field: {err:?}"
         );
+
+        // Beside a `query` without its own, `requestParameters` is still read, so still checked.
+        let beside = serde_json::json!({"query": {}, "requestParameters": {"g_variant": "3"}});
+        reject_malformed_envelope(&beside).expect_err("a non-object g_variant beside query");
 
         let null = serde_json::json!({"query": {"requestParameters": {"g_variant": null}}});
         reject_malformed_envelope(&null).expect("a null g_variant is an empty query");
