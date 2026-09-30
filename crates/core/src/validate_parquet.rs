@@ -8,7 +8,8 @@
 //! file, and rejects before decoding on both halves of the declared expansion: the
 //! row-group metadata's uncompressed sizes here, and each page header's own
 //! `uncompressed_page_size` in [`crate::parquet_pages`]. A crafted high-ratio parquet is
-//! caught as a fast [`CoreError::InvalidParquet`] rather than an OOM.
+//! caught as a fast [`CoreError::InvalidParquet`] rather than an OOM. Before `parquet` decodes
+//! a file's footer and page index at all, `parquet_bounds` checks them, for the same reason.
 
 use std::{
     collections::BTreeSet,
@@ -130,9 +131,9 @@ pub struct ParquetScan {
 /// Validate every `allele-freq.*.parquet` data file in `dir`.
 ///
 /// Each file is checked in this order, from the footer metadata and before any row group
-/// is decoded: the on-disk size cap, the exact schema, the per-row-group and per-file
-/// decompressed working set, the per-page declared expansion, and the declared `POS`
-/// statistics against the rows they claim to bound.
+/// is decoded: the on-disk size cap, the metadata bounds, the exact schema, the
+/// per-row-group and per-file decompressed working set, the per-page declared expansion, and
+/// the declared `POS` statistics against the rows they claim to bound.
 ///
 /// The per-row value rules then run on every decoded row: `POS` non-negative and
 /// non-decreasing; `REF` and `ALT` in `ACGTN` and within their length caps; `POPULATION`
@@ -436,6 +437,7 @@ fn verify_pos_statistics(path: &Path, meta: &ParquetMetaData) -> CoreResult<()> 
     // for the full argument.
     let builder = open_arrow_reader(
         file,
+        path,
         ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
         |e| invalid_parquet(format!("cannot open parquet metadata: {e}")),
     )?;
@@ -1138,9 +1140,9 @@ struct RowCursor {
 impl RowCursor {
     /// Open a cursor over `path`: one file open and footer parse for the whole file, then
     /// the per-file pre-decode guards, so the file is decoded once for both value
-    /// validation and the uniqueness scan. The guards are the on-disk size cap, the
-    /// exact-schema check and the decompression-bomb row-group caps, all before any data is
-    /// decoded.
+    /// validation and the uniqueness scan. The guards are the on-disk size cap, the metadata
+    /// bounds, the exact-schema check and the decompression-bomb row-group caps, all before
+    /// any data is decoded.
     ///
     /// `batch_rows` bounds the rows this cursor buffers at once. It is a parameter rather
     /// than a default because only the caller knows the fan-out: the merge holds one such
@@ -1160,6 +1162,7 @@ impl RowCursor {
         // "cannot be bounded".
         let builder = open_arrow_reader(
             file,
+            path,
             ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
             |e| invalid_parquet(format!("cannot open parquet metadata: {e}")),
         )?;
@@ -1753,6 +1756,7 @@ mod tests {
     fn metadata_with_page_index(path: &Path) -> Arc<ParquetMetaData> {
         open_arrow_reader(
             std::fs::File::open(path).expect("open"),
+            path,
             ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
             |e| invalid_parquet(e.to_string()),
         )
@@ -2731,8 +2735,9 @@ mod tests {
         // fixtures directory.
         //
         // `fuzz_crash_fc0ea292.parquet` is a crafted footer whose embedded Arrow IPC schema
-        // has no `fields`: the same `fb_to_schema` panic family as the other two fixtures,
-        // and the reason the fuzz target mirrors production's `catch_unwind` boundary (see
+        // has no `fields` (the `fb_to_schema` panic family); it still reaches that net, while
+        // the other two now stop earlier, at the metadata bounds. The fuzz target mirrors
+        // production's `catch_unwind` boundary (see
         // `crates/core/fuzz/fuzz_targets/parquet_validate.rs`).
         for name in [
             "fuzz_minimized_cb9351a9.parquet",
@@ -2755,9 +2760,9 @@ mod tests {
 
     #[test]
     fn fuzz_oom_artifact_is_refused_by_the_metadata_bounds() {
-        // The weekly fuzz run's out-of-memory input declares a 249,561,063-entry key-value
-        // list, about 12 GB to `parquet`. A host that can reserve that sees `parquet` fail on
-        // its own, so only the message shows the bounds refused it first.
+        // The weekly fuzz run's out-of-memory input: `parquet` reads its field 5 as a
+        // 249,561,063-entry key-value list, about 12 GB. The bounds refuse it at its first
+        // field, and only the message shows it was them rather than a failed reservation.
         let dir = tempfile::tempdir().unwrap();
         let dest = dir
             .path()

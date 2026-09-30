@@ -885,8 +885,9 @@ the read path is unaffected, so this is an alert rather than a probe failure.
      (default 256 MiB), `max_parquet_file_bytes`, and the whole-package
      `max_package_bytes` (default 16 GiB). Each data file's footer and page index are
      also checked before decoding: unexpected or mistyped fields, lists that claim more
-     than the file holds, and oversized metadata fail as `invalid-parquet-schema`
-     (`parquet metadata refused before decoding: …`). The package cap is
+     than the file holds or over a million elements, a nested schema, and metadata over
+     the fixed caps (a 16 MiB footer, a 64 MiB page index; not configurable) fail as
+     `invalid-parquet-schema` (`parquet metadata refused before decoding: …`). The package cap is
      enforced on the decrypted archive as it streams to disk, so an over-cap package is
      refused before extraction.
      An S3 package whose encrypted `.tar.c4gh` object already exceeds it is refused at

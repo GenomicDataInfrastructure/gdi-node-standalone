@@ -1,12 +1,13 @@
-//! Canary for the workspace `clippy.toml` `disallowed-methods` list.
+//! Canary for the workspace `clippy.toml` `disallowed-methods` and `disallowed-types` lists.
 //!
-//! Clippy silently ignores a `disallowed-methods` path it cannot resolve: no warning, no
-//! error, the entry simply never fires. A typo or an upstream rename therefore disables a
-//! ban while the build stays green.
+//! Clippy silently ignores a path it cannot resolve: no warning, no error, the entry simply
+//! never fires. A typo or an upstream rename therefore disables a ban while the build stays
+//! green.
 //!
-//! Each function below calls one banned method under `#[expect(clippy::disallowed_methods)]`.
-//! `unfulfilled_lint_expectations` is a hard error under `-D warnings`, so a path that stops
-//! resolving leaves its expectation unfulfilled and fails the build here, naming the entry.
+//! Each function below calls one banned method, or names one banned type, under the matching
+//! `#[expect]`. `unfulfilled_lint_expectations` is a hard error under `-D warnings`, so a path
+//! that stops resolving leaves its expectation unfulfilled and fails the build here, naming
+//! the entry.
 //!
 //! The functions are never called; they exist only to be linted.
 
@@ -26,7 +27,7 @@ fn canary_fs_write(path: &Path) {
 ///
 /// Spelled through `ArrowReaderBuilder` rather than the `ParquetRecordBatchReaderBuilder`
 /// alias, for two reasons: clippy resolves `disallowed-methods` to the underlying item and
-/// the alias path does not resolve, and `every_disallowed_method_has_a_canary` matches the
+/// the alias path does not resolve, and `every_disallowed_path_has_a_canary` matches the
 /// path textually as `clippy.toml` writes it.
 #[expect(dead_code, reason = "canary: exists to be linted, never called")]
 #[expect(
@@ -63,14 +64,44 @@ fn canary_parquet_metadata_load(file: &std::fs::File) {
     );
 }
 
-/// Canary for `SerializedFileReader::new`.
+/// Canary for `ParquetRecordBatchReader::try_new`.
 #[expect(dead_code, reason = "canary: exists to be linted, never called")]
 #[expect(
     clippy::disallowed_methods,
-    reason = "canary: proves `SerializedFileReader::new` still resolves in clippy.toml"
+    reason = "canary: proves `ParquetRecordBatchReader::try_new` still resolves in clippy.toml"
 )]
-fn canary_parquet_serialized_file_reader_new(file: std::fs::File) {
-    let _ = parquet::file::serialized_reader::SerializedFileReader::new(file);
+fn canary_parquet_record_batch_reader_try_new(file: std::fs::File) {
+    let _ = parquet::arrow::arrow_reader::ParquetRecordBatchReader::try_new(file, 1024);
+}
+
+/// Canary for the `SerializedFileReader` type ban.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "canary: proves `SerializedFileReader` still resolves in clippy.toml"
+)]
+fn canary_parquet_serialized_file_reader() {
+    let _ = None::<parquet::file::serialized_reader::SerializedFileReader<std::fs::File>>;
+}
+
+/// Canary for the `ParquetMetaDataReader` type ban.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "canary: proves `ParquetMetaDataReader` still resolves in clippy.toml"
+)]
+fn canary_parquet_metadata_reader() {
+    let _ = None::<parquet::file::metadata::ParquetMetaDataReader>;
+}
+
+/// Canary for the `ParquetMetaDataPushDecoder` type ban.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_types,
+    reason = "canary: proves `ParquetMetaDataPushDecoder` still resolves in clippy.toml"
+)]
+fn canary_parquet_metadata_push_decoder() {
+    let _ = None::<parquet::file::metadata::ParquetMetaDataPushDecoder>;
 }
 
 /// Canary for `std::fs::copy`.
@@ -250,22 +281,23 @@ mod tests {
     /// stand in for the call it is supposed to make.
     const FN_DECL: [&str; 3] = ["fn ", "async fn ", "pub fn "];
 
-    /// Every `disallowed-methods` entry in `clippy.toml` has a canary in this file.
+    /// Every `disallowed-methods` and `disallowed-types` entry in `clippy.toml` has a canary
+    /// in this file.
     ///
     /// The canaries prove that each banned path still resolves, but nothing else ties the
-    /// two lists together: a ban added without a canary is unguarded from birth. This reads
+    /// lists together: a ban added without a canary is unguarded from birth. This reads
     /// `clippy.toml` as data rather than restating the list, so there is only one list and
     /// the two cannot drift.
     #[test]
-    fn every_disallowed_method_has_a_canary() {
+    fn every_disallowed_path_has_a_canary() {
         let toml = include_str!("../../../clippy.toml");
 
         // Read only the canary bodies. Three kinds of prose in this file would otherwise
         // satisfy the search: comment lines, a canary's own name (`canary_..._builder_new`
         // contains `new(`), and this test module, which quotes every path it checks. What
         // survives the strip is the attribute block and the call. `reason = "..."` strings
-        // survive too, which is why the search below demands an opening paren: a mention
-        // writes ``reqwest::get``, a call writes `reqwest::get(`.
+        // survive too, which is why the search below demands a call's opening paren, or a
+        // type's `None::<`: a mention writes ``reqwest::get``, a call `reqwest::get(`.
         let source = include_str!("lint_canary.rs");
         let bodies = source
             .split_once("#[cfg(test)]")
@@ -277,41 +309,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        // `split_once` rather than `split(..).next()`: the latter cannot fail, so its
-        // `filter_map` would keep a malformed entry as the whole rest of the line.
-        let paths: Vec<&str> = toml
-            .lines()
-            .map(str::trim)
-            .filter_map(|l| l.strip_prefix("{ path = \""))
-            .filter_map(|l| l.split_once('"').map(|(p, _)| p))
-            .collect();
-
-        // Anti-vacuity, derived rather than hand-written: a fixed floor is a second copy
-        // of the list's length and drifts away from it. Count the non-comment lines the
-        // array declares and require that every one of them parsed, so an entry reformatted
-        // into a shape `strip_prefix` misses fails here instead of being skipped in silence.
-        let block = toml
-            .split_once("disallowed-methods = [")
-            .expect("clippy.toml has no `disallowed-methods = [` array — this guard is blind")
-            .1;
-        let block = block
-            .split_once("\n]")
-            .expect("the `disallowed-methods` array is unterminated")
-            .0;
-        let declared = block
-            .lines()
-            .map(str::trim)
-            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-            .count();
-        assert_eq!(
-            paths.len(),
-            declared,
-            "the disallowed-methods array declares {declared} entries but only {} parsed — \
-             an entry's shape changed and this guard would silently skip it",
-            paths.len()
-        );
-
-        for path in paths {
+        for path in entries(toml, "disallowed-methods") {
             // Match the full path, not its tail. `std::fs::write` and `tokio::fs::write`
             // share both their last segment and their owner, so a tail match lets one
             // canary discharge both bans. Every canary is therefore written fully
@@ -330,5 +328,46 @@ mod tests {
                  ban, clippy ignores a path it cannot resolve, and nothing fails."
             );
         }
+        for path in entries(toml, "disallowed-types") {
+            assert!(
+                code.contains(&format!("None::<{path}")),
+                "clippy.toml bans the type `{path}` but no canary in lint_canary.rs names it \
+                 as `None::<{path}`, so an upstream rename would silently disable the ban."
+            );
+        }
+    }
+
+    /// The paths in `clippy.toml`'s `name` array.
+    ///
+    /// Every non-comment line of the array must parse, so an entry in a shape this misses
+    /// fails here instead of being skipped. A fixed count would be a second copy of the list.
+    fn entries<'a>(toml: &'a str, name: &str) -> Vec<&'a str> {
+        let block = toml
+            .split_once(&format!("\n{name} = ["))
+            .unwrap_or_else(|| panic!("clippy.toml has no `{name} = [` array: this guard is blind"))
+            .1;
+        let block = block
+            .split_once("\n]")
+            .unwrap_or_else(|| panic!("the `{name}` array is unterminated"))
+            .0;
+        let declared: Vec<&str> = block
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect();
+        let paths: Vec<&str> = declared
+            .iter()
+            .filter_map(|l| l.strip_prefix("{ path = \""))
+            .filter_map(|l| l.split_once('"').map(|(p, _)| p))
+            .collect();
+        assert_eq!(
+            paths.len(),
+            declared.len(),
+            "the {name} array declares {} entries but only {} parsed: an entry's shape \
+             changed and this guard would silently skip it",
+            declared.len(),
+            paths.len()
+        );
+        paths
     }
 }

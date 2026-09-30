@@ -9,15 +9,20 @@
 //! refuses a file when:
 //!
 //! - a field is not in the schema below, or has a different Thrift type;
-//! - a list declares more elements than bytes remain, or a value runs past its blob;
-//! - the footer is over [`MAX_FOOTER_BYTES`], or the page index is over
-//!   [`MAX_PAGE_INDEX_BYTES`] or outside the data.
+//! - a list declares more elements than bytes remain or than [`MAX_LIST_ELEMENTS`], or a
+//!   value runs past its blob;
+//! - a schema element other than the root declares children, or the root declares more
+//!   than the schema holds;
+//! - the footer is over [`MAX_FOOTER_BYTES`], or a page-index entry is empty, outside the
+//!   data, or adds up to more than [`MAX_PAGE_INDEX_BYTES`].
 //!
 //! The types matter because `parquet` reads a known field by its schema type and ignores the
 //! type on the wire, so bytes we would skip as an `i32` can be a list header to it. When every
-//! wire type matches, both readers meet the same list headers. The caps then bound what a
-//! footer that passes can still make `parquet` allocate. Real metadata is small: the gnomAD
-//! chr21 corpus slice has 2.2 KB of footer and 1.5 KB of page index.
+//! wire type matches, both readers meet the same list headers. `parquet` reserves under 128
+//! bytes per list element, so the element cap holds a list to 128 MiB. It builds the schema
+//! tree recursively; our writer's schema is flat, so only the root may have children. Real
+//! metadata is small: the gnomAD chr21 corpus slice has 2.2 KB of footer and 1.5 KB of page
+//! index, and a 1 GiB file from our writer has a few thousand row groups.
 //!
 //! The schema is the part of `parquet-format` that `parquet` 59.2 reads here, minus the
 //! encryption fields and geospatial statistics, which plaintext files from our writer never
@@ -26,6 +31,7 @@
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
 
 use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
 use parquet::errors::ParquetError;
@@ -39,6 +45,9 @@ pub(crate) const MAX_FOOTER_BYTES: u64 = 16 * 1024 * 1024;
 /// column chunks can share a blob, and `parquet` decodes it once per chunk.
 pub(crate) const MAX_PAGE_INDEX_BYTES: u64 = 64 * 1024 * 1024;
 
+/// The most elements a list may declare. `parquet` reserves them all before reading one.
+pub(crate) const MAX_LIST_ELEMENTS: u64 = 1 << 20;
+
 /// The file ends with the footer length (a little-endian `u32`) and the magic.
 const TAIL_BYTES: u64 = 8;
 const MAGIC_PLAINTEXT_FOOTER: &[u8] = b"PAR1";
@@ -50,14 +59,20 @@ const MAGIC_PLAINTEXT_FOOTER: &[u8] = b"PAR1";
 ///
 /// # Errors
 ///
-/// [`CoreError::InvalidParquet`] for out-of-bounds metadata, [`CoreError::Io`] when the file
-/// cannot be read, and whatever `map_parquet_error` returns.
+/// [`CoreError::InvalidParquet`] naming `path` for out-of-bounds metadata, [`CoreError::Io`]
+/// when the file cannot be read, and whatever `map_parquet_error` returns.
 pub(crate) fn open_arrow_reader(
     file: File,
+    path: &Path,
     options: ArrowReaderOptions,
     map_parquet_error: impl FnOnce(ParquetError) -> CoreError,
 ) -> CoreResult<ParquetRecordBatchReaderBuilder<File>> {
-    check_metadata_bounds(&file)?;
+    check_metadata_bounds(&file).map_err(|error| match error {
+        CoreError::InvalidParquet { detail } => {
+            invalid_parquet(format!("{}: {detail}", path.display()))
+        }
+        other => other,
+    })?;
     #[expect(
         clippy::disallowed_methods,
         reason = "the chokepoint: the metadata was checked above"
@@ -128,8 +143,13 @@ fn check_page_index(file: &File, blobs: &[IndexBlob], footer_start: u64) -> Core
         let (Ok(start), Ok(len)) = (u64::try_from(offset), u64::try_from(length)) else {
             return Err(outside());
         };
+        // `parquet` reads from the lowest start to the highest end over every entry, empty
+        // ones included, and no writer produces an empty one.
         if len == 0 {
-            continue;
+            return Err(refused(format!(
+                "the {} at offset {offset} is empty",
+                shape.name
+            )));
         }
         let end = start
             .checked_add(len)
@@ -529,10 +549,16 @@ impl<'a> Thrift<'a> {
         self.skip(len)
     }
 
-    /// Walks one `shape` struct. A `ColumnChunk` adds the page-index blobs it names to `blobs`.
-    fn walk_struct(&mut self, shape: &'static Shape, blobs: &mut Vec<IndexBlob>) -> CoreResult<()> {
+    /// Walks one `shape` struct. A `ColumnChunk` adds the page-index blobs it names to `blobs`,
+    /// and a `SchemaElement` returns its `num_children`.
+    fn walk_struct(
+        &mut self,
+        shape: &'static Shape,
+        blobs: &mut Vec<IndexBlob>,
+    ) -> CoreResult<Option<i64>> {
         let mut last_id: i64 = 0;
         let mut index = [None; 4];
+        let mut children = None;
         loop {
             let header = self.byte()?;
             if header == 0 {
@@ -560,6 +586,8 @@ impl<'a> Thrift<'a> {
             let value = self.walk_field(ty, blobs)?;
             if std::ptr::eq(shape, &raw const COLUMN_CHUNK) && (4..=7).contains(&id) {
                 index[usize::try_from(id - 4).map_err(|_| truncated())?] = value;
+            } else if std::ptr::eq(shape, &raw const SCHEMA_ELEMENT) && id == 5 {
+                children = value;
             }
         }
         for (index_shape, offset, length) in [
@@ -574,7 +602,7 @@ impl<'a> Thrift<'a> {
                 });
             }
         }
-        Ok(())
+        Ok(children)
     }
 
     /// Walks one field's value, and returns it if it is an integer.
@@ -585,7 +613,9 @@ impl<'a> Thrift<'a> {
             Ty::I8 => self.skip(1)?,
             Ty::I16 | Ty::I32 | Ty::I64 => return self.zigzag().map(Some),
             Ty::Binary => self.skip_binary()?,
-            Ty::Struct(shape) => self.walk_struct(shape, blobs)?,
+            Ty::Struct(shape) => {
+                self.walk_struct(shape, blobs)?;
+            }
             Ty::List(elem) => self.walk_list(elem, blobs)?,
         }
         Ok(None)
@@ -610,14 +640,29 @@ impl<'a> Thrift<'a> {
                 "a list declares {count} elements but only {remaining} bytes remain"
             )));
         }
-        for _ in 0..count {
+        if count > MAX_LIST_ELEMENTS {
+            return Err(refused(format!(
+                "a list declares {count} elements, over the {MAX_LIST_ELEMENTS}-element cap"
+            )));
+        }
+        for i in 0..count {
             match elem {
                 Elem::Bool => self.skip(1)?,
                 Elem::I32 | Elem::I64 => {
                     self.varint()?;
                 }
                 Elem::Binary => self.skip_binary()?,
-                Elem::Struct(shape) => self.walk_struct(shape, blobs)?,
+                Elem::Struct(shape) => {
+                    // Only a schema element has a child count; see the module doc.
+                    if let Some(children) = self.walk_struct(shape, blobs)? {
+                        let most = if i == 0 { count - 1 } else { 0 };
+                        if !u64::try_from(children).is_ok_and(|c| c <= most) {
+                            return Err(refused(format!(
+                                "schema element {i} declares {children} children"
+                            )));
+                        }
+                    }
+                }
             }
         }
         Ok(())
@@ -762,10 +807,68 @@ mod tests {
 
     #[test]
     fn a_page_index_outside_the_data_is_refused() {
-        for range in [(1_000_000, 10), (4, -1)] {
+        for range in [(1_000_000, 10), (4, -1), (2, 10)] {
             let file = parquet_file(&[0; 16], &footer_naming_offset_indexes(&[range]));
             let msg = refusal(&file);
             assert!(msg.contains("is outside the data"), "{range:?}: {msg}");
+        }
+    }
+
+    #[test]
+    fn an_empty_page_index_entry_is_refused() {
+        // `parquet` still reads from its offset, which can stretch the span past the cap.
+        let file = parquet_file(&[0; 16], &footer_naming_offset_indexes(&[(4, 0)]));
+        let msg = refusal(&file);
+        assert!(msg.contains("OffsetIndex at offset 4 is empty"), "{msg}");
+    }
+
+    #[test]
+    fn a_list_over_the_element_cap_is_refused() {
+        let count = MAX_LIST_ELEMENTS + 1;
+        let empty_structs = vec![0; usize::try_from(count).unwrap() + 1];
+        let footer = [
+            vec![field(5, LIST)],
+            list_header(STRUCT, count),
+            empty_structs,
+        ]
+        .concat();
+        let msg = refusal(&parquet_file(&[], &footer));
+        assert!(msg.contains("-element cap"), "{msg}");
+    }
+
+    #[test]
+    fn only_the_schema_root_may_have_children() {
+        let schema = |children: &[i64]| {
+            let mut footer = vec![field(2, LIST)];
+            footer.extend(list_header(STRUCT, u64::try_from(children.len()).unwrap()));
+            for &n in children {
+                footer.push(field(5, I32));
+                footer.extend(zigzag(n));
+                footer.push(0);
+            }
+            footer.push(0);
+            footer
+        };
+        assert!(check_metadata_bounds(&parquet_file(&[], &schema(&[1, 0]))).is_ok());
+        for (children, expected) in [
+            (&[2, 0][..], "schema element 0 declares 2 children"),
+            (&[1, 1][..], "schema element 1 declares 1 children"),
+        ] {
+            let msg = refusal(&parquet_file(&[], &schema(children)));
+            assert!(msg.contains(expected), "{msg}");
+        }
+    }
+
+    #[test]
+    fn malformed_thrift_is_refused() {
+        let overlong_varint = [vec![field(1, I32)], vec![0x80; 10], vec![0]].concat();
+        let wrong_element = [vec![field(2, LIST)], list_header(I32, 1), vec![0, 0]].concat();
+        for (footer, expected) in [
+            (overlong_varint, "longer than ten bytes"),
+            (wrong_element, "wrong element type"),
+        ] {
+            let msg = refusal(&parquet_file(&[], &footer));
+            assert!(msg.contains(expected), "{msg}");
         }
     }
 
@@ -807,9 +910,12 @@ mod tests {
 
         // The one column chunk's offset index and column index.
         assert_eq!(check_metadata_bounds(&file).unwrap(), 2);
-        let rows: usize = open_arrow_reader(file, ArrowReaderOptions::new(), |e| {
-            invalid_parquet(e.to_string())
-        })
+        let rows: usize = open_arrow_reader(
+            file,
+            Path::new("written.parquet"),
+            ArrowReaderOptions::new(),
+            |e| invalid_parquet(e.to_string()),
+        )
         .unwrap()
         .build()
         .unwrap()

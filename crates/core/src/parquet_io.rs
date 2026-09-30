@@ -904,10 +904,12 @@ fn pos_row_selection(
 /// `decryptor`'s key retriever when one is present (a `PARE` file) and reading the
 /// plaintext path otherwise (a `PAR1` file, or any no-PME build).
 ///
-/// Both opens go through [`crate::parquet_bounds::open_arrow_reader`]. A PME-decrypting open
-/// passes `ArrowReaderOptions::with_file_decryption_properties` (that type is only in
-/// scope under the `pme` parquet-encryption feature, so it stays a plain code span
-/// rather than an intra-doc link), which decrypts the footer so the row-group
+/// Both opens go through [`crate::parquet_bounds::open_arrow_reader`], so the metadata of
+/// node-owned files is checked again on every query: about 25 µs per file (the
+/// `parquet_read` bench), which also keeps a corrupted stored footer from aborting the
+/// process. A PME-decrypting open passes `ArrowReaderOptions::with_file_decryption_properties`
+/// (that type is only in scope under the `pme` parquet-encryption feature, so it stays a
+/// plain code span rather than an intra-doc link), which decrypts the footer so the row-group
 /// statistics (and page index) stay usable for pruning.
 pub(crate) fn open_reader_builder(
     file: std::fs::File,
@@ -934,7 +936,7 @@ pub(crate) fn open_reader_builder(
             // The key retriever runs here first, to decrypt the footer, so a transient Vault
             // outage during footer decryption must be classified as `Transient` rather than
             // `InvalidParquet`. The build and iterate classifiers below never see this error.
-            return crate::parquet_bounds::open_arrow_reader(file, opts, |e| {
+            return crate::parquet_bounds::open_arrow_reader(file, path, opts, |e| {
                 classify_parquet_decode_error(&e.to_string(), path)
             });
         }
@@ -942,7 +944,7 @@ pub(crate) fn open_reader_builder(
     #[cfg(not(feature = "pme"))]
     let _ = (decryptor, path);
     let opts = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional);
-    crate::parquet_bounds::open_arrow_reader(file, opts, |e| {
+    crate::parquet_bounds::open_arrow_reader(file, path, opts, |e| {
         invalid_parquet(format!("cannot open parquet: {e}"))
     })
 }
@@ -1064,10 +1066,6 @@ pub(crate) fn encrypt_parquet_file(
 /// decode can run under [`std::panic::catch_unwind`] (the decoder panics on crafted
 /// inputs). Constant memory (row-group-at-a-time).
 #[cfg(feature = "pme")]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "writes into the ingest staging directory that store_atomically renames into place"
-)]
 fn encrypt_parquet_file_inner(src: &Path, dst: &Path, props: WriterProperties) -> CoreResult<()> {
     use parquet::arrow::arrow_writer::ArrowWriter;
 
@@ -1103,6 +1101,7 @@ fn encrypt_parquet_file_inner(src: &Path, dst: &Path, props: WriterProperties) -
     // opened under `PageIndexPolicy::Optional` on bytes this gate has passed.
     let builder = crate::parquet_bounds::open_arrow_reader(
         in_file,
+        src,
         ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
         |e| invalid_parquet(format!("cannot open source parquet for encryption: {e}")),
     )?;
@@ -1111,6 +1110,10 @@ fn encrypt_parquet_file_inner(src: &Path, dst: &Path, props: WriterProperties) -
         .build()
         .map_err(|e| invalid_parquet(format!("cannot build source parquet reader: {e}")))?;
 
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "writes into the ingest staging directory that store_atomically renames into place"
+    )]
     let out_file = std::fs::File::create(dst)?;
     let mut writer = ArrowWriter::try_new(out_file, schema, Some(props))
         .map_err(|e| invalid_parquet(format!("cannot create encrypted parquet writer: {e}")))?;
@@ -1679,6 +1682,7 @@ mod tests {
         // exercises nothing.
         let probe = crate::parquet_bounds::open_arrow_reader(
             std::fs::File::open(&path).unwrap(),
+            &path,
             ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
             |e| invalid_parquet(e.to_string()),
         )
@@ -2341,6 +2345,7 @@ mod tests {
             // Precondition: the file really lacks the index (otherwise this proves nothing).
             let probe = crate::parquet_bounds::open_arrow_reader(
                 std::fs::File::open(&plain).unwrap(),
+                &plain,
                 ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional),
                 |e| invalid_parquet(e.to_string()),
             )
