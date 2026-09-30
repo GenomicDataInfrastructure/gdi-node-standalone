@@ -981,3 +981,51 @@ async fn the_built_in_publish_settings_reach_a_dataset_record() {
         assert!(body.contains(expected), "{path} lacks {expected}:\n{body}");
     }
 }
+
+/// Every `csvw:Column` a dataset record serves has its title under both `csvw:title` and
+/// `csvw:titles`, and every `csvw:TableGroup` has a title: HealthDCAT-AP release 8 reads the
+/// first name, releases 5 and 7 the second. The record is checked, not the settings, so a
+/// table added for another dataset kind is covered too.
+#[tokio::test]
+async fn every_served_variables_table_has_both_title_names_and_a_group_title() {
+    let (state, _tmp) = state_with_fdp(true);
+    let path = format!("/fairdp/dataset/{VISIBLE_ID}");
+    let (status, _ct, body) = get(state, &path, Some("text/turtle")).await;
+    assert_eq!(status, StatusCode::OK, "{path}:\n{body}");
+
+    let mut graph = oxrdf::Graph::new();
+    for triple in oxttl::TurtleParser::new().for_slice(body.as_bytes()) {
+        graph.insert(&triple.expect("the record parses as Turtle"));
+    }
+    let csvw =
+        |name: &str| oxrdf::NamedNode::new_unchecked(format!("http://www.w3.org/ns/csvw#{name}"));
+    let dct_title = oxrdf::NamedNode::new_unchecked("http://purl.org/dc/terms/title");
+    let of_class = |class: &str| -> Vec<_> {
+        graph
+            .subjects_for_predicate_object(oxrdf::vocab::rdf::TYPE, &csvw(class))
+            .collect()
+    };
+
+    let columns = of_class("Column");
+    assert!(!columns.is_empty(), "no csvw:Column:\n{body}");
+    for column in columns {
+        for name in ["title", "titles"] {
+            assert!(
+                graph
+                    .object_for_subject_predicate(column, &csvw(name))
+                    .is_some(),
+                "a csvw:Column lacks csvw:{name}:\n{body}"
+            );
+        }
+    }
+    let groups = of_class("TableGroup");
+    assert!(!groups.is_empty(), "no csvw:TableGroup:\n{body}");
+    for group in groups {
+        assert!(
+            graph
+                .object_for_subject_predicate(group, &dct_title)
+                .is_some(),
+            "a csvw:TableGroup lacks dct:title:\n{body}"
+        );
+    }
+}
