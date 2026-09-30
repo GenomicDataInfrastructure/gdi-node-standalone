@@ -118,9 +118,8 @@ into `target/conformance/union.ttl`. It then runs:
   subclass's package is not installed in this venv and only the parent's reads are under
   test. The standalone venv has no full CKAN, so it degrades to a direct rdflib parse
   mirroring those exact predicate reads and prints a `[best-effort]` note. In practice that
-  fallback is the live tier: `ckanext-dcat==2.4.2` installs, but importing it raises
-  `ModuleNotFoundError: pkg_resources`, which the pinned interpreter's venv does not
-  provide.
+  fallback is the live tier: `ckanext-dcat==2.4.4` installs, but importing its `RDFParser`
+  raises `ModuleNotFoundError: No module named 'ckan'`, since the venv has no CKAN.
 
   Every field is required on every dataset, not merely somewhere in the graph. An
   existential check would let one healthy dataset vouch for all of them, which matters here
@@ -200,14 +199,14 @@ You can also run a check by hand once a `union.ttl` exists:
 - **pyshacl / rdflib / ckanext-dcat** — pinned in `requirements.txt` and resolved into the
   hash-locked `requirements.lock` (regenerate both together with
   `uv pip compile --universal --generate-hashes`); bump them in a reviewed change.
-  `ckanext-dcat` is pinned to `2.4.2`, the upstream base of the GDI fork the userportal
-  deploys (`gdi-userportal-ckanext-dcat @ v2.4.2`, with harvester
-  `gdi-userportal-ckanext-fairdatapoint @ v1.6.12`, per gdi-userportal-ckan-docker). The
-  profile the deployment names is `fairdatapoint_dcat_ap`, supplied by the harvester ref as
-  a subclass of the fork's `euro_health_dcat_ap`, so the `ckanext-dcat` pin alone would not
-  see a profile change. That is why both refs are watched below. `check_ckanext.py` runs an
-  rdflib hand-mirror of the inherited `euro_health_dcat_ap` reads, because the real
-  `RDFParser` needs full CKAN and so never loads in this venv.
+  `ckanext-dcat` is pinned to `2.4.4`, the upstream base of the GDI fork the userportal
+  deploys (`gdi-userportal-ckanext-dcat @ v2.5.0`, with harvester
+  `gdi-userportal-ckanext-fairdatapoint @ v1.7.2`, per gdi-userportal-ckan-docker). The
+  profile the deployment's harvest sources name is `fairdatapoint_dcat_ap`, supplied by the
+  harvester ref as a subclass of the fork's `euro_health_dcat_ap`, so the `ckanext-dcat`
+  pin alone would not see a profile change. That is why both refs are watched below.
+  `check_ckanext.py` runs an rdflib hand-mirror of the inherited `euro_health_dcat_ap`
+  reads, because the real `RDFParser` needs full CKAN and so never loads in this venv.
 - **Guards on all of the above.** Which gate reaches each one differs, and the difference
   matters, so it is stated per guard rather than claimed for the list. The offline
   integrity of these files is fully covered by `scripts/ci-local.sh all`; the two guards

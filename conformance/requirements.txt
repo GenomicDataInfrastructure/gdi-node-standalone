@@ -23,10 +23,10 @@
 # - pyshacl / rdflib: the SHACL engine + RDF graph for check_fdp.py / check_dataset.py.
 # - ckanext-dcat:    the consumer-compat profile parser for check_ckanext.py. The
 #                    userportal deploys the GDI *fork* installed from git —
-#                    `gdi-userportal-ckanext-dcat @ v2.4.2` (+ the harvester
-#                    `gdi-userportal-ckanext-fairdatapoint @ v1.6.12`), per
+#                    `gdi-userportal-ckanext-dcat @ v2.5.0` (+ the harvester
+#                    `gdi-userportal-ckanext-fairdatapoint @ v1.7.2`), per
 #                    gdi-userportal-ckan-docker's `ckan/Dockerfile`. We pin the matching
-#                    upstream base `2.4.2` here, not the git fork: the fork's `RDFParser`
+#                    upstream base `2.4.4` here, not the git fork: the fork's `RDFParser`
 #                    imports `ckan.plugins`, so the real-parser tier cannot load in this
 #                    CKAN-less venv either way — check_ckanext.py always degrades to its
 #                    best-effort direct rdflib consumer-parse (it says so in its output),
@@ -34,11 +34,11 @@
 #                    functional gain. pyshacl is the must-have gate; ckanext is nice-to-have.
 #                    PIN NOTE: check_ckanext.py's fallback hand-mirrors the predicate reads
 #                    of the fork's `euro_health_dcat_ap` profile — VERIFIED against
-#                    gdi-userportal-ckanext-dcat @ v2.4.2 (namespaces + predicate set match
-#                    upstream 2.4.2). When bumping, re-verify that mirrored list against the
+#                    gdi-userportal-ckanext-dcat @ v2.5.0 (namespaces + predicate set match
+#                    upstream 2.4.4). When bumping, re-verify that mirrored list against the
 #                    fork's `profiles/euro_health_dcat_ap.py` (and `euro_dcat_ap_3.py`) so
 #                    the best-effort check cannot silently validate stale predicates. The
 #                    deployed fork refs are drift-watched by `scripts/vendored.sh pins`.
 pyshacl==0.40.1
 rdflib==7.6.0
-ckanext-dcat==2.4.2
+ckanext-dcat==2.4.4

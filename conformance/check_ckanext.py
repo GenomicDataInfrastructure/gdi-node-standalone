@@ -8,9 +8,9 @@ namespace and predicate mismatches a passing SHACL shape would not.
 
 The deployed profile is ``fairdatapoint_dcat_ap``
 (``ckanext.fairdatapoint.profiles.FAIRDataPointDCATAPProfile``), a subclass of
-``euro_health_dcat_ap``'s ``EuropeanHealthDCATAPProfile``. It is what the userportal
-configures (``setup_scheming.sh``'s ``ckanext.dcat.rdf.profiles`` and every
-``harvest_sources.md`` entry's ``{"profile": "fairdatapoint_dcat_ap"}``), and it lives in
+``euro_health_dcat_ap``'s ``EuropeanHealthDCATAPProfile``. Every userportal harvest source
+names it (``{"profile": "fairdatapoint_dcat_ap"}`` in ``harvest_sources.md``; the harvester
+ignores the global ``ckanext.dcat.rdf.profiles`` in ``setup_scheming.sh``), and it lives in
 the harvester repository (``gdi-userportal-ckanext-fairdatapoint``), not in
 ``ckanext-dcat``. It adds tag validation, ``tags_translated`` sanitising and label
 resolution on top of the parent's reads and overrides no predicate, so the parent's
@@ -19,11 +19,10 @@ without touching the ``ckanext-dcat`` pin, which is why both refs are watched by
 ``vendored.sh pins`` (see ``conformance/README.md``).
 
 In practice the rdflib mirror (tier 2) is what runs: the real ``ckanext-dcat``
-``RDFParser`` needs full CKAN (``ckan.lib.helpers`` and friends) plus
-``pkg_resources``, neither of which the isolated conformance venv provides, so tier 1
-does not load here. The hand-mirror is therefore the live check, pinned to the fork the
-userportal deploys, rather than a degraded stand-in. Tier 1 stays wired for a venv that
-does carry full CKAN.
+``RDFParser`` needs full CKAN (``ckantoolkit`` imports ``ckan``), which the isolated
+conformance venv does not provide, so tier 1 does not load here. The hand-mirror is
+therefore the live check, pinned to the fork the userportal deploys, rather than a
+degraded stand-in. Tier 1 stays wired for a venv that does carry full CKAN.
 
 Two tiers, in order of fidelity:
 
@@ -178,10 +177,10 @@ def fallback_direct_parse(g: Graph) -> None:
     installed ``ckanext/dcat/profiles/euro_health_dcat_ap.py`` and ``euro_dcat_ap_3``).
 
     Pins: the deployed profile is ``fairdatapoint_dcat_ap`` from
-    ``gdi-userportal-ckanext-fairdatapoint @ v1.6.12``, a subclass that adds tag sanitising
+    ``gdi-userportal-ckanext-fairdatapoint @ v1.7.2``, a subclass that adds tag sanitising
     and label resolution and overrides no predicate read, so this hand-mirror tracks its
-    parent in the GDI fork ``gdi-userportal-ckanext-dcat @ v2.4.2`` (what the userportal
-    deploys; ``requirements.txt`` pins the matching upstream base ``ckanext-dcat==2.4.2``
+    parent in the GDI fork ``gdi-userportal-ckanext-dcat @ v2.5.0`` (what the userportal
+    deploys; ``requirements.txt`` pins the matching upstream base ``ckanext-dcat==2.4.4``
     for the optional real-parser tier). Both refs are watched by ``vendored.sh pins``,
     because a harvester bump can change the profile with the ``ckanext-dcat`` pin standing
     still.
@@ -191,7 +190,7 @@ def fallback_direct_parse(g: Graph) -> None:
     ``http://healthdataportal.eu/ns/health#``) and ``dpv:hasLegalBasis``
     (``https://w3id.org/dpv#``), plus the DCAT-AP core ``dct:title``, ``dct:identifier``
     and ``dcat:accessURL`` — the subset asserted below, checked against the fork's
-    ``profiles/euro_health_dcat_ap.py`` at v2.4.2. Re-check this list when bumping, so the
+    ``profiles/euro_health_dcat_ap.py`` at v2.5.0. Re-check this list when bumping, so the
     best-effort tier cannot drift from the deployed profile.
     """
     catalogs = list(g.subjects(RDF.type, DCAT.Catalog))
