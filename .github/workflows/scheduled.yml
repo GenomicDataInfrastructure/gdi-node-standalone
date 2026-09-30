@@ -209,10 +209,9 @@ jobs:
         with: { tool: cargo-deny@0.20.2 }
       - run: cargo deny check advisories
       # The isolated cargo-fuzz crate has its own Cargo.lock (excluded from the
-      # workspace, so the check above never sees it) with ~15 crates absent from the
-      # main lock. Per-PR CI does not deny-check it either (it only builds weekly),
-      # so it is scanned here for advisories + a rogue registry/git source. Scoped to
-      # `advisories sources` only — not `licenses`/`bans`: the fuzz tooling
+      # workspace, so the check above never sees it). Per-PR CI deny-checks it too
+      # (`deny_fuzz` in `supply-chain`); this weekly run also catches an advisory published
+      # between PRs. Scoped to `advisories sources` only — not `licenses`/`bans`: the fuzz tooling
       # (libfuzzer-sys, wit-parser, wasm-*, …) never ships, so its licences aren't in
       # deny.toml's allow-list and its duplicates are irrelevant; running those
       # subchecks would red the run on crates with zero shipped impact.

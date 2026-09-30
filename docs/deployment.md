@@ -6,7 +6,7 @@ in [operating.md](operating.md), starting with its §0 bring-up checklist. For a
 run, use the [README](../README.md) quickstart.
 
 For Kubernetes, [`deploy/kubernetes/`](../deploy/kubernetes/README.md) is a worked example
-Kustomize base. Adapt it rather than apply it unchanged; no image is published yet. It
+Kustomize base. Adapt it rather than apply it unchanged, and pin a released image. It
 encodes the container contract described below: non-root uid `65532`, which needs an init
 container to take ownership of each fresh PVC (`fsGroup` alone does not — see
 [operating.md §18](operating.md#18-upgrades-version-skew-and-rollback)); port `8080` for the
@@ -170,9 +170,9 @@ port refuses connections until you widen the bind. The shipped
 [`compose/node.full.toml`](../compose/node.full.toml) all set it; read the management-plane
 note above before exposing it beyond the host.
 
-The image will ship a `HEALTHCHECK` that runs `gdi-node-standalone healthcheck`, which
-probes `/health/ready` on the loopback management port. It will be `linux/amd64` only; on
-`arm64`, run the bare-metal `aarch64` binary.
+The image has a `HEALTHCHECK` that runs `gdi-node-standalone healthcheck`, which probes
+`/health/ready` on the loopback management port. It is `linux/amd64` only; on `arm64`, run
+the bare-metal `aarch64` binary.
 
 **Licensing of the image layers.** Every Rust dependency is permissive or public-domain,
 no copyleft, enforced by `cargo deny check` in the `supply-chain` leg of

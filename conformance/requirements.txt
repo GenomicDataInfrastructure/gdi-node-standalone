@@ -34,11 +34,12 @@
 #                    functional gain. pyshacl is the must-have gate; ckanext is nice-to-have.
 #                    PIN NOTE: check_ckanext.py's fallback hand-mirrors the predicate reads
 #                    of the fork's `euro_health_dcat_ap` profile — VERIFIED against
-#                    gdi-userportal-ckanext-dcat @ v2.5.0 (namespaces + predicate set match
-#                    upstream 2.4.4). When bumping, re-verify that mirrored list against the
-#                    fork's `profiles/euro_health_dcat_ap.py` (and `euro_dcat_ap_3.py`) so
-#                    the best-effort check cannot silently validate stale predicates. The
-#                    deployed fork refs are drift-watched by `scripts/vendored.sh pins`.
+#                    gdi-userportal-ckanext-dcat @ v2.5.0 (the mirrored predicates match
+#                    upstream 2.4.4; the fork reads a few more). When bumping, re-verify
+#                    that mirrored list against the fork's `profiles/euro_health_dcat_ap.py`
+#                    (and `euro_dcat_ap_3.py`) so the best-effort check cannot silently
+#                    validate stale predicates. The deployed fork refs are drift-watched by
+#                    `scripts/vendored.sh pins`.
 pyshacl==0.40.1
 rdflib==7.6.0
 ckanext-dcat==2.4.4

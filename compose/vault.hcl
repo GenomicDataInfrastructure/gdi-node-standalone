@@ -19,7 +19,7 @@
 # openbao/openbao does not do this — it takes an explicit `-config=` — which is why
 # the two services' `command:` lines differ.
 #
-# Behaviour of this profile (openbao/openbao:2.6.2 vs hashicorp/vault:2.0.4):
+# Behaviour of this profile, as observed on openbao/openbao:2.6.2 and hashicorp/vault:2.0.4:
 #   * after `sys/init` it is still sealed (the static seal auto-unseals; Shamir does not)
 #   * after a container restart it comes back sealed and must be unsealed again —
 #     this is the case the seal-aware healthcheck exists to catch
