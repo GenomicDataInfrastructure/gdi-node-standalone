@@ -5117,3 +5117,56 @@ data_dir = "/data"
     .unwrap();
     assert!(beacon_only.fairdp.is_none());
 }
+
+/// The built-in variables table lists the allele-frequency files' columns as they are
+/// stored: the file schema's, each with its type, plus `CHROM`, which is in the file name.
+#[test]
+#[serial(env)]
+fn the_built_in_variables_table_lists_the_stored_columns() {
+    use std::collections::BTreeSet;
+
+    use arrow_schema::DataType;
+
+    let publish = ServiceConfig::from_toml_str(&fairdp_toml(""))
+        .unwrap()
+        .fairdp
+        .expect("[fairdp] present")
+        .publish;
+    let columns = (|| {
+        let dataset = publish.add.dataset.as_ref()?;
+        let AddValue::Node(group) = dataset.aggregated.get("healthdcatap:hasVariables")? else {
+            return None;
+        };
+        let AddValue::Node(table) = group.get("csvw:table")? else {
+            return None;
+        };
+        let AddValue::Many(columns) = table.get("csvw:column")? else {
+            return None;
+        };
+        Some(columns)
+    })()
+    .expect("the built-in variables table has columns");
+    let text = |column: &AddValue, key: &str| match column {
+        AddValue::Node(column) => match column.get(key) {
+            Some(AddValue::Text(value)) => value.clone(),
+            other => panic!("{key} of a column: {other:?}"),
+        },
+        other => panic!("not a column: {other:?}"),
+    };
+
+    let published: BTreeSet<(String, String)> = columns
+        .iter()
+        .map(|c| (text(c, "csvw:name"), text(c, "csvw:datatype")))
+        .collect();
+    let mut stored = BTreeSet::from([("CHROM".to_owned(), "string".to_owned())]);
+    for field in crate::parquet_io::allele_freq_schema().fields() {
+        let datatype = match field.data_type() {
+            DataType::Int32 => "integer",
+            DataType::Utf8 => "string",
+            DataType::Float32 => "float",
+            other => panic!("no CSVW datatype for {other:?}"),
+        };
+        stored.insert((field.name().clone(), datatype.to_owned()));
+    }
+    assert_eq!(published, stored);
+}
