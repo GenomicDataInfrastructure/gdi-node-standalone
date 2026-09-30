@@ -280,8 +280,8 @@ definition is hand-kept in step with its `ci-local.sh` counterpart and will dive
 one side is edited.
 
 **These workflows are young.** They first ran at publication, and `release.yml` has run
-once, for `v1.0.0-rc.1`. Plenty of legs have still run only once or twice, so treat an
-early red as a possible pipeline defect and report it rather than working around it.
+only for the release candidates. Plenty of legs have still run only once or twice, so
+treat an early red as a possible pipeline defect and report it rather than work around it.
 
 `all` covers every non-Docker check, including `sbom`, `conformance`, `crypt4gh`, the
 `fuzz-smoke` compile-check of the excluded fuzz harnesses, and the real-data `corpus`. The

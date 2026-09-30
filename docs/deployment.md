@@ -28,7 +28,7 @@ The service is a single binary, built in two flavours:
 
 Prefer `gnu`. Reach for `musl` only when the gnu binary will not start.
 
-There are prebuilt binaries for `v1.0.0-rc.1`, listed further down. To build from source:
+There are prebuilt binaries for `v1.0.0-rc.2`, listed further down. To build from source:
 
 ```bash
 cargo build --release --features full -p gdi-node-standalone
@@ -148,7 +148,7 @@ single-writer invariant.
 ## Container image
 
 > **There is no `:latest`.** The workflow moves it only on a stable release, and
-> `v1.0.0-rc.1` is a candidate. Pull the exact tag.
+> `v1.0.0-rc.2` is a candidate. Pull the exact tag.
 
 Tagged releases publish a container image to GHCR, packaged from the same released `gnu`
 (glibc) binary onto a minimal `distroless/cc` base. There is no recompile: the binary is

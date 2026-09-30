@@ -145,7 +145,7 @@ version is 1.96, and every crate builds a C-dependent build script, so a linker
 Nothing else: no S3 endpoint, no Vault, no at-rest encryption. The binary does always link
 the S3 and network stack, as the note below explains.
 
-> **There are prebuilt binaries now.** `v1.0.0-rc.1` ships the tool for Linux (`gnu` and
+> **There are prebuilt binaries now.** `v1.0.0-rc.2` ships the tool for Linux (`gnu` and
 > `musl`), macOS on Apple silicon and Windows, with checksums and a provenance attestation,
 > on the [Releases page](https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases).
 > Building from source, below, still works.
