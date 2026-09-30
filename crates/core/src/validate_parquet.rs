@@ -18,15 +18,14 @@ use std::{
 
 use arrow_array::{Array, Int32Array, RecordBatch};
 use parquet::arrow::ProjectionMask;
-use parquet::arrow::arrow_reader::{
-    ArrowReaderOptions, ParquetRecordBatchReader, ParquetRecordBatchReaderBuilder,
-};
+use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReader};
 use parquet::file::metadata::{PageIndexPolicy, ParquetMetaData};
 use parquet::file::page_index::column_index::ColumnIndexMetaData;
 use parquet::file::statistics::Statistics;
 
 use crate::{
     error::{CoreError, CoreResult, invalid_parquet},
+    parquet_bounds::open_arrow_reader,
     parquet_io::allele_freq_schema,
     subcounts::check_subcounts,
 };
@@ -435,11 +434,11 @@ fn verify_pos_statistics(path: &Path, meta: &ParquetMetaData) -> CoreResult<()> 
     // `RowCursor::open` before any of this runs, requires the index to tile the chunk
     // exactly and rejects every such shape. See `parquet_io::encrypt_parquet_file_inner`
     // for the full argument.
-    let builder = ParquetRecordBatchReaderBuilder::try_new_with_options(
+    let builder = open_arrow_reader(
         file,
         ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
-    )
-    .map_err(|e| invalid_parquet(format!("cannot open parquet metadata: {e}")))?;
+        |e| invalid_parquet(format!("cannot open parquet metadata: {e}")),
+    )?;
     // POS is leaf column 0 of the canonical schema.
     let mask = ProjectionMask::leaves(builder.parquet_schema(), [0]);
     let reader = builder
@@ -1159,11 +1158,11 @@ impl RowCursor {
         // Load the page index with the footer: `enforce_page_size_caps` below needs the
         // per-page offsets. Without it the metadata carries none, which that check reads as
         // "cannot be bounded".
-        let builder = ParquetRecordBatchReaderBuilder::try_new_with_options(
+        let builder = open_arrow_reader(
             file,
             ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
-        )
-        .map_err(|e| invalid_parquet(format!("cannot open parquet metadata: {e}")))?;
+            |e| invalid_parquet(format!("cannot open parquet metadata: {e}")),
+        )?;
         check_schema(builder.schema())?;
         // Decompression-size caps from row-group metadata, before decoding any data, so a
         // decompression bomb is rejected without expanding it.
@@ -1322,6 +1321,7 @@ mod tests {
     use std::sync::Arc;
 
     use arrow_array::{Float32Array, Int32Array, RecordBatch, StringArray};
+    use parquet::arrow::arrow_reader::ParquetRecordBatchReaderBuilder;
     use parquet::arrow::arrow_writer::ArrowWriter;
     use parquet::file::properties::WriterProperties;
     use proptest::prelude::*;
@@ -1751,9 +1751,10 @@ mod tests {
     /// The file's metadata with the page (offset and column) index loaded: the page offsets
     /// and page statistics the pre-decode checks read.
     fn metadata_with_page_index(path: &Path) -> Arc<ParquetMetaData> {
-        ParquetRecordBatchReaderBuilder::try_new_with_options(
+        open_arrow_reader(
             std::fs::File::open(path).expect("open"),
             ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
+            |e| invalid_parquet(e.to_string()),
         )
         .expect("metadata")
         .metadata()
@@ -2750,6 +2751,23 @@ mod tests {
             validate_parquet_dir(dir.path(), &ParquetCaps::default())
                 .expect_err("a fuzz crash artifact must be an error, not a panic");
         }
+    }
+
+    #[test]
+    fn fuzz_oom_artifact_is_refused_by_the_metadata_bounds() {
+        // The weekly fuzz run's out-of-memory input declares a 249,561,063-entry key-value
+        // list, about 12 GB to `parquet`. A host that can reserve that sees `parquet` fail on
+        // its own, so only the message shows the bounds refused it first.
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir
+            .path()
+            .join("allele-freq.chr1.0.br10000000.0123456789abcdef.parquet");
+        std::fs::copy("tests/fixtures/malformed/fuzz_oom_a8cd6889.parquet", &dest).unwrap();
+        let err = validate_parquet_dir(dir.path(), &ParquetCaps::default()).unwrap_err();
+        assert!(
+            format!("{err}").contains("parquet metadata refused before decoding"),
+            "expected the metadata bounds to refuse it, got: {err}"
+        );
     }
 
     #[test]

@@ -50,6 +50,7 @@ pub mod overlay_override;
 pub mod overlay_store;
 pub mod override_store;
 pub mod panic_guard;
+pub(crate) mod parquet_bounds;
 pub mod parquet_io;
 pub mod parquet_pages;
 pub mod popfield;

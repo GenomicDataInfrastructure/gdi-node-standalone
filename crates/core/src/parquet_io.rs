@@ -904,8 +904,8 @@ fn pos_row_selection(
 /// `decryptor`'s key retriever when one is present (a `PARE` file) and reading the
 /// plaintext path otherwise (a `PAR1` file, or any no-PME build).
 ///
-/// A PME-decrypting open uses [`ParquetRecordBatchReaderBuilder::try_new_with_options`]
-/// with `ArrowReaderOptions::with_file_decryption_properties` (that type is only in
+/// Both opens go through [`crate::parquet_bounds::open_arrow_reader`]. A PME-decrypting open
+/// passes `ArrowReaderOptions::with_file_decryption_properties` (that type is only in
 /// scope under the `pme` parquet-encryption feature, so it stays a plain code span
 /// rather than an intra-doc link), which decrypts the footer so the row-group
 /// statistics (and page index) stay usable for pruning.
@@ -934,15 +934,17 @@ pub(crate) fn open_reader_builder(
             // The key retriever runs here first, to decrypt the footer, so a transient Vault
             // outage during footer decryption must be classified as `Transient` rather than
             // `InvalidParquet`. The build and iterate classifiers below never see this error.
-            return ParquetRecordBatchReaderBuilder::try_new_with_options(file, opts)
-                .map_err(|e| classify_parquet_decode_error(&e.to_string(), path));
+            return crate::parquet_bounds::open_arrow_reader(file, opts, |e| {
+                classify_parquet_decode_error(&e.to_string(), path)
+            });
         }
     }
     #[cfg(not(feature = "pme"))]
     let _ = (decryptor, path);
     let opts = ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional);
-    ParquetRecordBatchReaderBuilder::try_new_with_options(file, opts)
-        .map_err(|e| invalid_parquet(format!("cannot open parquet: {e}")))
+    crate::parquet_bounds::open_arrow_reader(file, opts, |e| {
+        invalid_parquet(format!("cannot open parquet: {e}"))
+    })
 }
 
 /// Probe that every `allele-freq.*.parquet` data file in `dataset_dir` can be opened
@@ -1099,11 +1101,11 @@ fn encrypt_parquet_file_inner(src: &Path, dst: &Path, props: WriterProperties) -
     //
     // The Beacon serve path is a third reader over the stored, already-validated parquet,
     // opened under `PageIndexPolicy::Optional` on bytes this gate has passed.
-    let builder = ParquetRecordBatchReaderBuilder::try_new_with_options(
+    let builder = crate::parquet_bounds::open_arrow_reader(
         in_file,
         ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
-    )
-    .map_err(|e| invalid_parquet(format!("cannot open source parquet for encryption: {e}")))?;
+        |e| invalid_parquet(format!("cannot open source parquet for encryption: {e}")),
+    )?;
     let schema = builder.schema().clone();
     let reader = builder
         .build()
@@ -1675,9 +1677,10 @@ mod tests {
 
         // Sanity: the fixture really is multi-row-group and multi-page, or the test
         // exercises nothing.
-        let probe = ParquetRecordBatchReaderBuilder::try_new_with_options(
+        let probe = crate::parquet_bounds::open_arrow_reader(
             std::fs::File::open(&path).unwrap(),
             ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
+            |e| invalid_parquet(e.to_string()),
         )
         .unwrap();
         assert!(probe.metadata().num_row_groups() >= 3);
@@ -2336,9 +2339,10 @@ mod tests {
                 .build();
             write_plaintext_with_props(&plain, props);
             // Precondition: the file really lacks the index (otherwise this proves nothing).
-            let probe = ParquetRecordBatchReaderBuilder::try_new_with_options(
+            let probe = crate::parquet_bounds::open_arrow_reader(
                 std::fs::File::open(&plain).unwrap(),
                 ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Optional),
+                |e| invalid_parquet(e.to_string()),
             )
             .unwrap();
             assert!(

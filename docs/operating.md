@@ -883,8 +883,12 @@ the read path is unaffected, so this is an alert rather than a probe failure.
      (`unsafe-archive` for the package cap). Those caps are
      `max_parquet_decompressed_bytes` (default 4 GiB), `max_parquet_row_group_bytes`
      (default 256 MiB), `max_parquet_file_bytes`, and the whole-package
-     `max_package_bytes` (default 16 GiB). The package cap is enforced on the decrypted
-     archive as it streams to disk, so an over-cap package is refused before extraction.
+     `max_package_bytes` (default 16 GiB). Each data file's footer and page index are
+     also checked before decoding: unexpected or mistyped fields, lists that claim more
+     than the file holds, and oversized metadata fail as `invalid-parquet-schema`
+     (`parquet metadata refused before decoding: …`). The package cap is
+     enforced on the decrypted archive as it streams to disk, so an over-cap package is
+     refused before extraction.
      An S3 package whose encrypted `.tar.c4gh` object already exceeds it is refused at
      listing time, before any download into `.incoming/`, so one over-cap upload cannot
      fill the data volume. If the package is merely large, raise `ingest_concurrency`

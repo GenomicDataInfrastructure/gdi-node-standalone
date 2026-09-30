@@ -5502,7 +5502,7 @@ AF_EE_F=0.005;AC_EE_F=10;AN_EE_F=2000\n";
     /// floor on a small cohort.
     #[test]
     fn a_partition_emptied_by_the_floor_leaves_no_parquet_file() {
-        use parquet::arrow::arrow_reader::{ArrowReaderOptions, ParquetRecordBatchReaderBuilder};
+        use parquet::arrow::arrow_reader::ArrowReaderOptions;
         use parquet::file::metadata::PageIndexPolicy;
         let dir = tempfile::tempdir().unwrap();
         // Two records in different 10 M blocks: the first below the floor, the second above
@@ -5538,9 +5538,10 @@ AF_EE_F=0.005;AC_EE_F=10;AN_EE_F=2000\n";
         for path in &out.parquet_files {
             // The reader every ingest-path validator uses: a file with no page index fails
             // to open here, which is what the build's validation tripped over.
-            let opened = ParquetRecordBatchReaderBuilder::try_new_with_options(
+            let opened = crate::parquet_bounds::open_arrow_reader(
                 File::open(path).unwrap(),
                 ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
+                |e| crate::error::invalid_parquet(e.to_string()),
             );
             assert!(
                 opened.is_ok(),
