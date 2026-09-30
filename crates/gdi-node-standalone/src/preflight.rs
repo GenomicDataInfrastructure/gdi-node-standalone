@@ -11,7 +11,8 @@
 //! It also adds the checks that need the router in scope rather than the config alone. A
 //! beacon mount prefix that would collide with a path the public router serves at the origin
 //! root (`/fairdp`, `/.well-known/c4gh-recipient`) is refused here, because `core`'s
-//! base-path validation sees only the string.
+//! base-path validation sees only the string. And it compiles `[fairdp.publish]`, whose
+//! names resolve against the renderer's prefixes in the `fairdp` crate.
 //!
 //! Finally it installs `ring` as the process-wide rustls `CryptoProvider` when a TLS-using
 //! feature (`s3` or `vault`, via the internal `tls` group) is compiled.
@@ -129,7 +130,7 @@ pub fn check_fairdp_publish(config: &ServiceConfig) -> CoreResult<()> {
 ///
 /// # Errors
 ///
-/// Returns the first [`CoreError`] from either pass.
+/// Returns the first [`CoreError`] from any of these checks.
 pub fn run(config: &ServiceConfig) -> CoreResult<()> {
     run_with(config, true)
 }
@@ -142,7 +143,7 @@ pub fn run(config: &ServiceConfig) -> CoreResult<()> {
 ///
 /// # Errors
 ///
-/// Propagates any [`ServiceConfig::preflight`] or feature-availability error.
+/// Propagates the first [`CoreError`] from the checks [`run`] lists.
 pub fn run_with(config: &ServiceConfig, emit_advisories: bool) -> CoreResult<()> {
     config.preflight()?;
     check_features(config)?;
@@ -190,6 +191,27 @@ name = "GDI Estonia Beacon"
     fn cfg(extra: &str) -> ServiceConfig {
         ServiceConfig::from_toml_str(&format!("{BASE}{extra}"))
             .expect("test TOML parses into ServiceConfig")
+    }
+
+    #[test]
+    fn a_publish_setting_that_does_not_compile_fails_preflight() {
+        let config = cfg(r#"
+[fairdp]
+title = "GDI Estonia FAIR Data Point"
+issued = "2026-01-01T00:00:00Z"
+license = "http://creativecommons.org/licenses/by/4.0/"
+theme = ["http://publications.europa.eu/resource/authority/data-theme/HEAL"]
+applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
+distribution.access_url.aggregated = "https://portal.gdi.lu/allele-frequency"
+publisher = { name = "Publisher", contact_point = { name = "Contact", email = "p@example.org" } }
+hdab = { name = "HDAB", contact_point = { name = "HDAB", email = "hdab@example.org" } }
+publish.type_values = { "nope:values" = "dct:Thing" }
+"#);
+        config
+            .preflight()
+            .expect("core's checks pass: only the publish compile fails");
+        let err = run_with(&config, false).expect_err("preflight compiles [fairdp.publish]");
+        assert!(err.to_string().contains("unknown prefix `nope`"), "{err}");
     }
 
     #[test]

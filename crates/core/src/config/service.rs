@@ -1572,13 +1572,13 @@ pub struct FairdpPublish {
     pub namespaces: BTreeMap<String, String>,
     /// Statements added to a record, per record type.
     pub add: PublishAdd,
-    /// `old IRI = new IRI`, `= [new, …]`, or `= []` to drop the value, over every record.
+    /// `old value = [new, …]` over every record; `= []` drops the value.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub replace_values: BTreeMap<String, OneOrMany>,
+    pub replace_values: BTreeMap<String, Vec<String>>,
     /// `old property = [new, …]`; list the old property too to keep it, `= []` to stop
     /// publishing it.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub rename_properties: BTreeMap<String, OneOrMany>,
+    pub rename_properties: BTreeMap<String, Vec<String>>,
     /// `property = class`: every value of the property is also given that type.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub type_values: BTreeMap<String, String>,
@@ -1632,27 +1632,6 @@ pub enum AddValue {
     Many(Vec<AddValue>),
     /// A nested node.
     Node(BTreeMap<String, AddValue>),
-}
-
-/// One value or several, as in `replace_values` and `rename_properties`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum OneOrMany {
-    /// A single value.
-    One(String),
-    /// Several values; an empty list means none.
-    Many(Vec<String>),
-}
-
-impl OneOrMany {
-    /// The values, in order.
-    #[must_use]
-    pub fn as_slice(&self) -> &[String] {
-        match self {
-            Self::One(value) => std::slice::from_ref(value),
-            Self::Many(values) => values,
-        }
-    }
 }
 
 impl ServiceConfig {
@@ -3292,13 +3271,15 @@ impl ServiceConfig {
 
     /// Validate the `[fairdp]` block (only reached when it is present).
     ///
-    /// Enforces, in order:
+    /// Enforces:
     /// - `title`, `license` and `issued` are non-empty; `license` and every `language`
     ///   entry are valid IRIs; no `keywords` entry is empty;
-    /// - the publisher and HDAB contact points are each complete (`name` non-empty,
-    ///   `email` an address, with or without `mailto:`, `url` a valid URL if set);
-    /// - the publisher and HDAB `homepage`, `endpoint_description`, every `theme`, and
-    ///   every `applicable_legislation` entry are valid IRIs;
+    /// - the publisher and HDAB have names, and complete contact points (`name`
+    ///   non-empty, `email` an address, with or without `mailto:`, `url` a valid URL if
+    ///   set);
+    /// - at least one `theme` and one `applicable_legislation` entry; these, every
+    ///   `theme_taxonomy` entry, and the publisher's and HDAB's `homepage` and
+    ///   `endpoint_description` are valid IRIs;
     /// - the distribution has a title and an access URL, and its IRIs are valid;
     /// - `[fairdp.publish]`: kinds only on datasets and distributions, namespace IRIs;
     /// - the theme/theme-taxonomy in-scheme rule (see

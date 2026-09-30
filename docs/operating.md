@@ -3298,7 +3298,9 @@ release 8 asks for beyond its own records, in a form releases 5 and 7 accept too
 GDI's model differs, as with its own health categories, the node follows GDI. Those
 settings are built in
 ([`fairdp-publish.toml`](../crates/core/src/config/fairdp-publish.toml)), and yours go over
-them key by key: a key you set replaces the built-in value, the rest stay.
+them key by key, down into nested tables: a key you set replaces only that value. A dataset
+gets both its `all` and its `aggregated` statements, and a built-in value type can't be
+removed.
 
 One built-in setting is a rename: every `csvw:title` is also published as `csvw:titles`,
 the name releases 5 and 7 read. So a variables table of your own needs only `csvw:title`.
