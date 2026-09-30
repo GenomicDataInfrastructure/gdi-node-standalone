@@ -482,16 +482,16 @@ Used by:
 ### Apache License 2.0 (Apache-2.0)
 
 Used by:
-- arrow-array 59.2.0
+- arrow-array 59.3.0
 - arrow-buffer 59.3.0
 - arrow-data 59.3.0
-- arrow-ipc 59.2.0
+- arrow-ipc 59.3.0
 - arrow-schema 59.3.0
-- arrow-select 59.2.0
+- arrow-select 59.3.0
 - encode_unicode 1.0.0
 - encoding_rs 0.8.35
 - nohash-hasher 0.2.0
-- parquet 59.2.0
+- parquet 59.3.0
 - utf8_iter 1.0.4
 - zeroize 1.9.0
 - zeroize_derive 1.5.0
@@ -9251,7 +9251,7 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License (MIT)
 
 Used by:
-- arrow-array 59.2.0
+- arrow-array 59.3.0
 
 ```
 MIT License
