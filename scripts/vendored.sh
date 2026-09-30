@@ -108,8 +108,8 @@ SETS=(
 # a possible false alarm (visible, one-line fix) for a false green (invisible), the right
 # way round for a guard.
 EXTERNAL_PINS=(
-  "GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile|gdi-userportal-ckanext-dcat.git@v2.4.2|userportal ckanext-dcat pin"
-  "GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile|gdi-userportal-ckanext-fairdatapoint.git@v1.6.12|userportal ckanext-fairdatapoint (FDP harvester) pin"
+  "GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile|gdi-userportal-ckanext-dcat.git@v2.5.0|userportal ckanext-dcat pin"
+  "GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile|gdi-userportal-ckanext-fairdatapoint.git@v1.7.2|userportal ckanext-fairdatapoint (FDP harvester) pin"
   "GenomicDataInfrastructure/gdi-metadata/main|README.md|HealthDCAT-AP Release 5|gdi-metadata HealthDCAT-AP lineage"
   "https://api.github.com/repos/ga4gh-beacon/beacon-v2/releases/latest||\"tag_name\": \"v2.2.0\"|GA4GH beacon-v2 latest RELEASE (bump with the vendored tag + [beacon].api_version)"
 )

@@ -4,9 +4,9 @@ cachetools==7.1.7 \
     --hash=sha256:a3e2a00b14d8f8a6b70c1dae7b4685e7ad3bc965c5b42124a2d6ce895da6cf50 \
     --hash=sha256:ef98ef375ad188819ef2f9b3645e3987f4b8c5b7550e436ad998c2de78296df0
     # via pyld
-ckanext-dcat==2.4.2 \
-    --hash=sha256:317008be2edd0c276927b98e2b559daf4cf8b1baf8fdd3308b6b223b7ff2dd62 \
-    --hash=sha256:a61196529ea84ccadaed388088ee9b205c8da06b5a4cabe66b61eaf7618954b1
+ckanext-dcat==2.4.4 \
+    --hash=sha256:cb862017ff70622fd39e576e1c2db928b637dee0ca4186ff2c441236fe46242d \
+    --hash=sha256:d291b0d8c2e8112e86966d6c5a591696f155ef19dfea76d3cc78434d5dfa37ba
     # via -r conformance/requirements.txt
 ckantoolkit==0.0.7 \
     --hash=sha256:72432c1a1c48b96a6ebc614f11fc2b9c3c27d7507dbbd35534068ef060a2c754
