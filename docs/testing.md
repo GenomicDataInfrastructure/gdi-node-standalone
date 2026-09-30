@@ -296,11 +296,6 @@ is existence-checked only, because a branch head moves by design. Its network-fr
 comment: the upstream check enumerates on that comment, so an uncommented pin would not be
 flagged, merely unchecked.
 
-`cargo-semver-checks` (public library API) belongs in this list but is not enforced: it is
-in neither meta-leg, because its default baseline is HEAD. Now that `v1.0.0-rc.1` exists,
-run it against that tag by hand:
-`SEMVER_BASELINE=v1.0.0-rc.1 ./scripts/ci-local.sh semver-checks`.
-
 ### Out-of-process
 
 - `scripts/e2e/run.sh` — Compose-stack lite e2e (build+pack a fixture → inbox → query →

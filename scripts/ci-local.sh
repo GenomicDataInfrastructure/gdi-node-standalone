@@ -145,8 +145,6 @@
 #                    Being behind is a warning per change and a failure at a tag.
 #   licenses         cargo-about drift guard: THIRD-PARTY-LICENSES.md must match the
 #                    shipped dependency graph. In `release`.
-#   semver-checks    the public API of core, beacon and fairdp against $SEMVER_BASELINE
-#                    (default HEAD). Advisory, slow, and in no composite target.
 #   reuse            REUSE 3.3 licensing compliance: every file resolves to a copyright
 #                    holder and an SPDX licence, via the directory annotations in
 #                    REUSE.toml rather than ~600 per-file headers. Also asserts the two
@@ -529,10 +527,10 @@ test_s3()   {
 }
 # The `docs/*.schema.json` freshness guard (`model_roundtrip.rs::schema_files_match_the_models`)
 # is `#[cfg(feature = "schema")]`, and no other leg enables `schema`: `full` is s3+vault+pme,
-# and the only `--all-features` uses are `doc` (compiles, runs nothing) and `semver-checks`
-# (advisory, runs no tests). So without this leg the guard never executes anywhere, and a
-# serde change silently ships stale schemas — the published type contract consumers
-# validate against (docs/package-format.md, "Canonical type contract").
+# and the only `--all-features` use is `doc`, which compiles and runs nothing. So without
+# this leg the guard never executes anywhere, and a serde change silently ships stale
+# schemas — the published type contract consumers validate against
+# (docs/package-format.md, "Canonical type contract").
 #
 # Scoped to `-p …-core`: adding `schema` to `test_full` would make its feature set differ
 # from clippy_full, doctests, msrv and graph, and rebuild the whole workspace a second time
@@ -1721,9 +1719,9 @@ gate_record_green() {
 # would be discovered only there, and one tool at a time: a fresh machine would pay a full
 # gate per missing tool. This reports all of them at once, in seconds.
 #
-# Scoped to what `all` runs. docker, cross, objdump, trivy, cargo-about, cargo-llvm-cov,
-# cargo-semver-checks and cargo-sweep belong to the release, coverage and Docker legs, and
-# demanding them here would block a valid `all` run. `docker` stays out even though
+# Scoped to what `all` runs. docker, cross, objdump, trivy, cargo-about, cargo-llvm-cov
+# and cargo-sweep belong to the release, coverage and Docker legs, and demanding them here
+# would block a valid `all` run. `docker` stays out even though
 # `promtool` (in `all`) uses it: that leg goes through `skip_unless`, not `need`, and skips
 # visibly, which demanding Docker here would defeat.
 #
@@ -1807,9 +1805,7 @@ all() {
 # base-CVE scan (`image-scan`) and the full at-rest round-trip (`e2e-full`). Run it before
 # cutting a `v*` tag; it is heavy, and that is fine for a rare release gate. It includes
 # `coverage`, not for the percentage, which gates nothing, but for the zero-coverage guard
-# it carries. It excludes `semver-checks`, whose default baseline is HEAD and so is
-# meaningless at a tag: run that explicitly against the previous release tag,
-# `SEMVER_BASELINE=v1.0.0 …`.
+# it carries.
 # `licenses` stays release-only: cargo-about is slow and would become a hard prerequisite
 # for every `all` run. The tradeoff is that a dependency bump can leave
 # THIRD-PARTY-LICENSES.md stale through a fully green `all`. `release` catches it before
@@ -2324,17 +2320,6 @@ sbom() {
   printf 'ok: %s CycloneDX SBOM file(s) generated\n' "$n"
 }
 
-# Public-API break detection for the three library crates. Not in `all`: it builds both the
-# baseline tree and the current one, so it is slow, and it is advisory. The default baseline
-# is HEAD, so it compares uncommitted work against the last commit; set SEMVER_BASELINE to
-# any other revision.
-semver_checks() {
-  step "semver-checks — core/beacon/fairdp public API vs ${SEMVER_BASELINE:-HEAD}"
-  need cargo-semver-checks "cargo install cargo-semver-checks --locked"
-  run cargo semver-checks --baseline-rev "${SEMVER_BASELINE:-HEAD}" \
-    -p gdi-node-standalone-core -p gdi-node-standalone-beacon -p gdi-node-standalone-fairdp --all-features
-}
-
 # Lite end-to-end smoke against the minimal Compose stack. Docker + several minutes, so
 # it stays out of `all`, exactly like the other Docker targets.
 e2e() {
@@ -2609,7 +2594,7 @@ GATE_QUEUE_LEGS=(
   all release
   rust profiles msrv doctests doc fuzz-smoke fuzz-short conformance crypt4gh corpus
   test-lite test-full test-s3 test-otel otel
-  coverage semver-checks mutants harness load soak chaos
+  coverage mutants harness load soak chaos
   e2e e2e-full e2e-observability cross cross-arm image-scan image-provenance crash-loop
 )
 gate_queue_wanted() {
@@ -2703,7 +2688,6 @@ main() {
       fuzz-smoke)        fuzz_smoke ;;
       corpus)            corpus ;;
       sbom)              sbom ;;
-      semver-checks)     semver_checks ;;
       sweep)             sweep ;;
       e2e)               e2e ;;
       e2e-full)          e2e_full ;;

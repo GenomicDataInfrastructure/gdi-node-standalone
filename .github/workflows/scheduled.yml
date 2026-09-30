@@ -41,6 +41,9 @@ jobs:
   # The target's panic hook ignores exactly those panics, so it reports only what production
   # would not survive (see fuzz_targets/parquet_validate.rs). Checked-in seeds must pass
   # cleanly, or every run fails on them.
+  #
+  # No `-fork`: in fork mode libFuzzer counts an out-of-memory input or a timeout and keeps
+  # going, so the run stays green, and those are the inputs this job exists to find.
   fuzz:
     runs-on: ubuntu-latest
     # Every target × a 60 s bounded run + `cmin`, plus a from-source cargo-fuzz install and
@@ -79,7 +82,7 @@ jobs:
           restore-keys: |
             fuzz-corpus-
       - run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - name: Time-boxed fuzz over the checked-in seed corpus
+      - name: Time-boxed fuzz over the seed and cached corpora
         working-directory: crates/core
         run: |
           # Enumerate targets from `fuzz list` (the fuzz_targets/*.rs set) rather than a
@@ -93,7 +96,7 @@ jobs:
           echo "fuzzing ${#targets[@]} targets: ${targets[*]}"
           for target in "${targets[@]}"; do
             echo "::group::fuzz $target"
-            cargo +nightly fuzz run "$target" -- -max_total_time=60 -fork=1
+            cargo +nightly fuzz run "$target" -- -max_total_time=60
             # Minimize the (possibly grown) corpus in place so the checked-in seed
             # set stays small and non-redundant for the next run.
             cargo +nightly fuzz cmin "$target"

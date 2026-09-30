@@ -7,9 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 The library crates `gdi-node-standalone-core`, `gdi-node-standalone-beacon` and
 `gdi-node-standalone-fairdp` follow SemVer for their Rust API by convention; nothing
-enforces it. All three are `publish = false`, the `semver-checks` job in
-`.github/workflows/ci.yml` is PR-only and advisory, and `scripts/ci-local.sh all` excludes
-it, so run `scripts/ci-local.sh semver-checks` yourself when you change a public API.
+enforces it. All three are `publish = false` and used only inside this workspace.
 
 The public **wire contracts** are a stability surface too. The GDI-specific Beacon
 `resultSets` nesting and the FAIR Data Point graph shape are pinned by golden and snapshot

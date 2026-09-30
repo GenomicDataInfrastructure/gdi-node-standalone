@@ -31,11 +31,16 @@ from _helpers import (
 
 RUN_FULL = SCRIPTS / "e2e" / "run-full.sh"
 
+#: Where a command can start: a line, or after `;`, `&&`, `||`, `!`, `(`, `if`, `then`,
+#: `do` or `else`, so a call like `sighup && wait_log …` is read too.
+_COMMAND_START = r"(?:^|[;&|!(]|\b(?:if|then|do|else)\b)\s*"
 #: A `wait_log` call and its first argument, a double- or single-quoted word.
-WAIT_LOG_CALL = re.compile(r"""^\s*wait_log\s+("[^"]*"|'[^']*')""", re.MULTILINE)
+WAIT_LOG_CALL = re.compile(
+    _COMMAND_START + r"""wait_log\s+("[^"]*"|'[^']*')""", re.MULTILINE
+)
 #: Any `wait_log` call, whatever its argument looks like. The function definition,
 #: `wait_log() {`, has no whitespace before its parenthesis and is not a call.
-ANY_WAIT_LOG_CALL = re.compile(r"^\s*wait_log\s", re.MULTILINE)
+ANY_WAIT_LOG_CALL = re.compile(_COMMAND_START + r"wait_log\s", re.MULTILINE)
 #: A needle passed by variable: `"$NAME"` or `"${NAME}"`.
 VARIABLE_REF = re.compile(r"\$\{?([A-Z_][A-Z0-9_]*)\}?")
 #: A plain `NAME="value"` assignment, which is what a `"$NAME"` needle resolves to.

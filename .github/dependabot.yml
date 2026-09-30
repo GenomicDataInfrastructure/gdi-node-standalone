@@ -8,10 +8,12 @@
 # Two inputs here Dependabot cannot maintain:
 #
 #   * The cargo-fuzz crate has its own lockfile. A bump from either side leaves the other
-#     lock stale and every `--locked` command fails. Its entry is deleted rather than
-#     zeroed, because the limit does not gate security updates.
+#     lock stale and every `--locked` command fails. Its entry is deleted, but security
+#     updates cover every manifest the dependency graph sees, so a security PR can still
+#     arrive for it; refresh both locks before merging one.
 #   * `conformance/requirements.lock` is hash-generated. Dependabot only edits
-#     `requirements.txt`, so the two stop matching.
+#     `requirements.txt`, so the two stop matching; a security PR there needs the lock
+#     regenerated too.
 #
 # Covers the Cargo workspace, the Python conformance and k8s tooling, the Actions the
 # workflows use, the Dockerfile base images and the compose stacks. Pins are exact

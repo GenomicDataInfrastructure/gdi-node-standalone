@@ -140,10 +140,9 @@ the floor: the stdlib-only guard legs run on ambient `python3` and behave identi
 across versions. Anything from 3.12 up runs the gate, and the `ruff` leg proves it every
 run by parsing all of `conformance/` and `scripts/` with a floor interpreter.
 
-Optional, for the scheduled and on-demand legs: `cargo-llvm-cov` (coverage),
-`cargo-semver-checks` (public-API drift), `cross` (cross-compilation), and `cargo-fuzz` on
-nightly (the isolated fuzz workspace). Also optional, but needed the first time a change
-moves an `insta` golden: `cargo-insta`
+Optional, for the scheduled and on-demand legs: `cargo-llvm-cov` (coverage), `cross`
+(cross-compilation), and `cargo-fuzz` on nightly (the isolated fuzz workspace). Also
+optional, but needed the first time a change moves an `insta` golden: `cargo-insta`
 (`cargo install cargo-insta --locked`), which
 [`docs/testing.md`](docs/testing.md#4-snapshot--golden-insta) tells you to review snapshots
 with. No gate leg needs it — the goldens are asserted by the ordinary test run — so it is
@@ -165,12 +164,9 @@ plus one excluded fuzz workspace:
 | `crates/gdi-dataset-tool` | `gdi-dataset-tool` | binary (+ `gdi_dataset_tool` lib) | The dataset CLI: `build` (VCF→parquet), `validate`, `pack`, and the networked `upload`/`deploy` ops. `deploy --inbox` and `publish --inbox` are local filesystem copies needing neither a profile nor network. |
 | `crates/test-util` | `test-util` | library (dev-only) | Shared test helper: safe `set_env`/`remove_env` wrappers, the single audited home for the `unsafe` `std::env` mutators Rust 2024 requires. Never built into a shipped artifact. |
 
-The three library crates (`core`, `beacon`, `fairdp`) are the public API surface. The
-`semver-checks` job reports API breaks on them, but it is advisory and its local leg is
-outside `ci-local.sh all`, so nothing enforces it: run
-`./scripts/ci-local.sh semver-checks` yourself when you touch one of their public APIs.
-The two binaries are not public-API surfaces. `test-util` and `gdi-build-info` are
-internal helpers.
+The three library crates (`core`, `beacon`, `fairdp`) are `publish = false` and used only
+inside this workspace, so the compiler catches any breaking change to their APIs.
+`test-util` and `gdi-build-info` are internal helpers.
 
 `crates/core/fuzz` is its own isolated workspace, excluded from the root workspace. It
 carries its own `Cargo.lock` and is built only with `cargo +nightly fuzz`, so the stable
@@ -277,9 +273,8 @@ heavy `release`-tier ones) are the ones that fail late and expensively.
 Fourteen `ci.yml` jobs invoke the script directly — `lint` (as `ci-local.sh quick`),
 `rust`, `supply-chain`, `profiles`, `msrv`, `doctests`, `promtool`, `actionlint`,
 `shellcheck`, `ruff`, `reuse`, `secrets`, `fuzz-smoke` and `doc-attachment` — so those
-definitions cannot drift from the local run. Six restate their commands inline: `sbom`,
-`conformance`,
-`crypt4gh-interop`, `semver-checks`, `cross-compile` and `e2e-smoke`. In `scheduled.yml`,
+definitions cannot drift from the local run. Five restate their commands inline: `sbom`,
+`conformance`, `crypt4gh-interop`, `cross-compile` and `e2e-smoke`. In `scheduled.yml`,
 `corpus` and `pins` call the script; the rest restate their commands. Every inline
 definition is hand-kept in step with its `ci-local.sh` counterpart and will diverge if only
 one side is edited.
@@ -289,15 +284,10 @@ once, for `v1.0.0-rc.1`. Plenty of legs have still run only once or twice, so tr
 early red as a possible pipeline defect and report it rather than working around it.
 
 `all` covers every non-Docker check, including `sbom`, `conformance`, `crypt4gh`, the
-`fuzz-smoke` compile-check of the excluded fuzz harnesses, and the real-data `corpus`.
-Two exceptions:
-
-- `promtool` and `shellcheck` need Docker. Without it they print a visible `SKIPPED` line,
-  repeat it in the final summary, and the run continues. `release` sets
-  `GATE_STRICT_LEGS=1` and refuses the skip.
-- `semver-checks` stays out of `all` because it builds two trees. Run it explicitly when
-  you touch a public API of `core`, `beacon` or `fairdp`. The local leg defaults to
-  `SEMVER_BASELINE=HEAD`, comparing your uncommitted work against the last commit.
+`fuzz-smoke` compile-check of the excluded fuzz harnesses, and the real-data `corpus`. The
+exception is `promtool` and `shellcheck`, which need Docker. Without it they print a
+visible `SKIPPED` line, repeat it in the final summary, and the run continues. `release`
+sets `GATE_STRICT_LEGS=1` and refuses the skip.
 
 The Docker and cross legs — `cross`, `cross-arm`, `e2e`, `e2e-full`, `image-scan`,
 `licenses` — are bundled into the `release` meta-leg. Between them `cross` and `cross-arm`
@@ -519,16 +509,9 @@ tags. Scoping `push` to `main` and tags stops a same-repo PR branch from running
 matrix twice. The blocking jobs are `lint`, `rust`, `supply-chain`, `profiles`, `msrv`,
 `doctests`, `promtool`, `actionlint`, `shellcheck`, `ruff`, `sbom`, `cross-compile`,
 `e2e-smoke`, `conformance`, `crypt4gh-interop`, `secrets`, `fuzz-smoke`,
-`doc-attachment` and `reuse`, aggregated by a single `ci-success` rollup job.
-`semver-checks` is the one advisory job and does not block. Make that the only required
-status check in branch protection, so a newly-added gate becomes required automatically.
-
-`semver-checks` is also a `ci-success` dependency and runs per PR, but it is advisory:
-`continue-on-error: true` makes it report success to the rollup even when it fails
-(allowlisted with a reason in `CI_ADVISORY` in `scripts/check-ci-gate.py`), and being
-PR-only it is additionally in `ALLOWED_SKIPS` so push and tag runs tolerate its `skipped`
-result. Re-arm it by dropping `continue-on-error` if any of `core`/`beacon`/`fairdp` is
-ever published or consumed as a versioned dependency.
+`doc-attachment` and `reuse`, aggregated by a single `ci-success` rollup job. Make that
+the only required status check in branch protection, so a newly-added gate becomes
+required automatically.
 
 The heavier `e2e-smoke-full`, `coverage`, and the aarch64-linux and macOS/Windows cross
 legs run weekly instead; see
@@ -549,7 +532,6 @@ checks each pinned SHA against its comment upstream.
 | **`actionlint`** | `actionlint` over every workflow file: YAML, `${{ }}` typos, bad `runs-on`/`uses` refs, matrix mistakes, and inline `run:` shell via bundled shellcheck. Also runs the release-target guard, which requires every `release.yml` target to be build-verified somewhere or explicitly allowlisted. |
 | **`shellcheck`** | `shellcheck` at `--severity=warning` over the standalone scripts (`scripts/**`, `compose/*.sh`). actionlint's bundled shellcheck covers only inline `run:` blocks, not these. |
 | **`ruff`** | `ruff check` and `ruff format --check` over `conformance/` and `scripts/`, via `uvx` at the pinned `RUFF_VERSION`. Also asserts `ruff.toml`'s `target-version` floor stays at or below the `.python-version` pin, so ruff cannot modernize these scripts into syntax an older interpreter rejects. |
-| **`semver-checks`** | `cargo-semver-checks` on `core`, `beacon` and `fairdp` at `feature-group: all-features`, diffing against the PR's base commit via `baseline-rev`. The crates are `publish = false`, so the git baseline is what makes the check run at all. Advisory: a break annotates the PR rather than blocking it. |
 | **`sbom`** | `cargo cyclonedx --all --format json` over the whole `Cargo.lock`, producing a CycloneDX SBOM artifact. |
 | **`cross-compile`** | Five x86_64-Linux legs via `cross`, on the `release-verify` profile: the `gdi-dataset-tool` CLI for gnu and static musl, the service for gnu and static musl at `--features full`, and a musl `--features s3` build-verify. The aarch64 and macOS/Windows legs run weekly. |
 | **`e2e-smoke`** | `./scripts/e2e/run.sh`: build the service image, bring up the minimal Compose stack, pack a fixture, poll `/datasets/{id}/state` to `visible`, then assert a Beacon query, an FDP crawl, and publish/unpublish. |
@@ -891,10 +873,9 @@ BREAKING CHANGE: DatasetDecryptor::new now takes a &KeyStore.
 ```
 
 Breaking changes use a `!` after the type or scope, a `BREAKING CHANGE:` footer, or both.
-Breaking a public library crate's API is reported by the advisory `semver-checks` job,
-which does not block; bump the crate version accordingly. A breaking change to a public
-wire contract — the Beacon `resultSets` shape or the FAIR Data Point graph — must also be
-recorded under `## [Unreleased]` in `CHANGELOG.md` for downstream consumers.
+A breaking change to a public wire contract — the Beacon `resultSets` shape or the FAIR
+Data Point graph — must also be recorded under `## [Unreleased]` in `CHANGELOG.md` for
+downstream consumers.
 
 ## Cutting a release (maintainers)
 
