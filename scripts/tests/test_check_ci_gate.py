@@ -37,10 +37,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: echo hi
-  semver-checks:
+  pr-only:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
-    continue-on-error: true
     steps:
       - run: echo hi
   ci-success:
@@ -49,7 +48,7 @@ jobs:
     needs:
       - lint
       - rust
-      - semver-checks
+      - pr-only
     runs-on: ubuntu-latest
     steps:
       - run: echo ok
@@ -60,7 +59,7 @@ class Parsing(unittest.TestCase):
     def test_finds_every_top_level_job(self):
         self.assertEqual(
             set(gate.workflow_jobs(WORKFLOW)),
-            {"lint", "rust", "semver-checks", "ci-success"},
+            {"lint", "rust", "pr-only", "ci-success"},
         )
 
     def test_a_step_level_if_is_not_a_job_level_if(self):
@@ -68,14 +67,14 @@ class Parsing(unittest.TestCase):
         self.assertFalse(gate.workflow_jobs(WORKFLOW)["lint"].conditional)
 
     def test_job_level_if_and_continue_on_error_are_seen(self):
-        job = gate.workflow_jobs(WORKFLOW)["semver-checks"]
+        pr_only = "    if: github.event_name == 'pull_request'\n"
+        advisory = WORKFLOW.replace(pr_only, pr_only + "    continue-on-error: true\n")
+        job = gate.workflow_jobs(advisory)["pr-only"]
         self.assertTrue(job.conditional)
         self.assertTrue(job.advisory)
 
     def test_ci_success_needs_are_extracted(self):
-        self.assertEqual(
-            gate.ci_success_needs(WORKFLOW), ["lint", "rust", "semver-checks"]
-        )
+        self.assertEqual(gate.ci_success_needs(WORKFLOW), ["lint", "rust", "pr-only"])
 
     def test_ci_success_always_is_detected(self):
         self.assertTrue(gate.workflow_jobs(WORKFLOW)["ci-success"].conditional)
@@ -99,7 +98,7 @@ class NeedsParsing(unittest.TestCase):
 
     def test_block_list_form(self):
         self.assertEqual(
-            ["lint", "rust", "semver-checks"], gate.job_needs(WORKFLOW, "ci-success")
+            ["lint", "rust", "pr-only"], gate.job_needs(WORKFLOW, "ci-success")
         )
 
     def test_inline_list_form(self):
@@ -147,8 +146,8 @@ class AllowlistIsSingleSourced(unittest.TestCase):
 
     def test_the_allowlist_is_read_from_the_workflow(self):
         self.assertEqual(
-            {"semver-checks"},
-            gate.parse_allowed_skips('  ALLOWED_SKIPS: "semver-checks"\n'),
+            {"pr-only"},
+            gate.parse_allowed_skips('  ALLOWED_SKIPS: "pr-only"\n'),
         )
 
     def test_multiple_entries_are_split_on_whitespace(self):
@@ -171,8 +170,8 @@ class AllowlistIsSingleSourced(unittest.TestCase):
             "  rust:\n    runs-on: ubuntu-latest\n",
             "  rust:\n    runs-on: ubuntu-latest\n    if: github.ref == 'refs/heads/main'\n",
         )
-        self.assertNotEqual([], gate.check_workflow(widened, {"semver-checks"}))
-        self.assertEqual([], gate.check_workflow(widened, {"semver-checks", "rust"}))
+        self.assertNotEqual([], gate.check_workflow(widened, {"pr-only"}))
+        self.assertEqual([], gate.check_workflow(widened, {"pr-only", "rust"}))
 
 
 NOTIFY_WF = """
@@ -356,17 +355,17 @@ class CrossMatrixIsSingleSourced(unittest.TestCase):
 
 class GateCoverage(unittest.TestCase):
     def test_a_fully_wired_workflow_passes(self):
-        self.assertEqual([], gate.check_workflow(WORKFLOW, {"semver-checks"}))
+        self.assertEqual([], gate.check_workflow(WORKFLOW, {"pr-only"}))
 
     def test_a_job_missing_from_needs_is_reported(self):
         broken = WORKFLOW.replace("      - rust\n", "")
-        problems = "\n".join(gate.check_workflow(broken, {"semver-checks"}))
+        problems = "\n".join(gate.check_workflow(broken, {"pr-only"}))
         self.assertIn("rust", problems)
         self.assertIn("not a dependency of `ci-success`", problems)
 
     def test_a_stale_needs_entry_is_reported(self):
         broken = WORKFLOW.replace("      - rust\n", "      - rust\n      - ghost\n")
-        problems = "\n".join(gate.check_workflow(broken, {"semver-checks"}))
+        problems = "\n".join(gate.check_workflow(broken, {"pr-only"}))
         self.assertIn("ghost", problems)
 
 
@@ -377,7 +376,7 @@ class SilentGates(unittest.TestCase):
             "  rust:\n    runs-on: ubuntu-latest\n",
             "  rust:\n    runs-on: ubuntu-latest\n    if: github.ref == 'refs/heads/main'\n",
         )
-        problems = "\n".join(gate.check_workflow(broken, {"semver-checks"}))
+        problems = "\n".join(gate.check_workflow(broken, {"pr-only"}))
         self.assertIn("rust", problems)
         self.assertIn("if:", problems)
 
@@ -386,13 +385,13 @@ class SilentGates(unittest.TestCase):
             "  rust:\n    runs-on: ubuntu-latest\n",
             "  rust:\n    runs-on: ubuntu-latest\n    continue-on-error: true\n",
         )
-        problems = "\n".join(gate.check_workflow(broken, {"semver-checks"}))
+        problems = "\n".join(gate.check_workflow(broken, {"pr-only"}))
         self.assertIn("continue-on-error", problems)
 
     def test_a_stale_allowlist_entry_is_reported(self):
-        """If semver-checks loses its `if:`, the allowlist entry must be removed."""
+        """If `pr-only` loses its `if:`, the allowlist entry must be removed."""
         fixed = WORKFLOW.replace("    if: github.event_name == 'pull_request'\n", "")
-        problems = "\n".join(gate.check_workflow(fixed, {"semver-checks"}))
+        problems = "\n".join(gate.check_workflow(fixed, {"pr-only"}))
         self.assertIn("no longer", problems)
 
     def test_ci_success_without_always_is_reported(self):
@@ -400,7 +399,7 @@ class SilentGates(unittest.TestCase):
             "  ci-success:\n    name: ci-success\n    if: always()\n",
             "  ci-success:\n    name: ci-success\n",
         )
-        problems = "\n".join(gate.check_workflow(broken, {"semver-checks"}))
+        problems = "\n".join(gate.check_workflow(broken, {"pr-only"}))
         self.assertIn("always()", problems)
 
 

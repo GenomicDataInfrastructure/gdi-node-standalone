@@ -135,7 +135,6 @@ for entry in \
   $'cargo-insta\treview insta snapshots (docs/testing.md): cargo install cargo-insta --locked' \
   $'cargo-sweep\treclaim target/ space: cargo install cargo-sweep --locked' \
   $'cargo-llvm-cov\tcoverage report: cargo install cargo-llvm-cov --locked' \
-  $'cargo-semver-checks\tAPI-break check: cargo install cargo-semver-checks --locked' \
   $'cargo-about\tlicence attribution: cargo install cargo-about --locked' \
   $'cross\tcross-compile legs: cargo install cross --locked' \
   $'trivy\timage CVE scan: https://aquasecurity.github.io/trivy/'

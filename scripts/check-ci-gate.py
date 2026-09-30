@@ -15,7 +15,7 @@ Three ways a gate goes quiet without anything turning red, all three applying to
 1. A new job is added and never wired into the aggregate's ``needs:``. It runs, it can
    fail, and nothing blocks the merge or opens the issue.
 2. A gate gains a job-level ``if:``. On the path where the condition is false it reports
-   ``skipped``, which the aggregate tolerates (``semver-checks`` is PR-only). A gate that
+   ``skipped``, which the aggregate tolerates when ``ALLOWED_SKIPS`` names it. A gate that
    stops matching its own condition stops enforcing.
 3. A gate gains ``continue-on-error: true``. Its ``needs.*.result`` is then ``success``
    even when it fails.
@@ -104,10 +104,7 @@ def parse_allowed_skips(ci_text):
 # Jobs permitted to carry `continue-on-error: true`: they report `success` to their
 # aggregate even when they fail. Script-side, because nothing consumes them at runtime, so
 # there is nothing to duplicate. One allowlist per workflow; every entry needs a reason.
-CI_ADVISORY = {
-    "semver-checks": "advisory: these crates have no external/versioned consumer yet, so a "
-    "semver break is a review signal rather than a merge blocker",
-}
+CI_ADVISORY: dict[str, str] = {}
 SCHEDULED_ADVISORY = {
     "benches": "advisory microbenchmarks; they gate nothing and are noisy on shared runners",
     "coverage": "report-only; a coverage dip is a review signal, not a weekly failure",

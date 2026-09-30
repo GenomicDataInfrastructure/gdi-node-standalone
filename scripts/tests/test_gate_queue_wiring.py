@@ -84,7 +84,7 @@ _FUNC = re.compile(r"^([a-z_][a-z0-9_]*)\(\)\s*\{", re.MULTILINE)
 _ARM = re.compile(r"^      ([a-z0-9|-]+)\)\s+(.*?) ;;", re.MULTILINE)
 _BUILDS = re.compile(
     r"\bcargo\s+(?:\+\S+\s+)?"
-    r"(?:build|check|test|nextest|clippy|doc|run|llvm-cov|semver-checks|mutants|fuzz)\b"
+    r"(?:build|check|test|nextest|clippy|doc|run|llvm-cov|mutants|fuzz)\b"
     r"|\bcross\s+build\b|\bdocker\s+build\b(?!\s+--check)"
     r"|\bscripts/(?:soak|load|e2e|chaos|mutants-audit)"
 )
