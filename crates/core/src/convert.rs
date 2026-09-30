@@ -5540,6 +5540,7 @@ AF_EE_F=0.005;AC_EE_F=10;AN_EE_F=2000\n";
             // to open here, which is what the build's validation tripped over.
             let opened = crate::parquet_bounds::open_arrow_reader(
                 File::open(path).unwrap(),
+                path,
                 ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
                 |e| crate::error::invalid_parquet(e.to_string()),
             );

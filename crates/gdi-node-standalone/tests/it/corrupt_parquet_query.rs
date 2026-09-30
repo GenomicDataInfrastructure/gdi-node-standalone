@@ -2,10 +2,9 @@
 //! `g_variants` return a `500` `beaconErrorResponse` (no allele rows leaked) and
 //! the process must survive — the scan failure is an `Err`, never a panic.
 //!
-//! Reachable on default features (plaintext): the query path opens the data file
-//! via `read_matching_rows`, whose `ParquetRecordBatchReaderBuilder::try_new`
-//! returns `Err` on garbage -> `CoreError::InvalidParquet` -> `scan_selected_datasets`
-//! maps `Ok(Err(_))` to a `500` envelope.
+//! Reachable on default features (plaintext): the query path opens the data file via
+//! `read_matching_rows`, whose open returns `Err` on garbage -> `CoreError::InvalidParquet`
+//! -> `scan_selected_datasets` maps `Ok(Err(_))` to a `500` envelope.
 #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
 
 use std::path::{Path, PathBuf};
