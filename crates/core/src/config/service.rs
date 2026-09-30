@@ -1479,7 +1479,7 @@ pub struct FairdpAgent {
 }
 
 /// A contact point (`[fairdp.publisher.contact_point]` / `[fairdp.hdab.contact_point]`),
-/// published as a `dcat:contactPoint` vCard and, for HealthDCAT-AP release 7, as a
+/// published as a `dcat:contactPoint` vCard and, for HealthDCAT-AP, as a
 /// `cv:contactPoint`. `name` and `email` are required; preflight rejects an incomplete one.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -1555,13 +1555,13 @@ pub struct FairdpAccessUrls {
     pub aggregated: String,
 }
 
-/// The built-in `[fairdp.publish]` (HealthDCAT-AP release 7), which the loader puts under a
+/// The built-in `[fairdp.publish]` (the HealthDCAT-AP edits), which the loader puts under a
 /// node's own `[fairdp.publish]`.
 const FAIRDP_PUBLISH_DEFAULTS: &str = include_str!("fairdp-publish.toml");
 
 /// `[fairdp.publish]` — edits applied to every FAIR-DP record just before it is served, so
 /// the node can follow a change in GDI's metadata model without a code change. The loader
-/// starts from the built-in HealthDCAT-AP release 7 edits (`fairdp-publish.toml`) and puts
+/// starts from the built-in HealthDCAT-AP edits (`fairdp-publish.toml`) and puts
 /// the node's own over them key by key. Properties and values are prefixed names (the
 /// serializer's prefixes, or ones added under `namespaces`) or full IRIs.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

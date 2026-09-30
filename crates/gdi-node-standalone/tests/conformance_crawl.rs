@@ -398,7 +398,7 @@ email = "hdab@example.org"
         cfg.fairdp
             .as_ref()
             .is_some_and(|f| f.publish.add.dataset.is_some()),
-        "the loader adds the built-in release-7 dataset statements this harness validates"
+        "the loader adds the built-in dataset statements this harness validates"
     );
     cfg
 }

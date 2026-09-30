@@ -17,7 +17,7 @@ use oxttl::TurtleSerializer;
 ///
 /// `[fairdp.publish]` names resolve against these too; `gdi`, `rdfs`, `csvw` and `eli` are
 /// here for the built-in publish settings and their documented examples, `cv` for
-/// HealthDCAT-AP release 7's contact point.
+/// HealthDCAT-AP's contact point.
 pub(crate) const PREFIXES: &[(&str, &str)] = &[
     ("rdf", "http://www.w3.org/1999/02/22-rdf-syntax-ns#"),
     ("rdfs", "http://www.w3.org/2000/01/rdf-schema#"),

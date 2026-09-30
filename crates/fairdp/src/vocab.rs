@@ -70,13 +70,13 @@ pub(crate) const DCT_HAS_PART: &str = "http://purl.org/dc/terms/hasPart";
 pub(crate) const DCAT_KEYWORD: &str = "http://www.w3.org/ns/dcat#keyword";
 /// `dcat:endpointDescription` — where the FDP root's API is described.
 pub(crate) const DCAT_ENDPOINT_DESCRIPTION: &str = "http://www.w3.org/ns/dcat#endpointDescription";
-/// `cv:contactPoint` — HealthDCAT-AP release 7's contact point of an agent.
+/// `cv:contactPoint` — HealthDCAT-AP's contact point of an agent.
 pub(crate) const CV_CONTACT_POINT: &str = "http://data.europa.eu/m8g/contactPoint";
-/// `cv:ContactPoint` — the class of a release-7 contact point.
+/// `cv:ContactPoint` — the class of that contact point.
 pub(crate) const CV_CONTACT_POINT_CLASS: &str = "http://data.europa.eu/m8g/ContactPoint";
-/// `cv:email` — a release-7 contact point's e-mail, as text.
+/// `cv:email` — that contact point's e-mail, as text.
 pub(crate) const CV_EMAIL: &str = "http://data.europa.eu/m8g/email";
-/// `cv:contactPage` — a release-7 contact point's web page.
+/// `cv:contactPage` — that contact point's web page.
 pub(crate) const CV_CONTACT_PAGE: &str = "http://data.europa.eu/m8g/contactPage";
 /// `dcat:theme`.
 pub(crate) const DCAT_THEME: &str = "http://www.w3.org/ns/dcat#theme";

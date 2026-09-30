@@ -87,7 +87,7 @@ SETS=(
 #     (`ckanext-fairdatapoint`) that crawls this node's FDP;
 #   * the gdi-metadata model's declared HealthDCAT-AP release ("lineage"). The node tracks
 #     gdi-metadata and the userportal profile, not the raw HealthDCAT-AP spec, so this
-#     fires when the federation moves (Release 5 -> 6 or 7). That is the signal to
+#     fires when the federation moves off Release 5. That is the signal to
 #     re-vendor the shapes and follow in lockstep, not to get ahead of it.
 # Each entry asserts the remote file still contains an expected substring (a version tag
 # or the declared release) rather than byte-diffing it: the upstream files change often

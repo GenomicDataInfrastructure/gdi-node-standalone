@@ -301,7 +301,7 @@ pub(crate) fn dataset_modified(entry: &DatasetEntry, issued: &str) -> String {
 /// name, its homepage when set, a `dcat:contactPoint` vCard, and a `foaf:mbox` repeating
 /// the contact e-mail. `ckanext-dcat`'s `_agents_details` reads `foaf:mbox` on the agent and
 /// never looks inside `dcat:contactPoint`, so an agent with only the vCard harvests with an
-/// empty e-mail. With `release7` the agent also gets HealthDCAT-AP release 7's
+/// empty e-mail. With `cv_contact_point` the agent also gets HealthDCAT-AP's
 /// `cv:contactPoint` (dataset records only).
 ///
 /// Every node-config agent goes through this function, so no call site can emit one
@@ -311,7 +311,7 @@ pub(crate) fn add_agent(
     parent: &NamedOrBlankNode,
     predicate: &str,
     agent: &FairdpAgent,
-    release7: bool,
+    cv_contact_point: bool,
 ) {
     let node = add_agent_hdab(b, parent, predicate, &agent.name, &agent.contact_point);
     if let Some(homepage) = &agent.homepage {
@@ -322,7 +322,7 @@ pub(crate) fn add_agent(
         vocab::FOAF_MBOX,
         &agent.contact_point.mailto(),
     );
-    if release7 {
+    if cv_contact_point {
         let cp = &agent.contact_point;
         let cv = b.add_blank_node(
             &node,
@@ -400,7 +400,7 @@ fn add_creator(b: &mut GraphBuilder, parent: &NamedOrBlankNode, predicate: &str,
 /// An `AgentHdabShape` agent (`foaf:Agent` + `foaf:name` + a mandatory
 /// `dcat:contactPoint` `vcard:Kind`). Used for both `dct:publisher` and
 /// `healthdcatap:hdab` from node config. Returns the agent's blank-node subject
-/// so [`add_agent`] can attach the rest (`foaf:homepage`, `foaf:mbox`, and release 7's
+/// so [`add_agent`] can attach the rest (`foaf:homepage`, `foaf:mbox`, and HealthDCAT-AP's
 /// `cv:contactPoint`).
 fn add_agent_hdab(
     b: &mut GraphBuilder,

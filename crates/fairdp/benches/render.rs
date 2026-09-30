@@ -225,8 +225,8 @@ fn bench_render(c: &mut Criterion) {
     });
 
     // The node compiles `[fairdp.publish]` once, on the first FDP request, and every
-    // builder then applies it. Measure both with the built-in settings (the release-7
-    // variables table), which the loader gives any `[fairdp]`, to compare with the plain
+    // builder then applies it. Measure both with the built-in settings (the variables
+    // table), which the loader gives any `[fairdp]`, to compare with the plain
     // `dataset_turtle` above.
     let built_in = ServiceConfig::from_toml_str("[fairdp]\n")
         .expect("a bare [fairdp] parses")
