@@ -249,11 +249,11 @@ this node constrains or deviates from it.
 - **Bodies and content type.** On the POST surface a missing or wrong `Content-Type` is
   `415`. There is no `422`: a semantically-invalid query is a `400` `beaconErrorResponse`.
   A misplaced envelope — a bare top-level `requestParameters` with no `query` wrapper, or a
-  non-object `query` — is a `400` on `g_variants` rather than a misleading empty-query
-  `200`; a genuinely empty query (`{}`, `{"query":{}}`) is a `200`. `datasets` and
-  `individuals` do not apply that check and read a bare top-level `requestParameters`
-  leniently. A successful query is `200`, including an all-empty result; every error is a
-  `beaconErrorResponse`.
+  non-object `query`, `requestParameters` or `g_variant` — is a `400` on `g_variants`
+  rather than a misleading empty-query `200`; a genuinely empty query (`{}`,
+  `{"query":{}}`) is a `200`. `datasets` and `individuals` do not apply that check and read
+  a bare top-level `requestParameters` leniently. A successful query is `200`, including an
+  all-empty result; every error is a `beaconErrorResponse`.
 - **Leniency.** Unknown or extra top-level and `requestParameters` fields are ignored, for
   forward compatibility; an accession-form `referenceName` (`NC_000003.12`) is accepted and
   matched, where the GA4GH reference implementation rejects it; and `requestedSchema` on
