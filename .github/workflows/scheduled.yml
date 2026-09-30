@@ -29,23 +29,18 @@ env:
 
 jobs:
   # Time-boxed fuzz pass. The untrusted-input harnesses in
-  # crates/core/fuzz/fuzz_targets/ are each run for a short bounded time, seeded
-  # only by their checked-in benign corpus under crates/core/fuzz/corpus/<target>/.
+  # crates/core/fuzz/fuzz_targets/ are each run for a short bounded time, seeded by
+  # crates/core/fuzz/corpus/<target>/ and by what earlier runs cached (see the cache step).
   # The count is not written here: the step enumerates targets from `cargo fuzz list`, and
   # a hand-maintained number in prose is a second copy that drifts.
   # cargo-fuzz needs the nightly toolchain (libfuzzer-sys / -Z flags). The fuzz
   # crate is its own isolated workspace, so this never touches the stable
   # workspace lockfile.
   #
-  # parquet_validate caveat: arrow-ipc's metadata decoder panics on some crafted
-  # parquet, which the product converts to a clean Err via catch_unwind — but
-  # libfuzzer-sys's panic hook fires at the panic site, so cargo-fuzz still
-  # reports such an input as a crash (a known cargo-fuzz limitation with
-  # internally-caught third-party panics; see the header of
-  # fuzz_targets/parquet_validate.rs). The checked-in corpus holds only benign
-  # seeds (no panic-inducing sample), so a corpus-seeded, time-boxed run is safe.
-  # -max_total_time stays small and the run uses -fork=1 so a corpus-only pass does
-  # not wander into the known arrow case.
+  # parquet_validate: arrow-ipc panics on some crafted parquet, and the product catches it.
+  # The target's panic hook ignores exactly those panics, so it reports only what production
+  # would not survive (see fuzz_targets/parquet_validate.rs). Checked-in seeds must pass
+  # cleanly, or every run fails on them.
   fuzz:
     runs-on: ubuntu-latest
     # Every target × a 60 s bounded run + `cmin`, plus a from-source cargo-fuzz install and

@@ -37,6 +37,42 @@ fn canary_parquet_reader_try_new(file: std::fs::File) {
     let _ = parquet::arrow::arrow_reader::ArrowReaderBuilder::try_new(file);
 }
 
+/// Canary for `ArrowReaderBuilder::try_new_with_options`.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "canary: proves `ArrowReaderBuilder::try_new_with_options` still resolves in clippy.toml"
+)]
+fn canary_parquet_reader_try_new_with_options(file: std::fs::File) {
+    let _ = parquet::arrow::arrow_reader::ArrowReaderBuilder::try_new_with_options(
+        file,
+        parquet::arrow::arrow_reader::ArrowReaderOptions::new(),
+    );
+}
+
+/// Canary for `ArrowReaderMetadata::load`.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "canary: proves `ArrowReaderMetadata::load` still resolves in clippy.toml"
+)]
+fn canary_parquet_metadata_load(file: &std::fs::File) {
+    let _ = parquet::arrow::arrow_reader::ArrowReaderMetadata::load(
+        file,
+        parquet::arrow::arrow_reader::ArrowReaderOptions::new(),
+    );
+}
+
+/// Canary for `SerializedFileReader::new`.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "canary: proves `SerializedFileReader::new` still resolves in clippy.toml"
+)]
+fn canary_parquet_serialized_file_reader_new(file: std::fs::File) {
+    let _ = parquet::file::serialized_reader::SerializedFileReader::new(file);
+}
+
 /// Canary for `std::fs::copy`.
 #[expect(dead_code, reason = "canary: exists to be linted, never called")]
 #[expect(
