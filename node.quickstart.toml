@@ -159,5 +159,5 @@ email = "<SET ME: hdab@example.org>"
 
 [fairdp.distribution]
 # dcat:accessURL (required): where a user asks for access to a dataset. The GDI User
-# Portal, or this node's own Beacon URL if there is no portal.
-access_url.aggregated = "<SET ME: https://portal.testing.gdi.lu/allele-frequency>"
+# Portal, or this node's own Beacon URL if there is no portal (then set a `title` for it).
+access_url.aggregated = "<SET ME: https://portal.gdi.lu/allele-frequency>"

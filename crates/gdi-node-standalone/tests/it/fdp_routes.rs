@@ -985,7 +985,7 @@ async fn the_built_in_publish_settings_reach_a_dataset_record() {
 /// Every `csvw:Column` a dataset record serves has its title under both `csvw:title` and
 /// `csvw:titles`, and every `csvw:TableGroup` has a title: HealthDCAT-AP release 8 reads the
 /// first name, releases 5 and 7 the second. The record is checked, not the settings, so a
-/// table added for another dataset kind is covered too.
+/// table another block adds is covered too.
 #[tokio::test]
 async fn every_served_variables_table_has_both_title_names_and_a_group_title() {
     let (state, _tmp) = state_with_fdp(true);

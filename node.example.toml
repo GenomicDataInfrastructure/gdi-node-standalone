@@ -946,10 +946,11 @@ email = "hdab@example.org"
 # Type: string. Default: "GDI User Portal".
 title = "GDI User Portal"
 # Where a user asks for access to an aggregated dataset (dcat:accessURL): the GDI User
-# Portal's allele-frequency page, or this node's own Beacon URL if there is no portal.
+# Portal's allele-frequency page, or this node's own Beacon URL if there is no portal
+# (then change `title` too).
 # The setting is per dataset kind; this node serves aggregated datasets only.
 # Type: string (IRI). Required.
-access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
+access_url.aggregated = "https://portal.gdi.lu/allele-frequency"
 
 # [fairdp.publish] — changes to the published records, for following a change in GDI's
 # metadata model before a node release ships it. You don't need this block: every node

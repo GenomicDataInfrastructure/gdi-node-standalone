@@ -178,9 +178,9 @@ name = "<SET ME: Example HDAB>"
 email = "<SET ME: hdab@example.org>"
 
 # dcat:accessURL (required): where a user asks for access to a dataset. The GDI User
-# Portal, or this node's own Beacon URL if there is no portal.
+# Portal, or this node's own Beacon URL if there is no portal (then set a `title` for it).
 [fairdp.distribution]
-access_url.aggregated = "<SET ME: https://portal.testing.gdi.lu/allele-frequency>"
+access_url.aggregated = "<SET ME: https://portal.gdi.lu/allele-frequency>"
 
 # An ingest source is required, and none is supplied above: a node with no source has
 # nothing to serve. Filling the placeholders above is necessary, not sufficient.

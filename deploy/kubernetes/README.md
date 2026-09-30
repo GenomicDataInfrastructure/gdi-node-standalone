@@ -61,13 +61,14 @@ kustomize` and asserts the invariants below; `scripts/ci-local.sh k8s-manifests`
 
 ## Before you apply
 
-- **No image is published.** Build from source and push to your own registry, then set the
-  image — in **two** places that must agree (the node container and the `overrides-init`
-  init container), so use `kustomize edit set image
-  gdi-node-standalone=<registry>/<image>:<tag>` or the `images:` transformer in your own
-  overlay rather than editing `base/deployment.yaml` by hand. The `inbox` component needs
-  a second image, built from `Dockerfile.ops`. See
-  [`docs/deployment.md`](../../docs/deployment.md).
+- **Pin the image.** Releases publish
+  `ghcr.io/genomicdatainfrastructure/gdi-node-standalone:<tag>` (a release candidate has no
+  `:latest`), or build and push your own. Set it in **two** places that must agree (the
+  node container and the `overrides-init` init container), so use
+  `kustomize edit set image gdi-node-standalone=<registry>/<image>:<tag>` or the `images:`
+  transformer in your own overlay rather than editing `base/deployment.yaml` by hand. The
+  `inbox` component needs a second image, built from `Dockerfile.ops`, which is not
+  published. See [`docs/deployment.md`](../../docs/deployment.md).
 - **Fill every `<SET ME: …>`** in `base/node.toml` — including the `[fairdp]` block, which
   is **required in full** once present (`title`, `issued`, `license`, `theme`,
   `applicable_legislation`, the publisher and HDAB agents with their contact points, and

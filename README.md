@@ -148,24 +148,29 @@ V=v1.0.0-rc.1
 U=https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases/download/$V
 R=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalone/$V/crates/gdi-dataset-tool/tests/fixtures
 mkdir -p ~/gdi-demo && cd ~/gdi-demo
-curl -fsSLo gdi-node-standalone "$U/gdi-node-standalone-$V-x86_64-unknown-linux-gnu"
-curl -fsSLo gdi-dataset-tool    "$U/gdi-dataset-tool-$V-x86_64-unknown-linux-gnu"
+N=gdi-node-standalone-$V-x86_64-unknown-linux-gnu
+T=gdi-dataset-tool-$V-x86_64-unknown-linux-gnu
+curl -fsSLO "$U/$N" -O "$U/$T" -O "$U/SHA256SUMS"
+sha256sum -c SHA256SUMS --ignore-missing          # both must print OK
+mv "$N" gdi-node-standalone && mv "$T" gdi-dataset-tool
 curl -fsSLO "$R/covid-package.yaml" -O "$R/COVID.monogneic.aggregate.AFs.GRCh38.vcf"
 chmod +x gdi-node-standalone gdi-dataset-tool
 export PATH="$PWD:$PATH"
 ```
 
 Both have `musl` builds for Alpine. The service also builds for `aarch64`; the tool does
-not, so compile that one there. Checksums and a provenance attestation sit beside the
-binaries, and
+not, so compile that one there. Each release also has a provenance attestation, in
+GitHub's attestation store;
 [operating.md §20](docs/operating.md#20-verifying-release-artifacts--the-container-image)
-has the verify commands. There is an image too, `linux/amd64` only:
+has the commands to check it. There is an image too, `linux/amd64` only:
 `docker pull ghcr.io/genomicdatainfrastructure/gdi-node-standalone:v1.0.0-rc.1`.
 
-**Build** on macOS or Windows, where the service has no binary, or to work on the code. It
-needs MSRV **1.96**, `rustup` and a C toolchain (`build-essential`, `gcc`, or the Xcode
-Command Line Tools); `scripts/dev-setup.sh --check` checks them. The first build takes tens
-of minutes, because arrow, parquet and noodles compile from source.
+**Build** to work on the code, or for the tool where there is no download (Intel Macs,
+aarch64 Linux). The service runs on Linux only
+([compatibility](docs/deployment.md#compatibility)). A build needs MSRV **1.96**, `rustup`
+and a C toolchain (`build-essential`, `gcc`, or the Xcode Command Line Tools);
+`scripts/dev-setup.sh --check` checks them. The first build takes tens of minutes, because
+arrow, parquet and noodles compile from source.
 
 ```bash
 git clone https://github.com/GenomicDataInfrastructure/gdi-node-standalone.git
@@ -222,7 +227,7 @@ gdi-dataset-tool build covid-package.yaml --cc EE -o build   # in a checkout: cr
 ID=$(ls build)                          # build/ was empty; every build mints a new id
 gdi-dataset-tool deploy build/$ID --inbox ~/gdi-demo/inbox --wait --management-url http://127.0.0.1:9090
 gdi-dataset-tool publish $ID --inbox ~/gdi-demo/inbox   # writes {id}.state.json; the node applies it on its next scan
-curl -s http://127.0.0.1:9090/datasets/$ID/state         # -> {"state":"visible",…} within rescan_interval_seconds
+until curl -fsS http://127.0.0.1:9090/datasets/$ID/state | grep -q '"visible"'; do sleep 1; done
 
 curl -s -X POST http://localhost:8080/aggregated/beacon/v2/g_variants \
   -H 'content-type: application/json' \
@@ -285,7 +290,7 @@ owned by `65532`, the image's `nonroot` user. The three hardening flags below ar
 the Compose files use.
 
 ```bash
-docker build -t gdi-node-standalone:local .                    # the full image, see Build
+docker build -t gdi-node-standalone:local .   # the full build; build args: docs/deployment.md
 mkdir -p ~/gdi-node/datasets ~/gdi-node/keys
 docker run --rm --user "$(id -u):$(id -g)" -v ~/gdi-node/keys:/keys \
   -v "$PWD/node.toml:/etc/gdi-node-standalone/node.toml:ro" gdi-node-standalone:local identity init --ensure
@@ -431,10 +436,10 @@ discoverable through a node. You need the tool, not the node, and it is one file
 - **macOS, Apple silicon**: `gdi-dataset-tool-<version>-aarch64-apple-darwin`.
 - **Windows**: `gdi-dataset-tool-<version>-x86_64-pc-windows-msvc.exe`.
 
-On Linux and macOS, `chmod +x` it and put it on your `PATH`. A browser download is
-quarantined on macOS, which `xattr -d com.apple.quarantine gdi-dataset-tool` clears. Intel
-Macs and aarch64 Linux have no published build, so compile from source there
-([Get it](#get-it)).
+Rename it to `gdi-dataset-tool` (`gdi-dataset-tool.exe` on Windows). On Linux and macOS,
+`chmod +x` it and put it on your `PATH`. A browser download is quarantined on macOS, which
+`xattr -d com.apple.quarantine gdi-dataset-tool` clears. Intel Macs and aarch64 Linux have
+no published build, so compile from source there ([Get it](#get-it)).
 
 Then let the wizard walk you through it, as in the provider half of
 [Quickstart 2](#quickstart-2--a-real-node). If the node is on the same machine,

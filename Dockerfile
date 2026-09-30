@@ -40,9 +40,9 @@ ARG BIN_SOURCE=builder
 
 # ---------------------------------------------------------------------------
 # builder — recompile from source (BIN_SOURCE=builder). Pinned by digest as well as
-# tag: the readable `1.98-trixie` tag is mutable (can be re-pushed), so the `@sha256:`
+# tag: the readable `1.98.0-trixie` tag is mutable (can be re-pushed), so the `@sha256:`
 # index digest fixes the exact multi-arch builder image; it is Debian 13, the same
-# glibc as the distroless runtime below. Dependabot's `docker` ecosystem refreshes both.
+# glibc as the distroless runtime below. Bump both by hand, in Dockerfile.ops too.
 # ---------------------------------------------------------------------------
 FROM rust:1.98.0-trixie@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959 AS builder
 

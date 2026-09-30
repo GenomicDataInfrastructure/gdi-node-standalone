@@ -551,9 +551,9 @@ GitHub Action tags all still resolve to what this tree pins, and `ci-local.sh` i
 compares the Dockerfile's distroless runtime digest against upstream, through Docker. It
 needs network, and unauthenticated GitHub API calls are rate-limited per IP, so export
 `GITHUB_TOKEN` — sent to `api.github.com` only — to lift the budget. Real drift,
-including a pinned path that 404s, fails the gate. A rate-limited or unreachable host
-warns instead, because that is a verdict about your connection. `pins-strict`, which
-`release` runs, makes drift fatal.
+including a pinned path that 404s, warns in `pins` and fails `pins-strict`, which `release`
+and the weekly job run. A rate-limited or unreachable host only warns, because that is a
+verdict about your connection.
 
 ### Scheduled / on-demand jobs (`scheduled.yml`)
 

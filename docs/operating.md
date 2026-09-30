@@ -2785,10 +2785,10 @@ example `grype sbom:./gdi-node-standalone.cdx.json`.
 
 ### Image tagging and architecture caveats
 
-- **`:latest` tracks stable releases only.** A `v0.x` pre-release tag publishes the
-  immutable `:<tag>` image but does not move `:latest`. Pin a specific `:<tag>` in
+- **`:latest` tracks stable releases only.** A `v0.x` or suffixed (`-rc.N`) tag publishes
+  the immutable `:<tag>` image but does not move `:latest`. Pin a specific `:<tag>` in
   production regardless.
-- **The image, once published, will be `linux/amd64` only.** It is built from the x86_64
+- **The image is `linux/amd64` only.** It is built from the x86_64
   `gnu` (glibc) binary on `distroless/cc`. An arm64 host should run the released
   `aarch64-unknown-linux-gnu` binary on bare metal, or on your own `distroless/cc` base
   image; pulling the image on arm64 fails with a no-matching-manifest error. A

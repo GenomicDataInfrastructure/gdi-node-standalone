@@ -20,8 +20,8 @@
 # (`=x.y.z`), so with version updates off they move only when someone bumps them by hand.
 version: 2
 updates:
-  # Cargo dependencies. The dependencies are exact-pinned ("=x.y.z") in the
-  # manifests, so Dependabot opens a PR per bump and CI re-vets the new lockfile.
+  # Cargo dependencies, exact-pinned ("=x.y.z") in the manifests. CI re-vets the new
+  # lockfile a security PR brings.
   - package-ecosystem: cargo
     directory: "/"
     schedule:
@@ -86,8 +86,7 @@ updates:
   # The images in the six root `docker-compose*.yml` stacks (garage, openbao, vault,
   # toxiproxy, minio, the grafana/prometheus observability pair, …). The `docker`
   # ecosystem above parses Dockerfiles only, so compose files need this separate
-  # `docker-compose` ecosystem; without it their tag-pinned images are tracked by
-  # nothing.
+  # `docker-compose` ecosystem, for when version updates are turned back on.
   #
   # Dev/test stacks: nothing here ships in a release artifact or the published image, so
   # these bumps are lower-stakes than the `docker` entry — but they are still
@@ -109,9 +108,9 @@ updates:
   # Python conformance + crypt4gh-interop tooling (conformance/requirements*.txt).
   # CI-only (pyshacl/rdflib/ckanext-dcat for the FDP conformance job; crypt4gh for
   # the interop oracle) and never shipped, but still fetched-and-executed on the
-  # runner — so it stays under automated freshness + advisory-remediation like every
-  # other dependency input. The top-level pins are exact; a bump comes as a PR the
-  # full CI (incl. the conformance run + the `pip-audit` step) then vets.
+  # runner — so it gets security updates like every other dependency input. The
+  # top-level pins are exact; regenerate the lock with a security PR (see the header),
+  # then the full CI (incl. the conformance run + the `pip-audit` step) vets it.
   - package-ecosystem: pip
     directory: "/conformance"
     schedule:
