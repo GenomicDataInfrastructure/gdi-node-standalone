@@ -24,7 +24,7 @@
 //! metadata is small: the gnomAD chr21 corpus slice has 2.2 KB of footer and 1.5 KB of page
 //! index, and a 1 GiB file from our writer has a few thousand row groups.
 //!
-//! The schema is the part of `parquet-format` that `parquet` 59.2 reads here, minus the
+//! The schema is the part of `parquet-format` that `parquet` 59 reads here, minus the
 //! encryption fields and geospatial statistics, which plaintext files from our writer never
 //! carry. Encrypted footers (`PARE`) are not walked: `parquet` reads them only with the node's
 //! key, so only the node's own store gets that far.
@@ -269,7 +269,7 @@ impl Elem {
     }
 }
 
-// `parquet-format`'s schema as `parquet` 59.2 reads it on this path. Enums are `i32`.
+// `parquet-format`'s schema as `parquet` 59 reads it on this path. Enums are `i32`.
 
 static FILE_META_DATA: Shape = Shape {
     name: "FileMetaData",
@@ -761,7 +761,7 @@ mod tests {
     #[test]
     fn a_field_that_differs_from_the_schema_is_refused() {
         // `parquet` reads field 5 as a list whatever its wire type, so to it these bytes are
-        // `i32::MAX` key-value pairs. A 37-byte file built this way aborts `parquet` 59.2.
+        // `i32::MAX` key-value pairs. A 37-byte file built this way aborts `parquet` 59.
         let mistyped = [
             vec![field(5, I32)],
             vec![0xfc, 0xff, 0xff, 0xff, 0xff, 0x07],
