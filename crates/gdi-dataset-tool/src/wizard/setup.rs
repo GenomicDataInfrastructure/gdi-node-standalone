@@ -643,8 +643,9 @@ fn store_s3_credentials(
             &typed.secret_access_key,
         )
         .map_err(cannot_write)?;
+        let owner_only = if cfg!(unix) { " (owner-only)" } else { "" };
         crate::output::progress(&format!(
-            "stored the S3 credentials in {} (owner-only), where every later run reads them; \
+            "stored the S3 credentials in {}{owner_only}, where every later run reads them; \
              verify the bucket with `gdi-dataset-tool doctor` (it does a probe PUT/DELETE)",
             secrets_file.display()
         ));

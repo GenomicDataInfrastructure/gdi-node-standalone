@@ -978,9 +978,9 @@ fn classify_get_error(key: &ObjPath, id: &str, e: object_store::Error) -> ToolEr
 /// targets only genuine non-2xx responses.
 fn status_hint(msg: &str) -> &'static str {
     if msg.contains("403") || msg.contains("Forbidden") {
-        ". Check the bucket policy and credentials. If you set them via \
-         GDI_TOOL__PROFILES__<NAME>__..., confirm <NAME> matches your profile name exactly, \
-         with underscores rather than hyphens. Then run `gdi-dataset-tool doctor`"
+        ". Check the bucket policy and credentials: `gdi-dataset-tool profiles` shows whether \
+         this profile has both keys (in tool-secrets.toml, or GDI_TOOL__PROFILES__<NAME>__... \
+         with underscores for hyphens). Then run `gdi-dataset-tool doctor`"
     } else if msg.contains("404") || msg.contains("NoSuchBucket") {
         ". Check the bucket name and endpoint, then run `gdi-dataset-tool doctor`"
     } else if msg.contains("400") || msg.contains("Bad Request") {

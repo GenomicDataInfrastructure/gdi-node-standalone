@@ -59,6 +59,31 @@ fn a_from_stage_after_the_to_stage_is_refused() {
     );
 }
 
+/// A tool-secrets.toml that doesn't load stops the wizard with its own error, before any
+/// question: setup could not repair it.
+#[test]
+fn an_invalid_secrets_file_stops_the_wizard_with_its_error() {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let config_path = tmp.path().join("tool.toml");
+    std::fs::write(&config_path, "country_code = \"EE\"\n").expect("write config");
+    std::fs::write(
+        tmp.path().join("tool-secrets.toml"),
+        "[profiles.default.s3]\nsecret_access_key = unquoted\n",
+    )
+    .expect("write secrets");
+    let args = WizardArgs {
+        command: None,
+        from: Stage::Setup,
+        to: Stage::Publish,
+        output: tmp.path().join("package.yaml"),
+        recipient: None,
+    };
+    let err =
+        gdi_dataset_tool::wizard::run(&ScriptedPrompter::new(), &args, None, Some(&config_path))
+            .expect_err("an invalid secrets file must stop the wizard");
+    assert!(err.message.contains("tool-secrets.toml"), "{}", err.message);
+}
+
 // Parse tests
 
 #[test]
