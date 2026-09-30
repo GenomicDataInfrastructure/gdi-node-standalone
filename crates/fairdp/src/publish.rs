@@ -4,17 +4,22 @@
 //! The edits run in this order: `add` (per record type and, for datasets and
 //! distributions, per dataset kind), then `rename_properties`, `replace_values` and
 //! `type_values` over the whole record. Every dataset on this node is `aggregated`, so
-//! datasets and distributions get both their `all` and their `aggregated` block.
+//! datasets and distributions get both their `all` and their `aggregated` block. Last, every
+//! blank node no named node reaches, which a drop (`[]`) can leave, is removed.
 //!
 //! [`Publish::compile`] resolves every name once. The node's startup preflight runs it, so
 //! an unknown prefix or a malformed IRI stops the node at start instead of failing a
 //! request. Applying a compiled [`Publish`] cannot fail.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt;
 
-use gdi_node_standalone_core::config::{AddValue, FairdpPublish, OneOrMany, PublishParts};
-use oxrdf::{BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, Term, Triple};
+use gdi_node_standalone_core::config::{AddValue, FairdpPublish, PublishParts};
+use gdi_node_standalone_core::error::CoreError;
+use oxrdf::{
+    BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, NamedOrBlankNodeRef, Term, TermRef,
+    Triple, TripleRef,
+};
 
 use crate::serialize::PREFIXES;
 use crate::vocab;
@@ -24,6 +29,7 @@ use crate::vocab;
 const TEXT_PROPERTIES: &[&str] = &[
     vocab::DCT_TITLE,
     vocab::DCT_DESCRIPTION,
+    vocab::DCT_IDENTIFIER,
     vocab::DCAT_KEYWORD,
     vocab::FOAF_NAME,
     vocab::VCARD_FN,
@@ -273,6 +279,41 @@ impl Publish {
                 graph.insert(&Triple::new(value, rdf_type.clone(), class.clone()));
             }
         }
+
+        remove_orphans(graph);
+    }
+}
+
+/// Removes the statements of every blank node that no named node reaches. A drop leaves
+/// such nodes behind, and they would still be served, just unlinked.
+fn remove_orphans(graph: &mut Graph) {
+    let mut reached = HashSet::new();
+    let mut stack: Vec<NamedOrBlankNode> = graph
+        .iter()
+        .filter_map(|t| match t.subject {
+            NamedOrBlankNodeRef::NamedNode(n) => Some(n.into_owned().into()),
+            NamedOrBlankNodeRef::BlankNode(_) => None,
+        })
+        .collect();
+    while let Some(node) = stack.pop() {
+        for triple in graph.triples_for_subject(&node) {
+            if let TermRef::BlankNode(b) = triple.object
+                && reached.insert(b.into_owned())
+            {
+                stack.push(b.into_owned().into());
+            }
+        }
+    }
+    let orphans: Vec<Triple> = graph
+        .iter()
+        .filter(|t| match t.subject {
+            NamedOrBlankNodeRef::BlankNode(b) => !reached.contains(&b.into_owned()),
+            NamedOrBlankNodeRef::NamedNode(_) => false,
+        })
+        .map(TripleRef::into_owned)
+        .collect();
+    for triple in &orphans {
+        graph.remove(triple);
     }
 }
 
@@ -388,6 +429,13 @@ impl<'a> Names<'a> {
             return Ok(NamedNode::new_unchecked(vocab::RDF_TYPE));
         }
         if is_full_iri(name) {
+            // The same scheme allow-list every other configured IRI passes.
+            gdi_node_standalone_core::validate_pkg::validate_iri(setting, name).map_err(|e| {
+                PublishError(match e {
+                    CoreError::InvalidManifest { detail } => detail,
+                    other => other.to_string(),
+                })
+            })?;
             return NamedNode::new(name)
                 .map_err(|_| PublishError(format!("{setting}: `{name}` is not a valid IRI")));
         }
@@ -410,13 +458,12 @@ impl<'a> Names<'a> {
     fn mapping(
         &self,
         setting: &str,
-        map: &BTreeMap<String, OneOrMany>,
+        map: &BTreeMap<String, Vec<String>>,
     ) -> Result<Vec<(NamedNode, Vec<NamedNode>)>, PublishError> {
         map.iter()
             .map(|(old, new)| {
                 let at = format!("{setting}.{old}");
                 let new = new
-                    .as_slice()
                     .iter()
                     .map(|n| self.term(&at, n))
                     .collect::<Result<Vec<_>, _>>()?;
@@ -449,6 +496,14 @@ impl<'a> Names<'a> {
         value: &AddValue,
         vars: &Vars<'_>,
     ) -> Result<Value, PublishError> {
+        let is_text = |v: &AddValue| matches!(v, AddValue::Text(_));
+        let names =
+            is_text(value) || matches!(value, AddValue::Many(items) if items.iter().all(is_text));
+        if predicate.as_str() == vocab::RDF_TYPE && !names {
+            return Err(PublishError(format!(
+                "{setting}: a class (`a`) must be a name or a list of names"
+            )));
+        }
         Ok(match value {
             AddValue::Node(block) => Value::Fill(self.block(setting, block, vars)?),
             AddValue::Many(items) => Value::Many(
@@ -464,9 +519,10 @@ impl<'a> Names<'a> {
         })
     }
 
-    /// Classify a scalar: a class (`a`) is a name; text properties stay text; a known
-    /// prefixed name, an `http(s)://` or `mailto:` IRI, or a bare e-mail address (as
-    /// `mailto:`) is an IRI; an ISO date or date-time is typed; anything else is plain text.
+    /// Classify a scalar: a class (`a`) is a name; text properties stay text; a prefixed
+    /// name (an unknown prefix is an error), an `http(s)://` or `mailto:` IRI, or a bare
+    /// e-mail address (as `mailto:`) is an IRI; an ISO date or date-time is typed; anything
+    /// else is plain text.
     fn scalar(
         &self,
         setting: &str,
@@ -510,10 +566,10 @@ impl<'a> Names<'a> {
         }
         let iri = if is_uri_like(&probe) {
             Some(text.to_owned())
-        } else if probe.contains(':') {
+        } else if is_name_like(&probe) {
             // Resolved as written, so a `$FDP_ID` inside the local name is substituted
             // per record.
-            self.term(setting, text).ok().map(NamedNode::into_string)
+            Some(self.term(setting, text)?.into_string())
         } else if is_email(&probe) {
             Some(format!("mailto:{text}"))
         } else {
@@ -555,6 +611,18 @@ fn is_full_iri(name: &str) -> bool {
             && scheme
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+    })
+}
+
+/// Shaped like a prefixed name (`dct:title`, `urn:…`): a prefix that starts with a letter,
+/// a colon, and no spaces. Prose that holds a colon has spaces, and `10:30` a digit first.
+fn is_name_like(text: &str) -> bool {
+    text.split_once(':').is_some_and(|(prefix, _)| {
+        !text.contains(char::is_whitespace)
+            && prefix.starts_with(|c: char| c.is_ascii_alphabetic())
+            && prefix
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
     })
 }
 
@@ -679,11 +747,12 @@ mod tests {
     }
 
     #[test]
-    fn values_are_typed_as_in_services() {
+    fn values_are_typed_by_their_shape() {
         let publish = dataset_add(&[
             ("healthdcatap:hasStructuredData", AddValue::Bool(true)),
             ("dcat:byteSize", AddValue::Integer(42)),
             ("dct:title", text("https://looks.like/an/iri")),
+            ("dct:identifier", text("https://looks.like/an/iri")),
             ("dct:type", text("dct:Dataset")),
             ("dct:source", text("$FDP_URL/dataset/$FDP_ID")),
             ("dct:rightsHolder", text("gdi@example.org")),
@@ -698,6 +767,7 @@ mod tests {
             "healthdcatap:hasStructuredData true",
             "dcat:byteSize \"42\"^^xsd:nonNegativeInteger",
             "dct:title \"https://looks.like/an/iri\"",
+            "dct:identifier \"https://looks.like/an/iri\"",
             "dct:type dct:Dataset",
             "dct:source <https://node.example/fairdp/dataset/GDI-EE-X-1>",
             "dct:rightsHolder <mailto:gdi@example.org>",
@@ -745,11 +815,11 @@ mod tests {
         let publish = FairdpPublish {
             rename_properties: BTreeMap::from([(
                 "dct:type".to_owned(),
-                OneOrMany::Many(vec!["dct:type".to_owned(), "dct:subject".to_owned()]),
+                vec!["dct:type".to_owned(), "dct:subject".to_owned()],
             )]),
             replace_values: BTreeMap::from([(
                 "gdi:HealthCategoryHumanGenomic".to_owned(),
-                OneOrMany::One(hgpd.to_owned()),
+                vec![hgpd.to_owned()],
             )]),
             type_values: BTreeMap::from([("dct:subject".to_owned(), "skos:Concept".to_owned())]),
             ..FairdpPublish::default()
@@ -769,14 +839,11 @@ mod tests {
     #[test]
     fn an_empty_list_drops_the_value_or_the_property() {
         let publish = FairdpPublish {
-            rename_properties: BTreeMap::from([(
-                "dct:subject".to_owned(),
-                OneOrMany::Many(Vec::new()),
-            )]),
-            replace_values: BTreeMap::from([(
-                "dct:Dataset".to_owned(),
-                OneOrMany::Many(Vec::new()),
-            )]),
+            rename_properties: BTreeMap::from([
+                ("dct:subject".to_owned(), Vec::new()),
+                ("dct:publisher".to_owned(), Vec::new()),
+            ]),
+            replace_values: BTreeMap::from([("dct:Dataset".to_owned(), Vec::new())]),
             ..FairdpPublish::default()
         };
         let mut graph = dataset_with(&format!("{DCT}type"), iri(&format!("{DCT}Dataset")));
@@ -784,6 +851,18 @@ mod tests {
             iri(DATASET),
             iri(&format!("{DCT}subject")),
             Literal::new_simple_literal("x"),
+        ));
+        // A dropped node goes with its statements, not left behind unlinked.
+        let publisher = BlankNode::default();
+        graph.insert(&Triple::new(
+            iri(DATASET),
+            iri(&format!("{DCT}publisher")),
+            publisher.clone(),
+        ));
+        graph.insert(&Triple::new(
+            publisher,
+            iri("http://xmlns.com/foaf/0.1/name"),
+            Literal::new_simple_literal("Node"),
         ));
         apply(&publish, &mut graph);
         assert!(graph.is_empty(), "{}", turtle(&graph));
@@ -831,6 +910,18 @@ mod tests {
             (
                 dataset_add(&[("dct:source", text("https://bad iri"))]),
                 "not a valid IRI",
+            ),
+            (
+                dataset_add(&[("dct:subject", text("ehds:HGPD"))]),
+                "unknown prefix `ehds`",
+            ),
+            (
+                dataset_add(&[("dct:source", text("javascript://x"))]),
+                "disallowed URI scheme",
+            ),
+            (
+                dataset_add(&[("a", AddValue::Integer(1))]),
+                "must be a name",
             ),
             (
                 FairdpPublish {

@@ -1,8 +1,8 @@
 # The node's built-in [fairdp.publish]: what HealthDCAT-AP release 8 asks for beyond the
 # records the node builds itself, in a form releases 5 and 7 accept too. Every node with a
-# [fairdp] block publishes it. The node's own [fairdp.publish] goes over it key by key: a
-# key set there replaces the value here, and `rename_properties = { "<property>" = [] }`
-# drops a property added here.
+# [fairdp] block publishes it. The node's own [fairdp.publish] goes over it key by key,
+# down into nested tables, and `rename_properties = { "<property>" = [] }` drops a property
+# added here.
 
 # Every value of these properties is also given this rdf:type.
 [fairdp.publish.type_values]

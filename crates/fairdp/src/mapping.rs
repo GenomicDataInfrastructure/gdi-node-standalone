@@ -38,7 +38,7 @@ pub(crate) enum MetaField {
     NumberOfRecords,
     /// `conformsTo` GDI-standard IRIs.
     ConformsTo,
-    /// `type` IRI (only for synthetic datasets).
+    /// `type` IRIs (only for synthetic datasets).
     Type,
     /// `legalBasis` DPV IRIs.
     LegalBasis,

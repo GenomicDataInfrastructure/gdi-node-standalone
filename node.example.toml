@@ -960,14 +960,17 @@ access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 # written the same way as this block.
 #
 # When GDI announces a change, add what it asks for here. Your settings go over the
-# built-in ones key by key: a key you set replaces the built-in value, the rest stay.
+# built-in ones key by key, down into nested tables: a key you set replaces only that
+# value. A dataset gets both its `all` and its `aggregated` statements, and a built-in
+# value type can't be removed.
 # Then check the config, restart, and look at a record:
 #   gdi-node-standalone --config node.toml check-config
 #   curl -H 'Accept: text/turtle' https://node.example.org/fairdp/dataset/<dataset id>
 #
 # Names are prefixed names such as dct:title, full IRIs, or `a` for rdf:type. The prefixes
 # the node knows are the @prefix lines of any record it serves; add others under
-# `namespaces`. An unknown prefix stops the node, and `check-config` names it.
+# `namespaces`. An unknown prefix, in a name or a value, stops the node, and
+# `check-config` names it.
 [fairdp.publish]
 # TIER: ADVANCED — empty unless GDI changes its metadata model.
 
@@ -977,7 +980,7 @@ access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 
 # Publish a property under another name. List both names to publish both while GDI moves
 # from one to the other; `[]` stops publishing the property.
-# Type: table of name -> name or array of names. Default: one built-in entry, which
+# Type: table of name -> array of names. Default: one built-in entry, which
 # publishes every csvw:title as csvw:titles too (the name releases 5 and 7 read).
 # rename_properties = { "ex:oldProperty" = ["ex:oldProperty", "ex:newProperty"] }
 
@@ -985,8 +988,8 @@ access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 # example, when GDI moves to the EHDS health categories. The tool's `check` compares the
 # served licence and access rights with the package, so replacing either shows there as
 # a mismatch.
-# Type: table of name -> name or array of names. Default: {} (none).
-# replace_values = { "gdi:HealthCategoryHumanGenomic" = "<the EHDS category's IRI>" }
+# Type: table of name -> array of names. Default: {} (none).
+# replace_values = { "gdi:HealthCategoryHumanGenomic" = ["<the EHDS category's IRI>"] }
 
 # Give every value of a property an rdf:type as well.
 # Type: table of name -> name. Default: the five built-in value types.
