@@ -965,8 +965,8 @@ async fn publish_settings_reach_every_served_record() {
 }
 
 /// A node whose config has no `[fairdp.publish]` still serves the built-in HealthDCAT-AP
-/// release 7 statements: the loader puts them under the node's own settings, and the handler
-/// applies them.
+/// statements: the loader puts them under the node's own settings, and the handler applies
+/// them.
 #[tokio::test]
 async fn the_built_in_publish_settings_reach_a_dataset_record() {
     let (state, _tmp) = state_with_fdp(true);

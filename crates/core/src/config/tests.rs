@@ -5053,7 +5053,7 @@ fn both_traceparent_trust_flags_default_off() {
     assert!(!default.service.trust_sidecar_traceparent);
 }
 
-/// A node with `[fairdp]` publishes the built-in HealthDCAT-AP release 7 edits. Its own
+/// A node with `[fairdp]` publishes the built-in HealthDCAT-AP edits. Its own
 /// `[fairdp.publish]` goes over them key by key, down into nested tables, and a Beacon-only
 /// node does not get a `[fairdp]` from them.
 #[test]

@@ -545,11 +545,11 @@ fn publisher_agent_carries_its_contact_email_as_foaf_mbox() {
     );
 }
 
-/// HealthDCAT-AP release 7's `cv:contactPoint` hangs off the dataset record's publisher
+/// HealthDCAT-AP's `cv:contactPoint` hangs off the dataset record's publisher
 /// and HDAB, with the e-mail as text (no `mailto:`) and the contact page when set. The
 /// root and catalog publishers do not carry it.
 #[test]
-fn release_7_contact_point_is_on_the_dataset_agents_only() {
+fn cv_contact_point_is_on_the_dataset_agents_only() {
     let fairdp = fairdp_config();
     let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
     let entry = covid_entry();

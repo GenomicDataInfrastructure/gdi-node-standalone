@@ -497,7 +497,7 @@ profile marker is opaque, not a served document.
 defaults to English. It appears on the root, every catalog and every dataset; there is no
 per-dataset language.
 
-HealthDCAT-AP release 7 asks for more, and every node publishes it: every record gives its
+HealthDCAT-AP asks for more, and every node publishes it: every record gives its
 licence, access-rights, language, legislation and legal-basis values an `rdf:type` (the last
 two lines above), and every dataset record carries `healthdcatap:hasStructuredData` and the
 variables table. These are built in
