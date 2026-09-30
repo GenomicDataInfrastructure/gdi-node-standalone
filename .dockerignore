@@ -57,6 +57,7 @@
 # and any same-named file deeper in the tree keep flowing into the build.
 /node.toml
 /tool.toml
+/tool-secrets.toml
 
 # Deployment/packaging artifacts that are not build inputs. Keep this list complete: an
 # omitted compose file still lands in the context, so editing it busts the `COPY . .` layer

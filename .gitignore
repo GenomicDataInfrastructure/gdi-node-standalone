@@ -30,6 +30,7 @@ __pycache__/
 # unaffected: they carry `<SET ME: …>` placeholders, not real values.
 /node.toml
 /tool.toml
+/tool-secrets.toml
 
 # Artifacts the README quickstart writes into the checkout: `gdi-dataset-tool build -o build`
 # and the `{id}.state.json` visibility sidecar. scripts/gate-key.sh content-hashes tracked

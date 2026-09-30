@@ -55,6 +55,11 @@ pub fn run(
     profile_name: Option<&str>,
     config_path: Option<&Path>,
 ) -> Result<(), ToolError> {
+    // A tool config or tool-secrets.toml that doesn't load stops here, with its error. Setup
+    // can't repair it: it loads the config too, after asking every question.
+    gdi_node_standalone_core::config::ToolConfig::load(config_path)
+        .map_err(|e| ToolError::user(format!("loading tool config: {e}")))?;
+
     // If the user ran `wizard setup`, run only the setup wizard and return.
     if args.command == Some(WizardCommand::Setup) {
         setup::run_setup(

@@ -247,8 +247,9 @@ impl Secrets {
         for name in self.profiles.keys() {
             if config.profiles.get(name).is_some_and(|p| p.s3.is_none()) {
                 return Err(format!(
-                    "{}: credentials for profile '{name}', but the tool config has no \
-                     [profiles.{name}.s3] block; add the block or remove the credentials",
+                    "{}: credentials for profile '{name}', but [profiles.{name}.s3] in the tool \
+                     config sets nothing (commented-out keys don't count); add its settings or \
+                     remove the credentials",
                     path.display()
                 ));
             }
@@ -580,6 +581,24 @@ inbox = \"/var/lib/gdi/inbox\"
             "{err}"
         );
         assert_eq!(std::fs::read_to_string(&path).unwrap(), "profiles = 3\n");
+    }
+
+    /// Writing refuses a file that isn't valid TOML without quoting it: the bad line may hold
+    /// a secret.
+    #[test]
+    fn writing_refuses_malformed_toml_without_quoting_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(SECRETS_FILE);
+        std::fs::write(
+            &path,
+            "[profiles.default.s3]\nsecret_access_key = TOPSECRETVALUE\n",
+        )
+        .unwrap();
+        let err = set_s3_credentials(&path, "default", "A", "S")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("line 2"), "{err}");
+        assert!(!err.contains("TOPSECRETVALUE"), "{err}");
     }
 
     /// The file is created owner-only.

@@ -80,4 +80,14 @@ fn a_later_process_reads_the_stored_credentials() {
         !printed.contains("AKIAEXAMPLEKEY") && !printed.contains("not-a-real-secret-value"),
         "no credential is ever printed: {printed}"
     );
+
+    // Readable by others, the file draws a warning on every run.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        let secrets = dir.path().join(SECRETS_FILE);
+        std::fs::set_permissions(&secrets, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let (_, printed) = profiles_json(&config, config_dir.path());
+        assert!(printed.contains("readable beyond its owner"), "{printed}");
+    }
 }

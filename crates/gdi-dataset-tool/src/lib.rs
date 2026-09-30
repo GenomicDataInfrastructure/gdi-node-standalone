@@ -256,6 +256,17 @@ pub fn run(cli: Cli) -> Result<(), ToolError> {
     {
         profile::ensure_exists(config, name)?;
     }
+    // Like the provider key, `tool-secrets.toml` has only its file mode to protect it.
+    if let Some(path) = gdi_node_standalone_core::config::secrets_path(config)
+        && let Some(mode) = gdi_node_standalone_core::util::loose_secret_mode(&path)
+    {
+        output::warn(&format!(
+            "warning: {} holds S3 credentials and is readable beyond its owner (mode {mode:o}); \
+             run `chmod 600 {}`",
+            path.display(),
+            path.display()
+        ));
+    }
     match cli.command {
         Command::Build(args) => commands::cmd_build::run(&args, profile, config),
         Command::Validate(args) => commands::cmd_validate::run(&args, profile, config),
