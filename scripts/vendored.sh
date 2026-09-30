@@ -85,10 +85,10 @@ SETS=(
 #   * the userportal's deployed CKAN-extension pins: the DCAT profile parser
 #     (`ckanext-dcat`) that the check_ckanext.py hand-mirror tracks, and the FDP harvester
 #     (`ckanext-fairdatapoint`) that crawls this node's FDP;
-#   * the gdi-metadata model's declared HealthDCAT-AP release ("lineage"). The node tracks
-#     gdi-metadata and the userportal profile, not the raw HealthDCAT-AP spec, so this
-#     fires when the federation moves off Release 5. That is the signal to
-#     re-vendor the shapes and follow in lockstep, not to get ahead of it.
+#   * the gdi-metadata model's declared HealthDCAT-AP release ("lineage"). The node follows
+#     gdi-metadata and the userportal profile; its built-in [fairdp.publish] also adds what
+#     later HealthDCAT-AP releases ask for, where GDI's model has room for it. This fires
+#     when gdi-metadata moves off Release 5, the signal to re-vendor the shapes.
 # Each entry asserts the remote file still contains an expected substring (a version tag
 # or the declared release) rather than byte-diffing it: the upstream files change often
 # for reasons that do not concern this repo, and only the pinned token matters.
