@@ -1169,14 +1169,14 @@ dependencies = [
 
 [[package]]
 name = "gdi-build-info"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "tempfile",
 ]
 
 [[package]]
 name = "gdi-dataset-tool"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "async-trait",
  "clap",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "gdi-node-standalone"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -1259,7 +1259,7 @@ dependencies = [
 
 [[package]]
 name = "gdi-node-standalone-beacon"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "arrow-array",
  "criterion",
@@ -1277,7 +1277,7 @@ dependencies = [
 
 [[package]]
 name = "gdi-node-standalone-core"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "arrow-array",
  "arrow-buffer",
@@ -1320,7 +1320,7 @@ dependencies = [
 
 [[package]]
 name = "gdi-node-standalone-fairdp"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "criterion",
  "gdi-node-standalone-core",
@@ -3613,7 +3613,7 @@ dependencies = [
 
 [[package]]
 name = "test-util"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.2"
 dependencies = [
  "serial_test",
  "tempfile",

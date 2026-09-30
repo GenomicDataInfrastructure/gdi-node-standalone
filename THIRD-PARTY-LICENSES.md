@@ -7221,13 +7221,13 @@ limitations under the License.
 ### Apache License 2.0 (Apache-2.0)
 
 Used by:
-- gdi-node-standalone-beacon 1.0.0-rc.1
-- gdi-build-info 1.0.0-rc.1
-- gdi-node-standalone-core 1.0.0-rc.1
-- gdi-node-standalone-fairdp 1.0.0-rc.1
-- gdi-dataset-tool 1.0.0-rc.1
-- gdi-node-standalone 1.0.0-rc.1
-- test-util 1.0.0-rc.1
+- gdi-node-standalone-beacon 1.0.0-rc.2
+- gdi-build-info 1.0.0-rc.2
+- gdi-node-standalone-core 1.0.0-rc.2
+- gdi-node-standalone-fairdp 1.0.0-rc.2
+- gdi-dataset-tool 1.0.0-rc.2
+- gdi-node-standalone 1.0.0-rc.2
+- test-util 1.0.0-rc.2
 - anyhow 1.0.104
 - arraydeque 0.5.1
 - async-trait 0.1.92
