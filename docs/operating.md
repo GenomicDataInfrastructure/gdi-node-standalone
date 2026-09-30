@@ -3293,7 +3293,8 @@ type, a replaced vocabulary. The FAIR Data Point records can follow such a chang
 `[fairdp.publish]` in `node.toml`, without waiting for a node release.
 
 Until then you don't need `[fairdp.publish]`. Every node already publishes what HealthDCAT-AP
-release 8 asks for beyond its own records, in a form releases 5 and 7 accept too. Those
+release 8 asks for beyond its own records, in a form releases 5 and 7 accept too. Where
+GDI's model differs, as with its own health categories, the node follows GDI. Those
 settings are built in
 ([`fairdp-publish.toml`](../crates/core/src/config/fairdp-publish.toml)), and yours go over
 them key by key: a key you set replaces the built-in value, the rest stay.
