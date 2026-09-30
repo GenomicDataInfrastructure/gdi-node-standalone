@@ -3293,9 +3293,14 @@ type, a replaced vocabulary. The FAIR Data Point records can follow such a chang
 `[fairdp.publish]` in `node.toml`, without waiting for a node release.
 
 Until then you don't need `[fairdp.publish]`. Every node already publishes what HealthDCAT-AP
-release 7 asks for beyond its own records. Those settings are built in
+release 8 asks for beyond its own records, in a form releases 5 and 7 accept too. Those
+settings are built in
 ([`fairdp-publish.toml`](../crates/core/src/config/fairdp-publish.toml)), and yours go over
 them key by key: a key you set replaces the built-in value, the rest stay.
+
+One built-in setting is a rename: every `csvw:title` is also published as `csvw:titles`,
+the name releases 5 and 7 read. So a variables table of your own needs only `csvw:title`.
+To publish that name alone, set `rename_properties = { "csvw:title" = ["csvw:title"] }`.
 
 1. Add the change to `[fairdp.publish]`. The annotated block in
    [`node.example.toml`](../node.example.toml) shows the four kinds of change (`add`,

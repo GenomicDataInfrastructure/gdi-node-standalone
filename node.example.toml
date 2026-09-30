@@ -897,7 +897,7 @@ applicable_legislation = ["http://data.europa.eu/eli/reg/2025/327/oj"]
 
 # [fairdp.publisher] — the organisation that runs this node and publishes its records
 # (dct:publisher). Its contact point is published as a vCard and, on datasets, as
-# HealthDCAT-AP release 7's cv:contactPoint; its e-mail also as foaf:mbox.
+# HealthDCAT-AP's cv:contactPoint; its e-mail also as foaf:mbox.
 [fairdp.publisher]
 # TIER: REQUIRED when [fairdp] is present — DCAT-AP mandates dct:publisher, so the
 # service refuses to start without it. Omit the whole [fairdp] block if this node serves
@@ -953,10 +953,11 @@ access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 
 # [fairdp.publish] — changes to the published records, for following a change in GDI's
 # metadata model before a node release ships it. You don't need this block: every node
-# already publishes what HealthDCAT-AP release 7 asks for on top of its own records
-# (hasStructuredData, the allele-frequency variables table, and an rdf:type on licence,
-# access rights, language, legislation and legal basis values). Those built-in settings
-# are in crates/core/src/config/fairdp-publish.toml, written the same way as this block.
+# already publishes what HealthDCAT-AP release 8 asks for on top of its own records, in a
+# form releases 5 and 7 accept too (hasStructuredData, the allele-frequency variables
+# table, and an rdf:type on licence, access rights, language, legislation and legal basis
+# values). Those built-in settings are in crates/core/src/config/fairdp-publish.toml,
+# written the same way as this block.
 #
 # When GDI announces a change, add what it asks for here. Your settings go over the
 # built-in ones key by key: a key you set replaces the built-in value, the rest stay.
@@ -976,7 +977,8 @@ access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 
 # Publish a property under another name. List both names to publish both while GDI moves
 # from one to the other; `[]` stops publishing the property.
-# Type: table of name -> name or array of names. Default: {} (none).
+# Type: table of name -> name or array of names. Default: one built-in entry, which
+# publishes every csvw:title as csvw:titles too (the name releases 5 and 7 read).
 # rename_properties = { "ex:oldProperty" = ["ex:oldProperty", "ex:newProperty"] }
 
 # Publish another value in place of one, wherever it appears; `[]` drops the value. For
@@ -1003,7 +1005,7 @@ access_url.aggregated = "https://portal.testing.gdi.lu/allele-frequency"
 #                                           a new node if the record has none
 #   "csvw:column" = [{ … }, { … }]          a new node for each table
 # Values may use $FDP_URL (the FDP root's address) and $FDP_ID (the catalog or dataset
-# id). Type: table. Default: the built-in release 7 statements on aggregated datasets.
+# id). Type: table. Default: the built-in statements on aggregated datasets.
 #
 # For example, once GDI's shapes accept STATISTICAL as a dataset type (today only
 # SYNTHETIC_DATA), with a provenance sentence true for every dataset on the node:
