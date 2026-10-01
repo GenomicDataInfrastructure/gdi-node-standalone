@@ -1,0 +1,5 @@
+# libssl3t64 in the distroless base (3.5.7-1~deb13u2; fixed in deb13u3, not yet in a
+# distroless digest). The node never loads OpenSSL: its TLS is rustls. Delete these lines
+# once the base digest carries the fix; the expiry fails the scans again if nobody does.
+CVE-2026-75804 exp:2026-11-01
+CVE-2026-84782 exp:2026-11-01
