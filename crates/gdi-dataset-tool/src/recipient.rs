@@ -50,6 +50,23 @@ fn check_recipient_len(url: &str, total: usize) -> Result<(), ToolError> {
     Ok(())
 }
 
+/// How a fetch error starts when the node answered with an error status.
+fn answered_prefix(url: &str) -> String {
+    format!("node recipient {url} returned ")
+}
+
+/// The fetch error for a node that answered `status`; [`answered_status`] reads it back.
+pub(crate) fn answered_message(url: &str, status: reqwest::StatusCode) -> String {
+    format!("{}{status}", answered_prefix(url))
+}
+
+/// The error status in a [`fetch_node_recipient`] error, or `None` for any other failure.
+pub(crate) fn answered_status(url: &str, message: &str) -> Option<reqwest::StatusCode> {
+    let rest = message.strip_prefix(&answered_prefix(url))?;
+    let code = rest.split_whitespace().next()?.parse::<u16>().ok()?;
+    reqwest::StatusCode::from_u16(code).ok()
+}
+
 /// Fetch + parse the node recipient from a URL.
 ///
 /// # Errors
@@ -73,7 +90,7 @@ pub async fn fetch_node_recipient(url: &str) -> Result<PublicKey, ToolError> {
         .map_err(|e| ToolError::user(format!("cannot fetch node recipient {url}: {e}")))?;
     let status = resp.status();
     if !status.is_success() {
-        let msg = format!("node recipient {url} returned {status}");
+        let msg = answered_message(url, status);
         let is_auth_failure =
             status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN;
         return Err(if is_auth_failure {
