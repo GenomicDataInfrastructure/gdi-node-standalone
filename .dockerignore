@@ -25,7 +25,6 @@
 .git
 .github
 .gitignore
-.trivyignore
 
 # Generated CI artifacts (never part of a build).
 *.cdx.json
