@@ -716,6 +716,20 @@ fn terse_fetch_cause(url: &str, message: &str) -> String {
         .replace(&format!(" for url ({url})"), "")
 }
 
+/// The warning for a failed recipient fetch. An error status other than `404` means the
+/// node is up and failed; any other failure can be a node that isn't up yet.
+fn recipient_fetch_warning(url: &str, message: &str) -> String {
+    match recipient::answered_status(url, message) {
+        Some(status) if status != reqwest::StatusCode::NOT_FOUND => {
+            format!("warning: the node answered {status} at {url}")
+        }
+        _ => format!(
+            "warning: node not reachable at {url}: expected on a first bring-up ({})",
+            terse_fetch_cause(url, message)
+        ),
+    }
+}
+
 /// What the recipient step settled on.
 #[derive(Debug)]
 enum RecipientChoice {
@@ -845,11 +859,7 @@ fn resolve_recipient_online(
                 ));
             }
             Err(e) => {
-                crate::output::warn(&format!(
-                    "warning: node not reachable at {recipient_url}: expected on a first \
-                     bring-up ({})",
-                    terse_fetch_cause(&recipient_url, &e.message)
-                ));
+                crate::output::warn(&recipient_fetch_warning(&recipient_url, &e.message));
                 match recipient_recovery_menu(p, true, config_d, name)? {
                     Recovery::Chose(choice) => return Ok(choice),
                     Recovery::Retry => {}
@@ -1235,6 +1245,26 @@ mod tests {
             terse_fetch_cause(url, "connection refused"),
             "connection refused"
         );
+    }
+
+    /// A server error is not worded as a first bring-up; a `404` or no answer still is.
+    #[test]
+    fn a_server_error_is_not_called_a_first_bring_up() {
+        let url = "https://node.example/.well-known/c4gh-recipient";
+        let answered = recipient::answered_message(url, reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            recipient_fetch_warning(url, &answered),
+            format!("warning: the node answered 500 Internal Server Error at {url}")
+        );
+        let not_found = recipient::answered_message(url, reqwest::StatusCode::NOT_FOUND);
+        let no_answer =
+            format!("cannot fetch node recipient {url}: error sending request for url ({url})");
+        for message in [not_found, no_answer] {
+            assert!(
+                recipient_fetch_warning(url, &message).contains("expected on a first bring-up"),
+                "{message}"
+            );
+        }
     }
 
     #[test]
