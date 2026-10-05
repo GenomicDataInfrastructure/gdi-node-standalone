@@ -378,14 +378,18 @@ pub fn distribution_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
     // Inline DataService blank node under dcat:accessService.
     let service_subj =
         b.add_blank_node(&subj, vocab::DCAT_ACCESS_SERVICE, vocab::DCAT_DATA_SERVICE);
-    // Lowercase `dcat:endpointURL` (the DataServiceShape predicate), not the capital-P
-    // FDP v1.2 spelling: an inline DataService carries only this one.
-    b.add_iri(
-        service_subj.clone(),
-        vocab::DCAT_ENDPOINT_URL,
-        &ctx.beacon_endpoint_url(),
-    );
+    // Lowercase `dcat:endpointURL` (the DataServiceShape predicate), not FDP v1.2's
+    // capital-P spelling.
+    let endpoint = ctx.beacon_endpoint_url();
+    b.add_iri(service_subj.clone(), vocab::DCAT_ENDPOINT_URL, &endpoint);
     b.add_string(service_subj.clone(), vocab::DCT_TITLE, "GDI Beacon");
+    // The GDI User Portal shows no dataset page without these two.
+    b.add_string(
+        service_subj.clone(),
+        vocab::DCT_DESCRIPTION,
+        "GA4GH Beacon v2 API that answers variant queries for this dataset.",
+    );
+    b.add_string(service_subj.clone(), vocab::DCT_IDENTIFIER, &endpoint);
     b.add_iri(service_subj, vocab::DCAT_SERVES_DATASET, &dataset_iri);
 
     ctx.published(b.finish(), Record::Distribution, &dist_iri, Some(&entry.id))
