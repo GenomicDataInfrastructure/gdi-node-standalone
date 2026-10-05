@@ -54,6 +54,9 @@ fn ensure_crypto_provider() {
 /// else. A caller wanting a stricter policy overrides it afterwards, which is the safe
 /// direction. `reqwest::Client::builder` is banned in `clippy.toml`, so a new call site
 /// cannot start from a bare builder and inherit the permissive default.
+///
+/// HTTP/1.1 only: some reverse proxies answer this client's HTTP/2 with a `500`, and
+/// requests this small gain nothing from HTTP/2.
 #[cfg(feature = "http")]
 pub fn https_client_builder() -> reqwest::ClientBuilder {
     ensure_crypto_provider();
@@ -69,6 +72,7 @@ pub fn https_client_builder() -> reqwest::ClientBuilder {
     builder
         .tls_certs_merge(extra)
         .redirect(secure_redirect_policy())
+        .http1_only()
 }
 
 /// The single rule deciding whether a URL's transport is allowed, returning the human
@@ -335,6 +339,33 @@ mod tests {
         assert!(
             format!("{err:?}").contains("refused redirect"),
             "the error must name the refusal, got: {err:?}"
+        );
+    }
+
+    /// Clients from the shared builder offer only HTTP/1.1 in their TLS `ClientHello`.
+    #[tokio::test]
+    async fn builder_offers_only_http1() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let url = format!("https://{}/", listener.local_addr().expect("local addr"));
+        let hello = std::thread::spawn(move || {
+            let (mut sock, _) = listener.accept().expect("accept");
+            let mut header = [0_u8; 5];
+            sock.read_exact(&mut header).expect("TLS record header");
+            let mut body = vec![0_u8; usize::from(u16::from_be_bytes([header[3], header[4]]))];
+            sock.read_exact(&mut body).expect("TLS record body");
+            body
+        });
+
+        // Nothing answers the handshake, so the request fails; only what it offered matters.
+        let client = super::https_client_builder().build().expect("build client");
+        let _ = client.get(&url).send().await;
+
+        // The ALPN extension (type 16) listing just `http/1.1`: lengths 11, 9 and 8.
+        let http1_only: &[u8] = b"\x00\x10\x00\x0b\x00\x09\x08http/1.1";
+        let hello = hello.join().expect("capture the ClientHello");
+        assert!(
+            hello.windows(http1_only.len()).any(|w| w == http1_only),
+            "the client must offer HTTP/1.1 and nothing else"
         );
     }
 }
