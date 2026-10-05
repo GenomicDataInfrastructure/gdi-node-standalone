@@ -432,6 +432,15 @@ fn inline_data_service_has_lowercase_endpoint_url_and_title() {
         ttl.contains("GDI Beacon"),
         "DataService title missing:\n{ttl}"
     );
+    // A description and an identifier (the Beacon's URL), which the GDI User Portal needs.
+    assert!(
+        ttl.contains("dct:description \"GA4GH Beacon v2 API"),
+        "DataService description missing:\n{ttl}"
+    );
+    assert!(
+        ttl.contains(&format!("dct:identifier \"{BASE_URL}{BEACON_PATH}\"")),
+        "DataService identifier missing:\n{ttl}"
+    );
     // The access URL is the configured one (where a user asks for access); the service
     // endpoint is the aggregated Beacon, derived from the base URL when not configured.
     assert_eq!(
