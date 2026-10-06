@@ -151,6 +151,34 @@ class ComposeHostPortsOverridableTest(unittest.TestCase):
                     "open under pipefail; use the single-process awk form from run.sh",
                 )
 
+    def test_no_compose_script_dials_a_literal_loopback_port(self):
+        # Host ports can be remapped, so a hard-coded loopback port may hit nothing, or
+        # another stack. Take it from GDI_HOST_PORT_* or `docker compose port`.
+        scripts = [
+            path
+            for path in sorted((REPO_ROOT / "scripts").rglob("*.sh"))
+            if _RUNS_COMPOSE_RE.search(strip_comments(path.read_text(encoding="utf-8")))
+        ]
+        self.assertTrue(
+            scripts,
+            "no script under scripts/ runs Compose, so this would pass vacuously",
+        )
+        for path in scripts:
+            text = strip_comments(path.read_text(encoding="utf-8"))
+            literal = _LOOPBACK_LITERAL_RE.findall(text)
+            with self.subTest(script=str(path.relative_to(REPO_ROOT))):
+                self.assertFalse(
+                    literal,
+                    f"{path.relative_to(REPO_ROOT)} dials {literal}; take the host port "
+                    "from its GDI_HOST_PORT_* variable or from `docker compose port`",
+                )
+
+
+# Scripts that run Compose.
+_RUNS_COMPOSE_RE = re.compile(r"docker compose|docker-compose|\$\{?COMPOSE\b")
+# A loopback address with a hard-coded port.
+_LOOPBACK_LITERAL_RE = re.compile(r"\b(?:localhost|127\.0\.0\.1):\d+")
+
 
 if __name__ == "__main__":
     unittest.main()
