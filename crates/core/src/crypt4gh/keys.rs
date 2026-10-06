@@ -18,7 +18,6 @@
     reason = "the docs use Crypt4GH and X25519 as prose, not as code"
 )]
 
-use rand_core::OsRng;
 use x25519_dalek::{PublicKey as DalekPublic, StaticSecret};
 use zeroize::Zeroizing;
 
@@ -80,9 +79,12 @@ impl SecretKey {
 }
 
 /// Generate a fresh random X25519 keypair using the OS CSPRNG.
+///
+/// # Panics
+/// Panics if the OS random source fails.
 #[must_use]
 pub fn generate_keypair() -> (SecretKey, PublicKey) {
-    let secret = StaticSecret::random_from_rng(OsRng);
+    let secret = StaticSecret::random();
     let public = DalekPublic::from(&secret);
     (SecretKey(secret), PublicKey(public))
 }

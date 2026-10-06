@@ -40,12 +40,12 @@
 
 use blake2::digest::consts::U64;
 use blake2::{Blake2b, Digest};
+use chacha20poly1305::ChaCha20Poly1305;
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
-use rand_core::{OsRng, RngCore};
 use x25519_dalek::x25519;
 use zeroize::{Zeroize, Zeroizing};
 
+use super::fill_random;
 use super::keys::{PublicKey, SecretKey};
 use crate::error::{CoreError, CoreResult};
 
@@ -117,8 +117,8 @@ fn derive_shared_key(
 ///
 /// # Errors
 /// Returns [`CoreError::InternalError`] if the recipient public key is low-order, giving a
-/// degenerate all-zero shared secret that would expose the session key, or if the AEAD
-/// encryption fails, which cannot happen for valid keys.
+/// degenerate all-zero shared secret that would expose the session key, if the OS random
+/// source fails, or if the AEAD encryption fails, which cannot happen for valid keys.
 pub(crate) fn encrypt_packet(
     session_key: &[u8; SESSION_KEY_LEN],
     sender_sk: &SecretKey,
@@ -135,8 +135,8 @@ pub(crate) fn encrypt_packet(
 ///
 /// # Errors
 /// Returns [`CoreError::InternalError`] if the recipient public key is low-order, giving a
-/// degenerate all-zero shared secret, or if the AEAD encryption fails, which cannot happen
-/// for valid keys.
+/// degenerate all-zero shared secret, if the OS random source fails, or if the AEAD
+/// encryption fails, which cannot happen for valid keys.
 fn encrypt_packet_of_type(
     packet_type: u32,
     session_key: &[u8; SESSION_KEY_LEN],
@@ -161,12 +161,12 @@ fn encrypt_packet_of_type(
     content.extend_from_slice(session_key);
 
     let mut nonce_bytes = [0u8; NONCE_LEN];
-    OsRng.fill_bytes(&mut nonce_bytes);
+    fill_random(&mut nonce_bytes)?;
 
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(shared.as_ref()));
+    let cipher = ChaCha20Poly1305::new((&*shared).into());
     let ciphertext = cipher
         .encrypt(
-            Nonce::from_slice(&nonce_bytes),
+            (&nonce_bytes).into(),
             Payload {
                 msg: content.as_ref(),
                 aad: &[],
@@ -256,7 +256,9 @@ pub(crate) fn decrypt_packet(
         .try_into()
         .map_err(|_| CoreError::DecryptFailed)?;
     let writer_pk = PublicKey::from_bytes(writer_pk_bytes);
-    let nonce = &packet_content[36..36 + NONCE_LEN];
+    let nonce: [u8; NONCE_LEN] = packet_content[36..36 + NONCE_LEN]
+        .try_into()
+        .map_err(|_| CoreError::DecryptFailed)?;
     let ciphertext = &packet_content[36 + NONCE_LEN..];
 
     // Reader side: local_sk = recipient_sk, peer_pk = writer_pk (the sender).
@@ -268,9 +270,9 @@ pub(crate) fn decrypt_packet(
     let shared = derive_shared_key(recipient_sk, &writer_pk, &writer_pk, &recipient_pk)
         .ok_or(CoreError::DecryptFailed)?;
 
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(shared.as_ref()));
+    let cipher = ChaCha20Poly1305::new((&*shared).into());
     let plaintext = match cipher.decrypt(
-        Nonce::from_slice(nonce),
+        (&nonce).into(),
         Payload {
             msg: ciphertext,
             aad: &[],
@@ -444,11 +446,11 @@ mod tests {
         let sender_pk = sender_sk.public_key();
         let shared = derive_shared_key(sender_sk, recipient_pk, &sender_pk, recipient_pk).unwrap();
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce_bytes);
-        let cipher = ChaCha20Poly1305::new(Key::from_slice(shared.as_ref()));
+        fill_random(&mut nonce_bytes).unwrap();
+        let cipher = ChaCha20Poly1305::new((&*shared).into());
         let ciphertext = cipher
             .encrypt(
-                Nonce::from_slice(&nonce_bytes),
+                (&nonce_bytes).into(),
                 Payload {
                     msg: content,
                     aad: &[],

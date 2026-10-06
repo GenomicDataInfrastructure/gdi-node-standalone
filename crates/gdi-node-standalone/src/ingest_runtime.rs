@@ -2538,7 +2538,7 @@ fn signature_of_staging(staging: &Path) -> CoreResult<String> {
         hasher.update(size.to_le_bytes());
         hasher.update(b":content:");
         let mut f = std::fs::File::open(staging.join(&name))?;
-        std::io::copy(&mut f, &mut hasher)?;
+        gdi_node_standalone_core::util::sha256_update_reader(&mut hasher, &mut f)?;
     }
 
     Ok(finalize_signature(hasher))
@@ -2551,7 +2551,7 @@ fn signature_of_staging(staging: &Path) -> CoreResult<String> {
 fn signature_of_file(path: &Path) -> CoreResult<String> {
     let mut file = std::fs::File::open(path)?;
     let mut hasher = Sha256::new();
-    std::io::copy(&mut file, &mut hasher)?;
+    gdi_node_standalone_core::util::sha256_update_reader(&mut hasher, &mut file)?;
     Ok(finalize_signature(hasher))
 }
 

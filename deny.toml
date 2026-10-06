@@ -56,15 +56,13 @@ allow = [
 [bans]
 # `warn`, not `deny`, is a deliberate tradeoff. The duplicate versions in this tree are
 # upstream-driven and cannot be collapsed at this pin layer: the cross-platform
-# windows_*/r-efi shims, never linked on the deployed Linux targets; three RustCrypto/rand
-# generations that cannot be unified — crypt4gh's stable 0.10/0.6 line (`digest 0.10`,
-# `rand_core 0.6`, `getrandom 0.2`), object_store 0.14's newer line (`digest 0.11` via
-# `md-5`, `rand 0.10` with its `chacha20`/`cpufeatures`/`getrandom 0.4`) and metrics/otel's
-# `rand 0.9`, with crypt4gh unable to advance while `blake2 0.11` and `x25519-dalek 3.0`
-# are pre-release only; and the `tower-http` 0.6.11 that `reqwest` pulls alongside the
-# service's own `=0.7.0`. A hard `deny` would need a hand-maintained `skip`/`skip-tree`
-# list enumerating every one of those, plus care that never-linked shims do not
-# false-positive. `warn` keeps the count visible on every reviewed dependency bump; move to
+# windows_*/r-efi shims, never linked on the deployed Linux targets; older RustCrypto/rand
+# versions (`digest 0.10`, `getrandom 0.2`/`0.3`, `rand 0.9`) that other crates still pull
+# in next to crypt4gh's newer ones (`cargo tree -d` shows who); and the `tower-http` 0.6
+# that `reqwest` pulls next to our 0.7. A hard `deny` would need a hand-maintained
+# `skip`/`skip-tree` list enumerating every one of those, plus care that never-linked
+# shims do not false-positive. `warn` keeps the count visible on every reviewed
+# dependency bump; move to
 # `deny` plus a curated `skip-tree` if an unexpected new duplicate that a pin could collapse
 # starts appearing.
 multiple-versions = "warn"
