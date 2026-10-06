@@ -1506,6 +1506,7 @@ fn build_manifest(
         min_typical_age: m.min_typical_age,
         max_typical_age: m.max_typical_age,
         provenance: m.provenance.clone(),
+        health_theme: m.health_theme.clone(),
         contact_point: m.contact_point.clone(),
         // FDP-facing: consumed by the FAIR Data Point layer and external harvesters. The
         // beacon query path counts variant groups directly from Parquet and does not read
@@ -1630,6 +1631,7 @@ metadata:
   minTypicalAge: 18
   maxTypicalAge: 90
   provenance: "P"
+  healthTheme: ["https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"]
 config:
   mode: aggregated
 "#;
@@ -1658,6 +1660,7 @@ config:
             min_typical_age,
             max_typical_age,
             provenance,
+            health_theme,
         } = &package.metadata;
         assert!(
             description.is_some()
@@ -1671,7 +1674,8 @@ config:
                 && contact_point.is_some()
                 && min_typical_age.is_some()
                 && max_typical_age.is_some()
-                && provenance.is_some(),
+                && provenance.is_some()
+                && health_theme.is_some(),
             "the fixture must set every optional field"
         );
 

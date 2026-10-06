@@ -242,6 +242,9 @@ fn add_dataset_field(
         MetaField::MaxTypicalAge => {
             b.add_non_negative(subj, m.predicate, meta.max_typical_age.map(u64::from));
         }
+        MetaField::HealthTheme => {
+            b.add_iris(subj, m.predicate, meta.health_theme.iter().flatten());
+        }
         MetaField::Provenance => {
             if let Some(text) = &meta.provenance {
                 let node = b.add_blank_node(subj, m.predicate, vocab::DCT_PROVENANCE_STATEMENT);

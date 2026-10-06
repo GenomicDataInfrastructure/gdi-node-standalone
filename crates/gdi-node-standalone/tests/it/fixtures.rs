@@ -163,6 +163,7 @@ pub(crate) fn sample_metadata(id: &str) -> ManifestMetadata {
         min_typical_age: None,
         max_typical_age: None,
         provenance: None,
+        health_theme: None,
         contact_point: Some(gdi_node_standalone_core::model::ContactPoint {
             fn_: Some("Data team".to_owned()),
             has_email: Some("mailto:data@example.org".to_owned()),
@@ -212,6 +213,7 @@ pub(crate) fn manifest_for(id: &str, catalog: &str, number_of_records: u64) -> M
             min_typical_age: None,
             max_typical_age: None,
             provenance: None,
+            health_theme: None,
             contact_point: Some(gdi_node_standalone_core::model::ContactPoint {
                 fn_: Some("Data team".to_owned()),
                 has_email: Some("mailto:data@example.org".to_owned()),
@@ -272,6 +274,7 @@ pub(crate) fn manifest_for_goe(id: &str, number_of_records: u64) -> Manifest {
             min_typical_age: None,
             max_typical_age: None,
             provenance: None,
+            health_theme: None,
             contact_point: Some(gdi_node_standalone_core::model::ContactPoint {
                 fn_: Some("Data team".to_owned()),
                 has_email: Some("mailto:data@example.org".to_owned()),
@@ -333,6 +336,7 @@ pub(crate) fn manifest_for_fdp(id: &str, number_of_records: u64) -> Manifest {
             min_typical_age: None,
             max_typical_age: None,
             provenance: None,
+            health_theme: None,
             contact_point: Some(gdi_node_standalone_core::model::ContactPoint {
                 fn_: Some("Data team".to_owned()),
                 has_email: Some("mailto:data@example.org".to_owned()),

@@ -604,6 +604,7 @@ mod tests {
                 min_typical_age: None,
                 max_typical_age: None,
                 provenance: None,
+                health_theme: None,
                 contact_point: None,
                 number_of_records: Some(records),
                 populations: Some(pops.iter().map(|p| (*p).to_owned()).collect()),

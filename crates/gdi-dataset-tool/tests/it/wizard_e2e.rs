@@ -190,6 +190,7 @@ fn scripted_author(fixture: &str) -> ScriptedPrompter {
         ])
         .with_multiselects(vec![
             vec![2], // health categories: index 2 = Human genomic (genetic, epigenomic, genomic)
+            vec![7], // health themes: Health products
             vec![],  // conformsTo: nothing ticked -> the field is omitted
             vec![0], // applicable legislation: the EHDS row only
         ])
@@ -290,6 +291,7 @@ fn the_authored_package_carries_conforms_to_and_every_legislation_entry() {
         ])
         .with_multiselects(vec![
             vec![2],    // health categories: Human genomic
+            vec![7],    // health themes: Health products
             vec![0, 1], // conformsTo: Externally governed + 1+MG compliant
             vec![1],    // legislation: GDPR only, the EHDS row is unticked
         ])
@@ -365,6 +367,7 @@ fn a_missing_answer_fails_the_journey() {
     // The full script, minus the legislation multi-select answer.
     let p = scripted_author(fixture_path.to_str().unwrap()).with_multiselects(vec![
         vec![2], // health categories
+        vec![7], // health themes: Health products
         vec![],  // conformsTo
                  // The applicable-legislation answer is missing, which is the point.
     ]);
@@ -551,6 +554,7 @@ fn wizard_author_to_pack_e2e() {
         ])
         .with_multiselects(vec![
             vec![2], // health categories: Human genomic
+            vec![7], // health themes: Health products
             vec![],  // conformsTo: nothing ticked
             vec![0], // applicable legislation: the EHDS row only
         ]);
@@ -877,6 +881,7 @@ fn publish_prompter(fixture: &str, keyless: bool) -> ScriptedPrompter {
         .with_confirms(confirms)
         .with_multiselects(vec![
             vec![2], // health categories: Human genomic
+            vec![7], // health themes: Health products
             vec![],  // conformsTo: nothing ticked
             vec![0], // applicable legislation: the EHDS row only
         ])
@@ -1302,6 +1307,7 @@ fn an_existing_complete_package_yaml_is_a_question_not_a_pass_through() {
         ])
         .with_multiselects(vec![
             vec![2], // health categories: Human genomic
+            vec![7], // health themes: Health products
             vec![],  // conformsTo: nothing ticked
             vec![0], // applicable legislation: the EHDS row only
         ])
@@ -1391,6 +1397,7 @@ fn the_profile_org_is_used_without_asking() {
         .with_selects(vec![1, 0, 0, 0, 0])
         .with_multiselects(vec![
             vec![2], // health categories: Human genomic
+            vec![7], // health themes: Health products
             vec![],  // conformsTo: nothing ticked
             vec![0], // applicable legislation: the EHDS row only
         ])

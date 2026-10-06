@@ -1602,7 +1602,7 @@ All other public metadata fields are editable, including: `title`, `description`
 `accessRights`, `applicableLegislation`, `license`, `creator`, `healthCategory`,
 `keywords`, `numberOfUniqueIndividuals`, `conformsTo`, `type`, `legalBasis`,
 `isReferencedBy`, `otherIdentifier`, `contactPoint`, `minTypicalAge`, `maxTypicalAge`,
-`provenance`.
+`provenance`, `healthTheme`.
 
 A sidecar containing a protected field name or an unrecognised key is invalid and ignored
 in its entirety; the parser rejects it with `deny_unknown_fields`. Check the logs for the

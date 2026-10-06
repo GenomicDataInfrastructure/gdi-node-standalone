@@ -183,6 +183,9 @@ pub struct ManifestMetadata {
     /// How the data was produced (plain string or language map).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<LocalizedText>,
+    /// Health themes: the disease or healthcare areas, as EU health-theme IRIs (recommended).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_theme: Option<Vec<String>>,
     /// Computed: distinct `(chromosome, POS, REF, ALT)` variants the dataset serves.
     ///
     /// Optional in this schema, but required by the node at ingest. It is served verbatim

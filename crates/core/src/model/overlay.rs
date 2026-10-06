@@ -71,6 +71,9 @@ pub struct MetadataOverlay {
     /// How the data was produced (plain string or language map).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<LocalizedText>,
+    /// Health themes: the disease or healthcare areas, as EU health-theme IRIs (recommended).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_theme: Option<Vec<String>>,
 }
 
 impl MetadataOverlay {
@@ -111,6 +114,7 @@ impl ManifestMetadata {
             min_typical_age: self.min_typical_age,
             max_typical_age: self.max_typical_age,
             provenance: self.provenance.clone(),
+            health_theme: self.health_theme.clone(),
         }
     }
 
@@ -119,65 +123,7 @@ impl ManifestMetadata {
     /// `number_of_records`) are absent from [`MetadataOverlay`] and so are never
     /// touched.
     pub fn apply_overlay(&mut self, ov: &MetadataOverlay) {
-        // Exhaustiveness guard in both directions. Neither destructure below uses a `..`
-        // rest pattern, so a field added to `ManifestMetadata` or to `MetadataOverlay`
-        // fails to compile here until it is named. Without the manifest side, a new DCAT
-        // field could be added to the served metadata and never offered to the overlay,
-        // leaving it permanently un-correctable by any operator command.
-        //
-        // Naming a field is not applying it: the compiler does not force the matching
-        // `if let Some(v) = &ov.field` branch below. The test that binds that is
-        // `every_overlay_field_is_actually_applied` in this file's `mod tests`, which
-        // applies every overlay field and asserts each one lands.
-        let ManifestMetadata {
-            // Protected: not patchable by an operator overlay. `deny_unknown_fields` on
-            // `MetadataOverlay` rejects these keys at parse time; listing them here makes
-            // that a decision rather than an omission.
-            dataset_id: _,
-            catalog: _,
-            number_of_records: _,
-            populations: _,
-            // Patchable: each has a matching `MetadataOverlay` field applied below.
-            title: _,
-            description: _,
-            access_rights: _,
-            applicable_legislation: _,
-            license: _,
-            creator: _,
-            health_category: _,
-            keywords: _,
-            number_of_unique_individuals: _,
-            conforms_to: _,
-            type_: _,
-            legal_basis: _,
-            is_referenced_by: _,
-            other_identifier: _,
-            contact_point: _,
-            min_typical_age: _,
-            max_typical_age: _,
-            provenance: _,
-        } = self;
-
-        let MetadataOverlay {
-            title: _,
-            description: _,
-            access_rights: _,
-            applicable_legislation: _,
-            license: _,
-            creator: _,
-            health_category: _,
-            keywords: _,
-            number_of_unique_individuals: _,
-            conforms_to: _,
-            type_: _,
-            legal_basis: _,
-            is_referenced_by: _,
-            other_identifier: _,
-            contact_point: _,
-            min_typical_age: _,
-            max_typical_age: _,
-            provenance: _,
-        } = ov;
+        name_every_field(self, ov);
 
         if let Some(v) = &ov.title {
             self.title.clone_from(v);
@@ -233,7 +179,75 @@ impl ManifestMetadata {
         if let Some(v) = &ov.provenance {
             self.provenance = Some(v.clone());
         }
+        if let Some(v) = &ov.health_theme {
+            self.health_theme = Some(v.clone());
+        }
     }
+}
+
+/// The field guard for [`ManifestMetadata::apply_overlay`].
+fn name_every_field(m: &ManifestMetadata, ov: &MetadataOverlay) {
+    // Exhaustiveness guard in both directions. Neither destructure below uses a `..`
+    // rest pattern, so a field added to `ManifestMetadata` or to `MetadataOverlay`
+    // fails to compile here until it is named. Without the manifest side, a new DCAT
+    // field could be added to the served metadata and never offered to the overlay,
+    // leaving it permanently un-correctable by any operator command.
+    //
+    // Naming a field is not applying it: the compiler does not force the matching
+    // `if let Some(v) = &ov.field` branch in `apply_overlay`. The test that binds that is
+    // `every_overlay_field_is_actually_applied` in this file's `mod tests`, which
+    // applies every overlay field and asserts each one lands.
+    let ManifestMetadata {
+        // Protected: not patchable by an operator overlay. `deny_unknown_fields` on
+        // `MetadataOverlay` rejects these keys at parse time; listing them here makes
+        // that a decision rather than an omission.
+        dataset_id: _,
+        catalog: _,
+        number_of_records: _,
+        populations: _,
+        // Patchable: each has a matching `MetadataOverlay` field, applied in `apply_overlay`.
+        title: _,
+        description: _,
+        access_rights: _,
+        applicable_legislation: _,
+        license: _,
+        creator: _,
+        health_category: _,
+        keywords: _,
+        number_of_unique_individuals: _,
+        conforms_to: _,
+        type_: _,
+        legal_basis: _,
+        is_referenced_by: _,
+        other_identifier: _,
+        contact_point: _,
+        min_typical_age: _,
+        max_typical_age: _,
+        provenance: _,
+        health_theme: _,
+    } = m;
+
+    let MetadataOverlay {
+        title: _,
+        description: _,
+        access_rights: _,
+        applicable_legislation: _,
+        license: _,
+        creator: _,
+        health_category: _,
+        keywords: _,
+        number_of_unique_individuals: _,
+        conforms_to: _,
+        type_: _,
+        legal_basis: _,
+        is_referenced_by: _,
+        other_identifier: _,
+        contact_point: _,
+        min_typical_age: _,
+        max_typical_age: _,
+        provenance: _,
+        health_theme: _,
+    } = ov;
 }
 
 #[cfg(test)]
@@ -265,6 +279,7 @@ mod tests {
             legal_basis: None,
             is_referenced_by: None,
             other_identifier: None,
+            health_theme: None,
             contact_point: None,
             min_typical_age: None,
             max_typical_age: None,
@@ -302,7 +317,8 @@ mod tests {
             "contactPoint": {"fn": "N", "hasEmail": "mailto:a@b.co"},
             "minTypicalAge": 18,
             "maxTypicalAge": 90,
-            "provenance": "P"
+            "provenance": "P",
+            "healthTheme": ["https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"]
         });
         let ov: MetadataOverlay =
             serde_json::from_value(overlay_json).expect("fixture must deserialize");
@@ -331,6 +347,7 @@ mod tests {
             min_typical_age,
             max_typical_age,
             provenance,
+            health_theme,
         } = &ov;
         for (field, is_set) in [
             ("title", title.is_some()),
@@ -354,6 +371,7 @@ mod tests {
             ("minTypicalAge", min_typical_age.is_some()),
             ("maxTypicalAge", max_typical_age.is_some()),
             ("provenance", provenance.is_some()),
+            ("healthTheme", health_theme.is_some()),
         ] {
             assert!(
                 is_set,

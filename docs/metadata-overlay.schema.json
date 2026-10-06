@@ -73,6 +73,16 @@
         "type": "string"
       }
     },
+    "healthTheme": {
+      "description": "Health themes: the disease or healthcare areas, as EU health-theme IRIs (recommended).",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      }
+    },
     "isReferencedBy": {
       "description": "Publication DOI IRIs.",
       "type": [

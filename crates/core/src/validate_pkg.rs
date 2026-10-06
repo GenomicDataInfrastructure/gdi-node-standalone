@@ -10,8 +10,8 @@
 //!
 //! The obligation tiers are:
 //! * **Mandatory** missing -> [`Err`] (the build cannot proceed).
-//! * **Recommended** top-level field missing (`keywords`,
-//!   `numberOfUniqueIndividuals`) -> a warning naming the field, build still ok. These
+//! * **Recommended** top-level field missing (`keywords`, `numberOfUniqueIndividuals`,
+//!   `healthTheme`) -> a warning naming the field, build still ok. These
 //!   describe the dataset, so `build --strict` fails on them.
 //! * **Recommended** sub-field of a present parent
 //!   (`contactPoint.hasURL`, `otherIdentifier.schemaAgency`) -> a note. Failing a strict
@@ -148,6 +148,96 @@ pub const HEALTH_CATEGORIES: &[&str] = &[
     "http://data.gdi.eu/core/p2/HealthCategoryHumanGenetic",
     "http://data.gdi.eu/core/p2/HealthCategoryHumanEpigenomic",
     "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic",
+];
+
+/// `healthTheme` values: the 20 concepts of the EU health-theme vocabulary, each with the
+/// English label the vocabulary gives it, which is also what the User Portal shows.
+///
+/// HealthDCAT-AP release 8 requires a value from this scheme; GDI's shapes don't constrain it.
+/// Closed, like [`HEALTH_CATEGORIES`], so a mistyped code is rejected instead of published.
+/// The label says what a code covers: `HEALTH_PRODUCTS` includes data and research, which is
+/// why genomics belongs there.
+pub const HEALTH_THEMES: &[(&str, &str)] = &[
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/ANTIMICROBIAL_CONTROL",
+        "Antimicrobial resistance & infection control",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/BLOOD_INFECTIONS",
+        "Blood-borne & sexually transmitted infections",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/CANCER_DISEASE",
+        "Cancer",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/CLIMATE_HEALTH",
+        "Climate & planetary health",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/EMERGENCY_SETTINGS",
+        "Emergencies, disasters, travel & humanitarian settings",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/ENTERIC_INFECTIONS",
+        "Enteric, water- & food-borne infections",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/ENVIRONMENTAL_HEALTH",
+        "Environmental, occupational & radiation health (incl. WASH & urban)",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS",
+        "Health products, technologies, data & research",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_SYSTEMS",
+        "Health systems, quality, care models & determinants",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/IMMUNIZATION_DISEASES",
+        "Immunization & vaccine-preventable diseases",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/INJURY_PREVENTION",
+        "Injuries, envenoming & drowning",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/LIFECOURSE_HEALTH",
+        "Life-course health: maternal, newborn, child, adolescent & ageing",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/MENTAL_HEALTH",
+        "Mental, neurological & substance use",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/NONCOMMUNICABLE_DISEASES",
+        "Noncommunicable diseases – metabolic & cardiopulmonary",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/NUTRITION_SECURITY",
+        "Nutrition & food security",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/REPRODUCTIVE_HEALTH",
+        "Sexual & reproductive health and rights",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/RESPIRATORY_DISEASES",
+        "Respiratory infectious diseases",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/SENSORY_HEALTH",
+        "Oral, eye & sensory health",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/TROPICAL_DISEASES",
+        "Neglected tropical, parasitic & fungal skin diseases",
+    ),
+    (
+        "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/VECTOR_DISEASES",
+        "Vector-borne & zoonotic viral diseases",
+    ),
 ];
 
 /// `conformsTo` IRIs: the closed set gdi-metadata's `DatasetShape` enumerates
@@ -410,24 +500,8 @@ fn validate_core_metadata(m: &PackageMetadata, warnings: &mut Vec<String>) -> Co
     }
     validate_iri("license", &m.license)?;
 
-    if m.creator.is_empty() {
-        return Err(invalid("creator must have at least one entry"));
-    }
-    check_max_count("creator", m.creator.len(), MAX_CREATORS_COUNT)?;
-    for agent in &m.creator {
-        if agent.name.is_empty() {
-            return Err(invalid("a creator name must not be empty"));
-        }
-        check_max_chars("a creator name", &agent.name, MAX_CREATOR_NAME_LEN)?;
-    }
-
-    if m.health_category.is_empty() {
-        return Err(invalid("healthCategory must have at least one entry"));
-    }
-    for iri in &m.health_category {
-        validate_iri("healthCategory", iri)?;
-        validate_health_category(iri)?;
-    }
+    validate_creators(&m.creator)?;
+    validate_health_categories(&m.health_category)?;
 
     // Its fields are checked with the optional ones, which collect the `hasURL` note.
     if m.contact_point.is_none() {
@@ -452,6 +526,49 @@ fn validate_recommended(m: &PackageMetadata, warnings: &mut Vec<String>) -> Core
     }
     if m.number_of_unique_individuals.is_none() {
         warnings.push("recommended field \"numberOfUniqueIndividuals\" is absent".to_owned());
+    }
+    match &m.health_theme {
+        Some(themes) if !themes.is_empty() => validate_health_themes(themes)?,
+        _ => warnings.push("recommended field \"healthTheme\" is absent".to_owned()),
+    }
+    Ok(())
+}
+
+/// Validate `creator`: at least one agent, each with a bounded non-empty name.
+fn validate_creators(agents: &[crate::model::Agent]) -> CoreResult<()> {
+    if agents.is_empty() {
+        return Err(invalid("creator must have at least one entry"));
+    }
+    check_max_count("creator", agents.len(), MAX_CREATORS_COUNT)?;
+    for agent in agents {
+        if agent.name.is_empty() {
+            return Err(invalid("a creator name must not be empty"));
+        }
+        check_max_chars("a creator name", &agent.name, MAX_CREATOR_NAME_LEN)?;
+    }
+    Ok(())
+}
+
+/// Validate `healthCategory`: at least one, each from the closed [`HEALTH_CATEGORIES`] set.
+fn validate_health_categories(categories: &[String]) -> CoreResult<()> {
+    if categories.is_empty() {
+        return Err(invalid("healthCategory must have at least one entry"));
+    }
+    for iri in categories {
+        validate_iri("healthCategory", iri)?;
+        validate_health_category(iri)?;
+    }
+    Ok(())
+}
+
+/// Validate `healthTheme`: every IRI must be in [`HEALTH_THEMES`].
+fn validate_health_themes(themes: &[String]) -> CoreResult<()> {
+    for iri in themes {
+        if !HEALTH_THEMES.iter().any(|&(theme, _)| theme == iri) {
+            return Err(invalid(&format!(
+                "healthTheme value {iri:?} is not allowed"
+            )));
+        }
     }
     Ok(())
 }
@@ -1172,6 +1289,7 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
         min_typical_age,
         max_typical_age,
         provenance,
+        health_theme,
     } = patch;
 
     if let Some(t) = title {
@@ -1199,25 +1317,10 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
         validate_iri("license", lic)?;
     }
     if let Some(agents) = creator {
-        if agents.is_empty() {
-            return Err(invalid("creator must have at least one entry"));
-        }
-        check_max_count("creator", agents.len(), MAX_CREATORS_COUNT)?;
-        for agent in agents {
-            if agent.name.is_empty() {
-                return Err(invalid("a creator name must not be empty"));
-            }
-            check_max_chars("a creator name", &agent.name, MAX_CREATOR_NAME_LEN)?;
-        }
+        validate_creators(agents)?;
     }
     if let Some(cats) = health_category {
-        if cats.is_empty() {
-            return Err(invalid("healthCategory must have at least one entry"));
-        }
-        for iri in cats {
-            validate_iri("healthCategory", iri)?;
-            validate_health_category(iri)?;
-        }
+        validate_health_categories(cats)?;
     }
     if let Some(kws) = keywords {
         check_max_count("keywords", kws.len(), MAX_KEYWORDS_COUNT)?;
@@ -1254,6 +1357,9 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
     validate_typical_ages(None, *max_typical_age)?;
     if let Some(p) = provenance {
         validate_localized("provenance", p, MAX_PROVENANCE_LEN)?;
+    }
+    if let Some(themes) = health_theme {
+        validate_health_themes(themes)?;
     }
     Ok(())
 }
@@ -1526,6 +1632,21 @@ mod tests {
             "optional fields should not warn, got {:?}",
             report.warnings
         );
+    }
+
+    #[test]
+    fn health_theme_is_recommended_and_closed() {
+        let mut p = sample_package();
+        p.metadata.health_theme = None;
+        let report = validate_package(&p, Some(&node_catalogs())).unwrap();
+        assert!(
+            report.warnings.iter().any(|w| w.contains("healthTheme")),
+            "{report:?}"
+        );
+
+        p.metadata.health_theme = Some(vec!["https://example.org/GENOMICS".to_owned()]);
+        let err = validate_package(&p, Some(&node_catalogs())).unwrap_err();
+        assert!(format!("{err}").contains("healthTheme"), "{err}");
     }
 
     #[test]
@@ -2117,6 +2238,7 @@ mod tests {
             min_typical_age: None,
             max_typical_age: None,
             provenance: None,
+            health_theme: None,
             contact_point: Some(crate::model::ContactPoint {
                 fn_: Some("Data team".to_owned()),
                 has_email: Some("mailto:data@example.org".to_owned()),
@@ -2468,6 +2590,7 @@ mod tests {
         // absent-EHDS warning; otherwise "warnings is non-empty" proves nothing.
         m.keywords = Some(vec!["genomics".to_owned()]);
         m.number_of_unique_individuals = Some(1200);
+        m.health_theme = Some(vec![HEALTH_THEMES[0].0.to_owned()]);
 
         let report = validate_overlay_result(&m).expect("a note is not a rejection");
         assert!(

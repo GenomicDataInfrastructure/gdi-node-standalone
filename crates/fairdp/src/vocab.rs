@@ -139,6 +139,9 @@ pub(crate) const HEALTHDCATAP_NUMBER_OF_RECORDS: &str =
 /// `healthdcatap:numberOfUniqueIndividuals`.
 pub(crate) const HEALTHDCATAP_NUMBER_OF_UNIQUE_INDIVIDUALS: &str =
     "http://healthdataportal.eu/ns/health#numberOfUniqueIndividuals";
+/// `healthdcatap:healthTheme`.
+pub(crate) const HEALTHDCATAP_HEALTH_THEME: &str =
+    "http://healthdataportal.eu/ns/health#healthTheme";
 /// `healthdcatap:minTypicalAge`.
 pub(crate) const HEALTHDCATAP_MIN_TYPICAL_AGE: &str =
     "http://healthdataportal.eu/ns/health#minTypicalAge";

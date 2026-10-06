@@ -103,6 +103,7 @@ pub fn overlay_change(prior: Option<&MetadataOverlay>, next: &MetadataOverlay) -
         min_typical_age: _,
         max_typical_age: _,
         provenance: _,
+        health_theme: _,
     } = next;
     if prior.title != next.title {
         changed_fields.push("title");
@@ -157,6 +158,9 @@ pub fn overlay_change(prior: Option<&MetadataOverlay>, next: &MetadataOverlay) -
     }
     if prior.provenance != next.provenance {
         changed_fields.push("provenance");
+    }
+    if prior.health_theme != next.health_theme {
+        changed_fields.push("health_theme");
     }
 
     let access_changed = prior.access_rights != next.access_rights;
@@ -501,6 +505,7 @@ mod tests {
                 min_typical_age: None,
                 max_typical_age: None,
                 provenance: None,
+                health_theme: None,
                 contact_point: Some(crate::model::ContactPoint {
                     fn_: Some("Data team".to_owned()),
                     has_email: Some("mailto:data@example.org".to_owned()),
