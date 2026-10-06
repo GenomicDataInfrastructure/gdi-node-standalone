@@ -62,8 +62,8 @@
 #                    It carries the wire-level assertion that exported spans omit query
 #                    content, which exists only under `--features otel`.
 #   harness          load + soak + crash-loop, the host-process harnesses. Each boots
-#                    its own node and builds the release binaries if they are absent, so
-#                    it takes minutes. Needs `oha`, `curl` and python3.
+#                    its own node and rebuilds stale release binaries, so it takes
+#                    minutes. Needs `oha`, `curl` and python3.
 #
 # Build, lint and test legs:
 #   fmt              cargo fmt --all --check

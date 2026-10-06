@@ -18,7 +18,7 @@
 #   SOAK_PACKAGE      package.yaml to build the soaked dataset from (default: COVID fixture)
 #   SOAK_QUERY        path+query appended to the base URL (default: the COVID site below)
 #   SOAK_PROBE_MATCH  string the probe response must contain; required with SOAK_QUERY
-# Uses target/release binaries, building them if absent. Requires oha + python3.
+# Builds the release binaries first unless NODE and TOOL are set. Requires oha + python3.
 #
 # What the default profile does NOT cover. It drives one single-position query at 8
 # clients against a one-variant fixture: a page of one row. `docs/deployment.md`'s
@@ -63,12 +63,9 @@ SOAK_PROBE_MATCH="${SOAK_PROBE_MATCH:-\"alleleCount\":618}"
 command -v oha >/dev/null 2>&1 || { echo "FAIL: oha not found; install it with: cargo install oha --locked" >&2; exit 127; }
 command -v python3 >/dev/null 2>&1 || { echo "FAIL: python3 not found" >&2; exit 127; }
 
-TOOL="${TOOL:-$ROOT/target/release/gdi-dataset-tool}"
-NODE="${NODE:-$ROOT/target/release/gdi-node-standalone}"
-if [ ! -x "$TOOL" ] || [ ! -x "$NODE" ]; then
-  echo "==> building release binaries"
-  cargo build --release --locked --bins -p gdi-node-standalone -p gdi-dataset-tool
-fi
+# shellcheck source=scripts/lib/release-bins.sh
+. "$ROOT/scripts/lib/release-bins.sh"
+release_bins
 
 WORK="$(mktemp -d)"
 # Keep the tool off the developer's own ~/.config/gdi/tool.toml.
