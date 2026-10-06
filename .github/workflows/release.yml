@@ -138,7 +138,7 @@ jobs:
           # prevent cfg-rot; it is just not a released artifact.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -159,7 +159,7 @@ jobs:
       # the SBOM sidecar is the single, uniform mechanism.
       - name: Install cross
         if: matrix.use-cross
-        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with: { tool: cross@0.2.5 }
 
       - name: Build (cross)
@@ -276,19 +276,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
         with: { components: "clippy, rustfmt" }
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
-        with: { tool: nextest@0.9.143 }
-      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with: { tool: nextest@0.9.146 }
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with: { tool: cargo-deny@0.20.2 }
-      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with: { tool: cargo-machete@0.9.2 }
       # Same reason as ci.yml's `supply-chain` job: the leg ends in `pip_audit`, which
       # `need`s `uv`, and the runner image does not ship it. `publish` and `image` both
       # `needs: gate`, so without this step no tag can ever publish anything.
-      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with: { tool: uv }
       - run: ./scripts/ci-local.sh rust supply-chain
       # Attribution-bundle freshness on the release path. THIRD-PARTY-LICENSES.md is
@@ -296,10 +296,11 @@ jobs:
       # in `publish`, COPY'd into the image). The weekly `licenses` job only catches
       # staleness up to 7 days late, so a tag cut after a dep bump could ship a stale
       # bundle; regenerating and diffing here blocks the release
-      # instead. Same pinned cargo-about as scheduled.yml (from source — no prebuilt).
+      # instead. Same pinned cargo-about as scheduled.yml.
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with: { tool: cargo-about@0.9.2 }
       - name: Third-party attribution bundle is up to date (matches Cargo.lock)
         run: |
-          cargo install cargo-about --version 0.9.2 --locked --features cli
           cargo about generate --fail about.hbs -o /tmp/THIRD-PARTY-LICENSES.gen.md
           diff -u THIRD-PARTY-LICENSES.md /tmp/THIRD-PARTY-LICENSES.gen.md \
             || { echo "::error::THIRD-PARTY-LICENSES.md is stale for this release — run 'cargo about generate about.hbs -o THIRD-PARTY-LICENSES.md' and commit before tagging"; exit 1; }
@@ -310,8 +311,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@4360b52568e2003a75bf9bc1d59f33a8e3fc893c # stable
-      - uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         with:
           tool: cargo-cyclonedx@0.5.9
       - name: Generate workspace SBOM
@@ -539,13 +540,13 @@ jobs:
           cp THIRD-PARTY-LICENSES.md LICENSE-APACHE LICENSE-MIT image-ctx/
           cp Dockerfile image-ctx/Dockerfile
       - name: Install Trivy
-        uses: taiki-e/install-action@d438492cf8a250514fa2d34b30bc3c0dc37c65ff # v2.87.8
+        uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
         # Pin the release-gate scanner version so gate behaviour is reproducible and
         # bumped in a reviewed change, matching the pinned cargo-deny, cross and cyclonedx,
         # rather than floating to whatever `latest` resolves at release time. Trivy fetches
         # its vulnerability DB fresh at scan time, so a pinned binary still sees current
         # CVEs. Bump this in step with the scheduled scan (.github/workflows/scheduled.yml).
-        with: { tool: trivy@0.74.0 }
+        with: { tool: trivy@0.75.0 }
       - name: Build image locally + scan OS layer (release-time gate)
         shell: bash
         run: |
