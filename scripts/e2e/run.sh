@@ -113,6 +113,8 @@ cleanup() {
 trap cleanup EXIT
 
 WORK="$(mktemp -d)"
+# Keep the tool off the developer's own ~/.config/gdi/tool.toml.
+export GDI_CONFIG_DIR="$WORK/gdi-config"
 BUILD_OUT="$WORK/build"
 mkdir -p "$BUILD_OUT"
 

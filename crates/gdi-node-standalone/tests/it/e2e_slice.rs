@@ -73,8 +73,15 @@ fn run_build(out: &Path) -> PathBuf {
         .parent()
         .expect("out must have a parent temp dir")
         .join("covid-pkg");
+    // An empty tool.toml loads as the defaults (`--config` needs the file to exist).
+    // Without it the build would read the user's own, whose catalogs allow-list might
+    // reject the fixture's catalog.
+    let config = pkg_dir.with_file_name("tool.toml");
+    std::fs::write(&config, "").unwrap();
     let cli = Cli::try_parse_from([
         "gdi-dataset-tool",
+        "--config",
+        config.to_str().unwrap(),
         "build",
         test_util::write_covid_package(&pkg_dir).to_str().unwrap(),
         "--cc",

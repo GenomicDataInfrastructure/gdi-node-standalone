@@ -5,6 +5,8 @@
 //!
 //! The tests marked "command-driven" drive `cmd_delete::run` / `cmd_publish::run`
 //! directly; the others drive the lower-level `state::*` helpers.
+// Tests that load the tool config pass a path or set `GDI_CONFIG_DIR` to their tempdir,
+// so the user's own `~/.config/gdi/tool.toml` can't leak in.
 
 #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
 
@@ -429,8 +431,11 @@ fn serve_state(body: &str, status: u16) -> String {
 /// The two escape hatches are asserted alongside, so the refusal cannot later be "fixed" by
 /// making the path unusable.
 #[test]
+#[serial_test::serial(env)]
 fn profile_less_inbox_delete_refuses_when_visibility_is_unconfirmable() {
     let tmp = tempfile::tempdir().unwrap();
+    // No --config, as on the command line; the default config dir is an empty tempdir.
+    let _config_dir = test_util::EnvGuard::set("GDI_CONFIG_DIR", tmp.path().join("cfg"));
     let inbox = tmp.path().join("inbox");
     fs::create_dir_all(&inbox).unwrap();
 
@@ -477,8 +482,11 @@ fn profile_less_inbox_delete_refuses_when_visibility_is_unconfirmable() {
 /// check entirely — that is, the safe path would be unreachable and every operator pushed
 /// onto the unsafe one.
 #[test]
+#[serial_test::serial(env)]
 fn profile_less_inbox_delete_can_reach_an_oracle_via_management_url() {
     let tmp = tempfile::tempdir().unwrap();
+    // No --config, as on the command line; the default config dir is an empty tempdir.
+    let _config_dir = test_util::EnvGuard::set("GDI_CONFIG_DIR", tmp.path().join("cfg"));
     let inbox = tmp.path().join("inbox");
     fs::create_dir_all(&inbox).unwrap();
 
