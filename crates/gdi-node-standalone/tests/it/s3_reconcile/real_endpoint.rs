@@ -16,7 +16,7 @@ use super::*;
 /// ```text
 /// docker run -d --name minio -p 19000:9000 \
 ///   -e MINIO_ROOT_USER=minioadmin -e MINIO_ROOT_PASSWORD=minioadmin \
-///   minio/minio server /data
+///   pgsty/silo:RELEASE.2026-09-16T00-00-00Z server /data
 /// # (create the bucket, e.g. via mc: `mc mb local/gdi-test`)
 /// GDI_TEST_S3_ENDPOINT=http://127.0.0.1:19000 \
 /// GDI_TEST_S3_BUCKET=gdi-test \
