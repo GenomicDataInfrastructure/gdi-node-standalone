@@ -18,9 +18,7 @@ use std::path::Path;
 
 use gdi_node_standalone_core::{
     extract::{ExtractBounds, check_staging_dir},
-    model::{
-        Manifest, PackageConfig, PackageFileEntry, PackageFileGroup, PackageMetadata, PackageYaml,
-    },
+    model::{Manifest, PackageConfig, PackageFileEntry, PackageFileGroup, PackageYaml},
     validate_parquet::{ParquetCaps, check_data_file_block_range, validate_parquet_dir},
     validate_pkg::validate_package_collect_all,
 };
@@ -371,29 +369,9 @@ fn load_catalogs(
 /// count.
 fn manifest_to_package(m: &Manifest) -> PackageYaml {
     let md = &m.metadata;
-    let metadata = PackageMetadata {
-        // The manifest has a generated datasetId, not prefix/org; the gates here
-        // do not look at prefix/org (those are checked at build), so leave them
-        // empty.
-        prefix: None,
-        org: None,
-        catalog: md.catalog.clone(),
-        title: md.title.clone(),
-        description: md.description.clone(),
-        access_rights: md.access_rights.clone(),
-        applicable_legislation: md.applicable_legislation.clone(),
-        license: md.license.clone(),
-        creator: md.creator.clone(),
-        health_category: md.health_category.clone(),
-        keywords: md.keywords.clone(),
-        number_of_unique_individuals: md.number_of_unique_individuals,
-        conforms_to: md.conforms_to.clone(),
-        type_: md.type_.clone(),
-        legal_basis: md.legal_basis.clone(),
-        is_referenced_by: md.is_referenced_by.clone(),
-        other_identifier: md.other_identifier.clone(),
-        contact_point: md.contact_point.clone(),
-    };
+    // The manifest has a generated datasetId, not prefix/org; the gates here do not look
+    // at prefix/org (those are checked at build), so the shared view leaves them empty.
+    let metadata = md.as_package_metadata();
 
     let files = m
         .files

@@ -72,9 +72,18 @@ pub struct PackageMetadata {
     /// Secondary identifiers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other_identifier: Option<Vec<OtherIdentifier>>,
-    /// Dataset-level contact point.
+    /// Who to write to about the dataset (required; checked by the validator).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_point: Option<ContactPoint>,
+    /// Typical age of the youngest people in the dataset, in years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_typical_age: Option<u32>,
+    /// Typical age of the oldest people in the dataset, in years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_typical_age: Option<u32>,
+    /// How the data was produced (plain string or language map).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<LocalizedText>,
 }
 
 /// The `config` section of a `package.yaml`.

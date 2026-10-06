@@ -1503,6 +1503,9 @@ fn build_manifest(
         legal_basis: m.legal_basis.clone(),
         is_referenced_by: m.is_referenced_by.clone(),
         other_identifier: m.other_identifier.clone(),
+        min_typical_age: m.min_typical_age,
+        max_typical_age: m.max_typical_age,
+        provenance: m.provenance.clone(),
         contact_point: m.contact_point.clone(),
         // FDP-facing: consumed by the FAIR Data Point layer and external harvesters. The
         // beacon query path counts variant groups directly from Parquet and does not read
@@ -1597,6 +1600,102 @@ fn now_unix_millis() -> Result<u64, ToolError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `build_manifest` names every metadata field, but naming one is not copying it: a
+    /// field written there as `None` drops the provider's answer from every manifest, and
+    /// the build still succeeds. Every key the package carries must reach the manifest.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
+    fn every_package_metadata_field_reaches_the_manifest() {
+        let yaml = r#"
+metadata:
+  prefix: "GDI"
+  org: "UTARTU"
+  catalog: "gdi-aggregated"
+  title: "T"
+  description: "D"
+  accessRights: "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+  applicableLegislation: ["http://data.europa.eu/eli/reg/2025/327/oj"]
+  license: "https://creativecommons.org/licenses/by/4.0/"
+  creator: [{name: "C"}]
+  healthCategory: ["http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"]
+  keywords: ["k"]
+  numberOfUniqueIndividuals: 7
+  conformsTo: ["http://data.gdi.eu/core/p2/ExternallyGoverned"]
+  type: ["https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA"]
+  legalBasis: ["https://w3id.org/dpv#Consent"]
+  isReferencedBy: ["https://doi.org/10.1234/example"]
+  otherIdentifier: [{notation: "N"}]
+  contactPoint: {fn: "Data team", hasEmail: "mailto:data@example.org"}
+  minTypicalAge: 18
+  maxTypicalAge: 90
+  provenance: "P"
+config:
+  mode: aggregated
+"#;
+        let package: PackageYaml = serde_saphyr::from_str(yaml).unwrap();
+        // Anti-vacuity: a field the fixture leaves unset is never compared below, and the
+        // destructure makes a field added later a compile error here until it is set.
+        let gdi_node_standalone_core::model::PackageMetadata {
+            prefix: _,
+            org: _,
+            catalog: _,
+            title: _,
+            description,
+            access_rights: _,
+            applicable_legislation: _,
+            license: _,
+            creator: _,
+            health_category: _,
+            keywords,
+            number_of_unique_individuals,
+            conforms_to,
+            type_,
+            legal_basis,
+            is_referenced_by,
+            other_identifier,
+            contact_point,
+            min_typical_age,
+            max_typical_age,
+            provenance,
+        } = &package.metadata;
+        assert!(
+            description.is_some()
+                && keywords.is_some()
+                && number_of_unique_individuals.is_some()
+                && conforms_to.is_some()
+                && type_.is_some()
+                && legal_basis.is_some()
+                && is_referenced_by.is_some()
+                && other_identifier.is_some()
+                && contact_point.is_some()
+                && min_typical_age.is_some()
+                && max_typical_age.is_some()
+                && provenance.is_some(),
+            "the fixture must set every optional field"
+        );
+
+        let manifest = build_manifest(
+            &package,
+            "GDI-EE-UTARTU-20260409143052837",
+            1,
+            "GRCh38",
+            Vec::new(),
+            HeaderPolicy::Minimal,
+        );
+        let given = serde_json::to_value(&package.metadata).unwrap();
+        let built = serde_json::to_value(&manifest.metadata).unwrap();
+        for (key, value) in given.as_object().unwrap() {
+            if key == "prefix" || key == "org" {
+                continue;
+            }
+            assert_eq!(
+                built.get(key),
+                Some(value),
+                "{key} did not reach the manifest"
+            );
+        }
+    }
 
     /// `build`'s diagnostic sink renders the message as untrusted text: the ignored-INFO
     /// diagnostic quotes raw VCF header ids, and `preview` already wrapped the same field.

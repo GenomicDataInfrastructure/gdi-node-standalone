@@ -100,15 +100,12 @@ impl GraphBuilder {
         }
     }
 
-    /// `subject predicate "n"^^datatype` for a non-negative integer value.
-    fn add_typed_u64(
-        &mut self,
-        subject: NamedOrBlankNode,
-        predicate: &str,
-        n: u64,
-        datatype: &str,
-    ) {
-        self.add_typed(subject, predicate, &n.to_string(), datatype);
+    /// `subject predicate "n"^^xsd:nonNegativeInteger`, when there is a value.
+    fn add_non_negative(&mut self, subject: &NamedOrBlankNode, predicate: &str, n: Option<u64>) {
+        if let Some(n) = n {
+            let datatype = vocab::XSD_NON_NEGATIVE_INTEGER;
+            self.add_typed(subject.clone(), predicate, &n.to_string(), datatype);
+        }
     }
 
     /// `subject predicate "value"` (plain string literal, no datatype/lang).
@@ -220,25 +217,9 @@ fn add_dataset_field(
         MetaField::HealthCategory => b.add_iris(subj, m.predicate, &meta.health_category),
         MetaField::Keyword => b.add_strings(subj, m.predicate, meta.keywords.iter().flatten()),
         MetaField::NumberOfUniqueIndividuals => {
-            if let Some(n) = meta.number_of_unique_individuals {
-                b.add_typed_u64(
-                    subj.clone(),
-                    m.predicate,
-                    n,
-                    vocab::XSD_NON_NEGATIVE_INTEGER,
-                );
-            }
+            b.add_non_negative(subj, m.predicate, meta.number_of_unique_individuals);
         }
-        MetaField::NumberOfRecords => {
-            if let Some(n) = meta.number_of_records {
-                b.add_typed_u64(
-                    subj.clone(),
-                    m.predicate,
-                    n,
-                    vocab::XSD_NON_NEGATIVE_INTEGER,
-                );
-            }
-        }
+        MetaField::NumberOfRecords => b.add_non_negative(subj, m.predicate, meta.number_of_records),
         MetaField::ConformsTo => b.add_iris(subj, m.predicate, meta.conforms_to.iter().flatten()),
         MetaField::Type => b.add_iris(subj, m.predicate, meta.type_.iter().flatten()),
         MetaField::LegalBasis => b.add_iris(subj, m.predicate, meta.legal_basis.iter().flatten()),
@@ -253,6 +234,18 @@ fn add_dataset_field(
         MetaField::ContactPoint => {
             if let Some(cp) = &meta.contact_point {
                 add_contact_point(b, subj, m.predicate, cp);
+            }
+        }
+        MetaField::MinTypicalAge => {
+            b.add_non_negative(subj, m.predicate, meta.min_typical_age.map(u64::from));
+        }
+        MetaField::MaxTypicalAge => {
+            b.add_non_negative(subj, m.predicate, meta.max_typical_age.map(u64::from));
+        }
+        MetaField::Provenance => {
+            if let Some(text) = &meta.provenance {
+                let node = b.add_blank_node(subj, m.predicate, vocab::DCT_PROVENANCE_STATEMENT);
+                b.add_localized(node, vocab::RDFS_LABEL, text);
             }
         }
         MetaField::Theme => b.add_iris(subj, m.predicate, &ctx.fairdp.theme),
@@ -368,6 +361,9 @@ pub fn distribution_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
     // The same fact as a format, the predicate that facet labels from (see
     // `vocab::EU_FILE_TYPE_JSON`). DCAT-AP 3 recommends emitting the pair.
     b.add_iri(subj.clone(), vocab::DCT_FORMAT, vocab::EU_FILE_TYPE_JSON);
+
+    // The same languages as the dataset record.
+    b.add_iris(&subj, vocab::DCT_LANGUAGE, &ctx.fairdp.language);
 
     // Inherited from the parent dataset's own per-dataset values.
     for iri in &entry.metadata.applicable_legislation {

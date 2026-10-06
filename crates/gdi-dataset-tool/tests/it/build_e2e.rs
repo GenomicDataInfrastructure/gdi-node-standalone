@@ -175,7 +175,7 @@ fn parallel_build_matches_sequential_build() {
 }
 
 /// Minimal required metadata lines for a package.yaml (all non-optional fields
-/// plus `description` which is validated as mandatory by `validate_package`).
+/// plus `description` and `contactPoint`, which `validate_package` requires).
 const MIN_META: &str = "\
 metadata:
   prefix: \"GDI\"
@@ -189,6 +189,9 @@ metadata:
   license: \"https://creativecommons.org/licenses/by/4.0/\"
   creator:
     - name: \"Test\"
+  contactPoint:
+    fn: \"Data access team\"
+    hasEmail: \"mailto:data@example.org\"
   healthCategory:
     - \"http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic\"";
 
@@ -800,6 +803,9 @@ metadata:
   license: \"https://creativecommons.org/licenses/by/4.0/\"
   creator:
     - name: \"Test\"
+  contactPoint:
+    fn: \"Data access team\"
+    hasEmail: \"mailto:data@example.org\"
   healthCategory:
     - \"http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic\"
   keywords:

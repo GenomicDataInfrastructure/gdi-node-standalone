@@ -6,7 +6,9 @@
 //! wizard's checks never drift from the build/validate gate.
 
 use gdi_node_standalone_core::chrom::is_known_assembly;
-use gdi_node_standalone_core::validate_pkg::{ACCESS_RIGHTS, validate_email, validate_iri};
+use gdi_node_standalone_core::validate_pkg::{
+    ACCESS_RIGHTS, MAX_TYPICAL_AGE, validate_email, validate_iri, validate_url,
+};
 
 /// The assembly labels the build/validate path accepts (case-sensitive) — re-exported
 /// from `core::chrom`, the single source.
@@ -148,6 +150,30 @@ pub fn resolve_email(s: &str) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+/// Resolve a contact e-mail typed with or without `mailto:` to the bare address, checked
+/// as the `mailto:` IRI the package carries.
+///
+/// # Errors
+/// `Err(message)` when `mailto:<address>` is not a valid `mailto:` email.
+pub fn resolve_contact_email(s: &str) -> Result<String, String> {
+    let t = s.trim();
+    let address = t.strip_prefix("mailto:").unwrap_or(t);
+    validate_email("contact e-mail", &format!("mailto:{address}"))
+        .map(|()| address.to_owned())
+        .map_err(|e| e.to_string())
+}
+
+/// Resolve + validate a web address via the core validator.
+///
+/// # Errors
+/// `Err(message)` when the value is not an allowed URL.
+pub fn resolve_url(field: &str, s: &str) -> Result<String, String> {
+    let t = s.trim();
+    validate_url(field, t)
+        .map(|()| t.to_owned())
+        .map_err(|e| e.to_string())
+}
+
 /// Resolve + validate an IRI field via the core validator.
 ///
 /// # Errors
@@ -280,6 +306,57 @@ pub fn resolve_org(s: &str) -> Result<String, String> {
     }
 }
 
+/// Resolve a typical age in years, at most `core`'s [`MAX_TYPICAL_AGE`].
+///
+/// # Errors
+/// `Err(message)` when the value is not a whole number up to the cap.
+pub fn resolve_typical_age(field: &str, s: &str) -> Result<u32, String> {
+    s.trim()
+        .parse::<u32>()
+        .ok()
+        .filter(|age| *age <= MAX_TYPICAL_AGE)
+        .ok_or_else(|| {
+            format!("{field} must be a whole number of years, at most {MAX_TYPICAL_AGE}")
+        })
+}
+
+/// Resolve a typical age range typed as `18-90`, or `18+` for a lower bound only, to
+/// `(minTypicalAge, maxTypicalAge)`.
+///
+/// # Errors
+/// `Err(message)` when the answer is neither shape, an age is out of range, or the
+/// youngest is above the oldest.
+pub fn resolve_age_range(s: &str) -> Result<(u32, Option<u32>), String> {
+    let t = s.trim();
+    if let Some(min) = t.strip_suffix('+') {
+        return Ok((resolve_typical_age("the youngest age", min)?, None));
+    }
+    let Some((min, max)) = t.split_once('-') else {
+        return Err("give the range as youngest-oldest, e.g. 18-90, or 18+".to_owned());
+    };
+    let min = resolve_typical_age("the youngest age", min)?;
+    let max = resolve_typical_age("the oldest age", max)?;
+    if min > max {
+        return Err("the youngest age must not be above the oldest".to_owned());
+    }
+    Ok((min, Some(max)))
+}
+
+/// Resolve a publication reference: an IRI, or a bare DOI (`10.…`) made into its
+/// `https://doi.org/` link.
+///
+/// # Errors
+/// `Err(message)` when the result is not a valid IRI.
+pub fn resolve_reference(s: &str) -> Result<String, String> {
+    let t = s.trim();
+    let iri = if t.starts_with("10.") {
+        format!("https://doi.org/{t}")
+    } else {
+        t.to_owned()
+    };
+    resolve_iri("isReferencedBy", &iri)
+}
+
 /// Resolve a non-negative integer field.
 ///
 /// # Errors
@@ -294,6 +371,20 @@ pub fn resolve_u64(field: &str, s: &str) -> Result<u64, String> {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
     use super::*;
+
+    #[test]
+    fn age_ranges_and_references_resolve() {
+        assert_eq!(resolve_age_range("18-90"), Ok((18, Some(90))));
+        assert_eq!(resolve_age_range(" 18+ "), Ok((18, None)));
+        for bad in ["90-18", "18", "18-200", "adults"] {
+            assert!(resolve_age_range(bad).is_err(), "{bad}");
+        }
+        assert_eq!(
+            resolve_reference("10.1234/abc").as_deref(),
+            Ok("https://doi.org/10.1234/abc")
+        );
+        assert!(resolve_reference("not a reference").is_err());
+    }
 
     #[test]
     fn the_default_prefix_is_one_the_wizard_offers() {

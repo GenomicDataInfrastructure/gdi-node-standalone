@@ -13,7 +13,7 @@
 //! * **Recommended** top-level field missing (`keywords`,
 //!   `numberOfUniqueIndividuals`) -> a warning naming the field, build still ok. These
 //!   describe the dataset, so `build --strict` fails on them.
-//! * **Recommended** sub-field of a present optional parent
+//! * **Recommended** sub-field of a present parent
 //!   (`contactPoint.hasURL`, `otherIdentifier.schemaAgency`) -> a note. Failing a strict
 //!   build on a cosmetic nit teaches providers to drop `--strict`, which is the flag that
 //!   catches the losses that matter.
@@ -70,6 +70,10 @@ const MAX_INTERNAL_ID_LEN: usize = 64;
 pub const MAX_TITLE_LEN: usize = 255;
 /// `description` per-language-value cap.
 pub const MAX_DESCRIPTION_LEN: usize = 10_000;
+/// `provenance` per-language-value cap: the same free-text room as `description`.
+pub const MAX_PROVENANCE_LEN: usize = MAX_DESCRIPTION_LEN;
+/// `minTypicalAge` / `maxTypicalAge` cap, in years.
+pub const MAX_TYPICAL_AGE: u32 = 150;
 /// Maximum language entries in a localized field.
 const MAX_LOCALIZED_ENTRIES: usize = 24;
 /// `keyword` (each) cap.
@@ -81,7 +85,7 @@ pub const MAX_CREATOR_NAME_LEN: usize = 255;
 /// `creator` count cap.
 const MAX_CREATORS_COUNT: usize = 64;
 /// `contactPoint fn` cap.
-const MAX_CONTACT_FN_LEN: usize = 255;
+pub const MAX_CONTACT_FN_LEN: usize = 255;
 /// `email` cap (RFC 5321).
 pub const MAX_EMAIL_LEN: usize = 254;
 /// URL cap (`hasURL`, `afSourceReference`, ...).
@@ -425,6 +429,13 @@ fn validate_core_metadata(m: &PackageMetadata, warnings: &mut Vec<String>) -> Co
         validate_health_category(iri)?;
     }
 
+    // Its fields are checked with the optional ones, which collect the `hasURL` note.
+    if m.contact_point.is_none() {
+        return Err(invalid(
+            "contactPoint is mandatory: a name (fn) and a mailto: e-mail (hasEmail)",
+        ));
+    }
+
     Ok(())
 }
 
@@ -446,9 +457,9 @@ fn validate_recommended(m: &PackageMetadata, warnings: &mut Vec<String>) -> Core
 }
 
 /// Validate the optional metadata fields (validated when present, silent when
-/// absent).
+/// absent), and the fields of the mandatory `contactPoint`.
 ///
-/// A recommended sub-field of a present optional parent (`contactPoint.hasURL`,
+/// A recommended sub-field of a present parent (`contactPoint.hasURL`,
 /// `otherIdentifier.schemaAgency`) is an advisory and lands in `notes`, not `warnings`.
 /// See the module docs for the tier split.
 fn validate_optional_metadata(m: &PackageMetadata, notes: &mut Vec<String>) -> CoreResult<()> {
@@ -472,6 +483,28 @@ fn validate_optional_metadata(m: &PackageMetadata, notes: &mut Vec<String>) -> C
     }
     if let Some(cp) = &m.contact_point {
         validate_contact_point(cp, notes)?;
+    }
+    validate_typical_ages(m.min_typical_age, m.max_typical_age)?;
+    if let Some(provenance) = &m.provenance {
+        validate_localized("provenance", provenance, MAX_PROVENANCE_LEN)?;
+    }
+    Ok(())
+}
+
+/// Validate `minTypicalAge` / `maxTypicalAge`: each at most [`MAX_TYPICAL_AGE`], and the
+/// minimum not above the maximum when both are given.
+fn validate_typical_ages(min: Option<u32>, max: Option<u32>) -> CoreResult<()> {
+    for (field, age) in [("minTypicalAge", min), ("maxTypicalAge", max)] {
+        if age.is_some_and(|a| a > MAX_TYPICAL_AGE) {
+            return Err(invalid(&format!(
+                "{field} must be at most {MAX_TYPICAL_AGE} years"
+            )));
+        }
+    }
+    if let (Some(min), Some(max)) = (min, max)
+        && min > max
+    {
+        return Err(invalid("minTypicalAge must not be above maxTypicalAge"));
     }
     Ok(())
 }
@@ -995,13 +1028,11 @@ fn validate_other_identifiers(
     Ok(())
 }
 
-/// Validate the dataset-level `contactPoint` (mandatory `fn`/`hasEmail` when
-/// present; recommended `hasURL` sub-field advisory, pushed onto `notes`).
+/// Validate the dataset-level `contactPoint` (mandatory `fn`/`hasEmail`; recommended
+/// `hasURL` sub-field advisory, pushed onto `notes`).
 fn validate_contact_point(cp: &ContactPoint, notes: &mut Vec<String>) -> CoreResult<()> {
     let Some(fn_) = &cp.fn_ else {
-        return Err(invalid(
-            "contactPoint.fn is required when contactPoint is present",
-        ));
+        return Err(invalid("contactPoint.fn is required"));
     };
     if fn_.is_empty() {
         return Err(invalid("contactPoint.fn must not be empty"));
@@ -1009,9 +1040,7 @@ fn validate_contact_point(cp: &ContactPoint, notes: &mut Vec<String>) -> CoreRes
     check_max_chars("contactPoint.fn", fn_, MAX_CONTACT_FN_LEN)?;
 
     let Some(email) = &cp.has_email else {
-        return Err(invalid(
-            "contactPoint.hasEmail is required when contactPoint is present",
-        ));
+        return Err(invalid("contactPoint.hasEmail is required"));
     };
     validate_email("contactPoint.hasEmail", email)?;
 
@@ -1140,6 +1169,9 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
         is_referenced_by,
         other_identifier,
         contact_point,
+        min_typical_age,
+        max_typical_age,
+        provenance,
     } = patch;
 
     if let Some(t) = title {
@@ -1216,6 +1248,12 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
     }
     if let Some(cp) = contact_point {
         validate_contact_point(cp, &mut notes)?;
+    }
+    // Each age alone here; against the other only once merged, in `validate_overlay_result`.
+    validate_typical_ages(*min_typical_age, None)?;
+    validate_typical_ages(None, *max_typical_age)?;
+    if let Some(p) = provenance {
+        validate_localized("provenance", p, MAX_PROVENANCE_LEN)?;
     }
     Ok(())
 }
@@ -1479,13 +1517,46 @@ mod tests {
         p.metadata.legal_basis = None;
         p.metadata.is_referenced_by = None;
         p.metadata.other_identifier = None;
-        p.metadata.contact_point = None;
+        p.metadata.min_typical_age = None;
+        p.metadata.max_typical_age = None;
+        p.metadata.provenance = None;
         let report = validate_package(&p, Some(&node_catalogs())).unwrap();
         assert!(
             report.warnings.is_empty(),
             "optional fields should not warn, got {:?}",
             report.warnings
         );
+    }
+
+    #[test]
+    fn missing_contact_point_rejected() {
+        let mut p = sample_package();
+        p.metadata.contact_point = None;
+        let err = validate_package(&p, Some(&node_catalogs())).unwrap_err();
+        assert_eq!(err.class(), ErrorClass::InvalidManifest);
+        assert!(format!("{err}").contains("contactPoint"), "{err}");
+    }
+
+    #[test]
+    fn typical_ages_are_bounded_and_ordered() {
+        let mut p = sample_package();
+        p.metadata.min_typical_age = Some(18);
+        p.metadata.max_typical_age = Some(90);
+        validate_package(&p, Some(&node_catalogs())).unwrap();
+
+        for (min, max, field) in [
+            (Some(90), Some(18), "minTypicalAge must not be above"),
+            (
+                None,
+                Some(MAX_TYPICAL_AGE + 1),
+                "maxTypicalAge must be at most",
+            ),
+        ] {
+            p.metadata.min_typical_age = min;
+            p.metadata.max_typical_age = max;
+            let err = validate_package(&p, Some(&node_catalogs())).unwrap_err();
+            assert!(format!("{err}").contains(field), "{err}");
+        }
     }
 
     #[test]
@@ -2043,7 +2114,14 @@ mod tests {
             legal_basis: None,
             is_referenced_by: None,
             other_identifier: None,
-            contact_point: None,
+            min_typical_age: None,
+            max_typical_age: None,
+            provenance: None,
+            contact_point: Some(crate::model::ContactPoint {
+                fn_: Some("Data team".to_owned()),
+                has_email: Some("mailto:data@example.org".to_owned()),
+                has_url: None,
+            }),
             number_of_records: Some(1),
             populations: None,
         }
@@ -2374,7 +2452,7 @@ mod tests {
     }
 
     /// A note must not be delivered as a warning. The node logs warnings at `warn`, so
-    /// merging the two classes would put a "your optional contactPoint has no recommended
+    /// merging the two classes would put a "your contactPoint has no recommended
     /// hasURL" line in front of an operator once per dataset per ingest. This pins the same
     /// split [`validate_package`] keeps, on the overlay/ingest entry point.
     #[test]

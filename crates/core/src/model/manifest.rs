@@ -168,9 +168,21 @@ pub struct ManifestMetadata {
     /// Secondary identifiers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other_identifier: Option<Vec<OtherIdentifier>>,
-    /// Dataset-level contact point.
+    /// Who to write to about the dataset. Required.
+    // Not a doc comment: `Option` in Rust but required on the wire, for the same reason as
+    // `description` above.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "schema", schemars(required))]
     pub contact_point: Option<ContactPoint>,
+    /// Typical age of the youngest people in the dataset, in years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_typical_age: Option<u32>,
+    /// Typical age of the oldest people in the dataset, in years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_typical_age: Option<u32>,
+    /// How the data was produced (plain string or language map).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<LocalizedText>,
     /// Computed: distinct `(chromosome, POS, REF, ALT)` variants the dataset serves.
     ///
     /// Optional in this schema, but required by the node at ingest. It is served verbatim

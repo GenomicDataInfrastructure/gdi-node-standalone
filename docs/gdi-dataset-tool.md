@@ -346,6 +346,7 @@ URLs, inbox, node recipient, S3 bucket, catalog allow-list, all switched togethe
 | `catalogs` | `build`, `validate`, `catalogs`, `doctor`. A table, not a list: `[profiles.<name>.catalogs]` maps each catalog name to its display title (`gdi-aggregated = "Genome of Europe Aggregated Data"`). The keys are the offline allow-list, enforcing `metadata.catalog` membership when non-empty and structural-only when empty. The titles are cosmetic; the node re-validates at ingest. |
 | `s3` | `upload`, `download`, `list`, and the S3-channel lifecycle. Omit the block for an inbox-only node. |
 | `org` | The wizard's Author stage and `profiles`. The institute abbreviation minted into every dataset id built under this profile: the `<ORG>` of `GDI-<CC>-<ORG>-…`, 1–16 uppercase ASCII letters. A fact about the provider, like `country_code`. `wizard setup` asks for it once, and with it set the wizard never asks per dataset. `build` still reads `metadata.org` from `package.yaml`. |
+| `contact_point` | The wizard's Author stage. The dataset contact point offered for every new dataset, `{ name, email, url? }` with the e-mail written without `mailto:`. The wizard asks for a contact point and offers to store the answer here. `build` reads `metadata.contactPoint` from `package.yaml`. |
 | `keyless` | `pack`, `package`, `deploy`, `doctor`, and the wizard. Declares that the target node runs with no crypt4gh identity, so nothing is encrypted to it and `deploy` ships the `build` staging directory itself. With it set, `doctor` stops asking for a node recipient and the wizard skips `pack`. Type: bool. Default `false`. |
 | `header_policy` | `build`, `package`, and the wizard's Build stage. What the packaged `headers/{vcfId}.vcf` members contain when no `--header-policy` or `--no-headers` flag is given: `minimal` (the built-in default), `with-identifiers`, or `none`. A flag always wins over the profile. `verbatim` is not accepted in a profile; it stays a per-invocation flag. The node drops these members at ingest (see [package format](package-format.md)). |
 
@@ -473,6 +474,12 @@ metadata:
   creator:                      # publisher/hdab live in the node's [fairdp] config, not here
     - name: "Genome of Europe - EE node"
 
+  # --- Contact point (REQUIRED) ---
+  contactPoint:                 # who to write to about the dataset: prefer a team mailbox
+    fn: "Data access team"
+    hasEmail: "mailto:data@example.org"
+    hasURL: "https://example.org"  # optional
+
   # --- Health-specific (REQUIRED, >= 1) ---
   healthCategory:
     - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
@@ -496,14 +503,13 @@ metadata:
     - notation: "DOI-12345"      # required within the identifier
       schemaAgency: "DataCite"   # recommended
       name: "Example identifier" # optional
-  contactPoint:                  # dataset-level contact (fn + hasEmail required when present)
-    fn: "Data team"
-    hasEmail: "mailto:data@example.org"
-    hasURL: "https://example.org"
+  minTypicalAge: 18             # typical age range of the people, in years
+  maxTypicalAge: 90
+  provenance: "Whole-genome sequencing, joint variant calling, allele counts per population."
 ```
 
-Cardinality follows the grouping comments above: Core identity, Access/rights, Agents and
-Health-specific are required, then recommended, then optional. A few shapes the comments
+Cardinality follows the grouping comments above: Core identity, Access/rights, Agents,
+Contact point and Health-specific are required, then recommended, then optional. A few shapes the comments
 do not spell out. `title` and `description` accept a plain string or a language map.
 `accessRights` is an authority IRI (`PUBLIC`, `RESTRICTED` or `NON_PUBLIC`). Each
 `otherIdentifier` entry is `{notation, schemaAgency?, name?}`. `catalog` is enforced

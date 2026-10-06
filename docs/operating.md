@@ -1601,7 +1601,8 @@ Every field of the public `metadata` section is patchable except four protected 
 All other public metadata fields are editable, including: `title`, `description`,
 `accessRights`, `applicableLegislation`, `license`, `creator`, `healthCategory`,
 `keywords`, `numberOfUniqueIndividuals`, `conformsTo`, `type`, `legalBasis`,
-`isReferencedBy`, `otherIdentifier`, `contactPoint`.
+`isReferencedBy`, `otherIdentifier`, `contactPoint`, `minTypicalAge`, `maxTypicalAge`,
+`provenance`.
 
 A sidecar containing a protected field name or an unrecognised key is invalid and ignored
 in its entirety; the parser rejects it with `deny_unknown_fields`. Check the logs for the

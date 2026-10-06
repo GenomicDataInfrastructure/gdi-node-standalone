@@ -66,6 +66,9 @@ fn covid_entry() -> DatasetEntry {
             schema_agency: Some("DataCite".to_owned()),
             name: Some("Example identifier".to_owned()),
         }]),
+        min_typical_age: None,
+        max_typical_age: None,
+        provenance: None,
         contact_point: Some(ContactPoint {
             fn_: Some("Data team".to_owned()),
             has_email: Some("mailto:data@example.org".to_owned()),

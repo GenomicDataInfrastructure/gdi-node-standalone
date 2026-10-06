@@ -35,6 +35,9 @@ service_url = "REPLACE: https://node.example"
 # The institute abbreviation minted into every dataset id (the ORG in GDI-EE-<ORG>-...);
 # `wizard setup` asks for it once, and the wizard's authoring stage then never does.
 # org = "REPLACE: UTARTU"
+# Who to write to about each new dataset (a team mailbox); the wizard asks for it and
+# offers to store it here.
+# contact_point = { name = "REPLACE: Data access team", email = "REPLACE: data@example.org" }
 # The node's management-plane base URL (state oracle for deploy/status); optional.
 # management_url = "REPLACE: https://node.example:9090"
 # Local inbox directory of a co-located node (the `deploy` drop target); optional.
@@ -199,7 +202,7 @@ mod tests {
     #[test]
     fn template_documents_every_profile_field() {
         use gdi_node_standalone_core::config::{
-            Profile, ProfileHeaderPolicy, ProfileS3, ToolConfig,
+            Profile, ProfileContactPoint, ProfileHeaderPolicy, ProfileS3, ToolConfig,
         };
         use std::collections::BTreeSet;
 
@@ -226,6 +229,11 @@ mod tests {
         let full = Profile {
             service_url: Some("x".to_owned()),
             org: Some("x".to_owned()),
+            contact_point: Some(ProfileContactPoint {
+                name: "x".to_owned(),
+                email: "x".to_owned(),
+                url: Some("x".to_owned()),
+            }),
             management_url: Some("x".to_owned()),
             inbox: Some("x".to_owned()),
             node_recipient_url: Some("x".to_owned()),

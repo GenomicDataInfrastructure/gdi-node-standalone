@@ -124,6 +124,12 @@ fn enriched_manifest(id: &str, catalog: &str, number_of_records: u64) -> Manifes
                 schema_agency: Some("DataCite".to_owned()),
                 name: Some("Example identifier".to_owned()),
             }]),
+            min_typical_age: Some(18),
+            max_typical_age: Some(90),
+            provenance: Some(LocalizedText::Plain(
+                "Whole-genome sequencing, joint variant calling, allele counts per population."
+                    .to_owned(),
+            )),
             contact_point: Some(ContactPoint {
                 fn_: Some("Data team".to_owned()),
                 has_email: Some("mailto:data@example.org".to_owned()),
@@ -153,8 +159,9 @@ fn enriched_manifest(id: &str, catalog: &str, number_of_records: u64) -> Manifes
 
 /// A minimal manifest: every optional and recommended field stripped to the mandatory core.
 ///
-/// `description` stays. The gdi-metadata `DatasetShape` mandates `dct:description` with
-/// `sh:minCount 1`, so it is part of the mandatory core rather than an optional field.
+/// `description` and `contactPoint` stay. The gdi-metadata `DatasetShape` mandates
+/// `dct:description` with `sh:minCount 1`, and the node requires a contact point, so both
+/// are part of the mandatory core rather than optional fields.
 fn minimal_manifest(id: &str, catalog: &str, number_of_records: u64) -> Manifest {
     let mut m = enriched_manifest(id, catalog, number_of_records);
     m.metadata.title = LocalizedText::Plain("Minimal aggregated AFs".to_owned());
@@ -168,7 +175,9 @@ fn minimal_manifest(id: &str, catalog: &str, number_of_records: u64) -> Manifest
     m.metadata.legal_basis = None;
     m.metadata.is_referenced_by = None;
     m.metadata.other_identifier = None;
-    m.metadata.contact_point = None;
+    m.metadata.min_typical_age = None;
+    m.metadata.max_typical_age = None;
+    m.metadata.provenance = None;
     m
 }
 

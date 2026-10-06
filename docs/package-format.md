@@ -127,6 +127,7 @@ The package's first member. Serialized `camelCase`. Top level:
 | `license` | IRI string | yes | Reuse license IRI. |
 | `creator` | `[{name}]` (≥ 1) | yes | Creating agents. |
 | `healthCategory` | IRI array (≥ 1) | yes | GDI health-category IRIs. |
+| `contactPoint` | `{fn, hasEmail, hasURL?}` | yes | Who to write to about the dataset: a name and a `mailto:` e-mail, and optionally a web page. |
 | `keywords` | string array | no | Discovery tags. |
 | `numberOfUniqueIndividuals` | uint | no | Distinct sequenced subjects. |
 | `conformsTo` | IRI array | no | GDI standards-compliance IRIs, a closed set: `ExternallyGoverned`, `1MGCompliant` and `1MGCohort` under `http://data.gdi.eu/core/p2/`. Any other value is rejected. |
@@ -134,7 +135,8 @@ The package's first member. Serialized `camelCase`. Top level:
 | `legalBasis` | IRI array | no | DPV legal-basis IRIs. GDI requires one for `NON_PUBLIC` data: without it the tool and the node warn. |
 | `isReferencedBy` | IRI array | no | Publication DOI IRIs. |
 | `otherIdentifier` | `[{notation, schemaAgency?, name?}]` | no | Secondary identifiers. |
-| `contactPoint` | `{fn?, hasEmail?, hasURL?}` | no | Dataset-level contact. |
+| `minTypicalAge`, `maxTypicalAge` | uint (≤ 150) | no | Typical age range of the people in the dataset, in years; the minimum is not above the maximum. |
+| `provenance` | string \| lang-map | no | How the data was produced. |
 | `numberOfRecords` | uint | required at ingest | Distinct `(chr, POS, REF, ALT)` count. The node re-counts and rejects a mismatch. |
 | `populations` | string array | no | The population labels the dataset serves, sorted: the union of each source VCF's emitted set, after the build-time `minAlleleCount` floor. The node re-derives it from the parquet and rejects a mismatch, as for `numberOfRecords`; an absent claim is accepted. Served on the beacon `datasets` entry as `gdiDatasetInfo.populations`. |
 

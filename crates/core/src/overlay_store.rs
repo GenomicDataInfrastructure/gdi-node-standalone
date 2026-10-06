@@ -100,6 +100,9 @@ pub fn overlay_change(prior: Option<&MetadataOverlay>, next: &MetadataOverlay) -
         is_referenced_by: _,
         other_identifier: _,
         contact_point: _,
+        min_typical_age: _,
+        max_typical_age: _,
+        provenance: _,
     } = next;
     if prior.title != next.title {
         changed_fields.push("title");
@@ -145,6 +148,15 @@ pub fn overlay_change(prior: Option<&MetadataOverlay>, next: &MetadataOverlay) -
     }
     if prior.contact_point != next.contact_point {
         changed_fields.push("contact_point");
+    }
+    if prior.min_typical_age != next.min_typical_age {
+        changed_fields.push("min_typical_age");
+    }
+    if prior.max_typical_age != next.max_typical_age {
+        changed_fields.push("max_typical_age");
+    }
+    if prior.provenance != next.provenance {
+        changed_fields.push("provenance");
     }
 
     let access_changed = prior.access_rights != next.access_rights;
@@ -482,7 +494,14 @@ mod tests {
                 legal_basis: None,
                 is_referenced_by: None,
                 other_identifier: None,
-                contact_point: None,
+                min_typical_age: None,
+                max_typical_age: None,
+                provenance: None,
+                contact_point: Some(crate::model::ContactPoint {
+                    fn_: Some("Data team".to_owned()),
+                    has_email: Some("mailto:data@example.org".to_owned()),
+                    has_url: None,
+                }),
                 number_of_records: Some(1),
                 populations: None,
             },

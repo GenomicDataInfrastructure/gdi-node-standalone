@@ -956,8 +956,8 @@ access_url.aggregated = "https://portal.gdi.lu/allele-frequency"
 # metadata model before a node release ships it. You don't need this block: every node
 # already publishes what HealthDCAT-AP release 8 asks for on top of its own records, in a
 # form releases 5 and 7 accept too (hasStructuredData, the allele-frequency variables
-# table, and an rdf:type on licence, access rights, language, legislation and legal basis
-# values). Those built-in settings are in crates/core/src/config/fairdp-publish.toml,
+# table, a description of aggregated distributions, and an rdf:type on licence, access
+# rights, language, legislation and legal basis values). Those built-in settings are in crates/core/src/config/fairdp-publish.toml,
 # written the same way as this block.
 #
 # When GDI announces a change, add what it asks for here. Your settings go over the
@@ -1009,13 +1009,14 @@ access_url.aggregated = "https://portal.gdi.lu/allele-frequency"
 #                                           a new node if the record has none
 #   "csvw:column" = [{ … }, { … }]          a new node for each table
 # Values may use $FDP_URL (the FDP root's address) and $FDP_ID (the catalog or dataset
-# id). Type: table. Default: the built-in statements on aggregated datasets.
+# id). Type: table. Default: the built-in statements on aggregated datasets and their
+# distributions.
 #
 # For example, once GDI's shapes accept STATISTICAL as a dataset type (today only
-# SYNTHETIC_DATA), with a provenance sentence true for every dataset on the node:
+# SYNTHETIC_DATA), this publishes it. Such a dataset also needs a provenance, which each
+# package gives as `metadata.provenance`:
 # [fairdp.publish.add.dataset.aggregated]
 # "dct:type" = "http://publications.europa.eu/resource/authority/dataset-type/STATISTICAL"
-# "dct:provenance" = { a = "dct:ProvenanceStatement", "rdfs:label" = "<how the allele frequencies were aggregated>" }
 
 
 # =============================================================================

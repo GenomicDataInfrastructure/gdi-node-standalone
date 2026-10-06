@@ -195,6 +195,11 @@ pub struct Profile {
     /// never asks. When unset, authoring asks and offers to store the answer here.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub org: Option<String>,
+    /// The dataset contact point the wizard offers for every new dataset: who to write to
+    /// about the data, published on each dataset's catalogue page. When unset, authoring
+    /// asks and offers to store the answer here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub contact_point: Option<ProfileContactPoint>,
     /// This node is keyless: it holds no crypt4gh identity, so there is nothing to encrypt
     /// to. Default `false`. When set, the wizard skips `pack` entirely and deploys the
     /// plaintext staging directory into [`inbox`](Self::inbox); the node ingests it with
@@ -335,6 +340,19 @@ impl Profile {
             .as_deref()
             .or(self.service_url.as_deref())
     }
+}
+
+/// A remembered dataset contact point (`[profiles.<name>.contact_point]`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProfileContactPoint {
+    /// Name of the team or service to write to.
+    pub name: String,
+    /// E-mail address, written without `mailto:`.
+    pub email: String,
+    /// A web page about the data or how to reach the team.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 /// The active profile's S3 bucket (`[profiles.<name>.s3]`) for `upload`, `download` and
