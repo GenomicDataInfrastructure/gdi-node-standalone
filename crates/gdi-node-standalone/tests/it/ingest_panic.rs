@@ -1,14 +1,10 @@
-//! Integration test for the ingest panic-resilience guard.
+//! Integration test: malformed parquet on the ingest path.
 //!
-//! A blocking ingest step that *panics* on adversarial input (here a crafted
-//! parquet whose embedded `ARROW:schema` flatbuffer panics arrow-ipc's schema
-//! converter) must never crash the worker or escape the runtime: the
-//! `catch_unwind` boundary in `core::validate_parquet` and the
-//! `JoinError::is_panic` guard in `ingest_runtime::process_job` turn it into a
-//! permanent dataset `error` and quarantine the artifact. This drives that path
-//! end-to-end through the inbox runtime (`scan_once` → `spawn_blocking`) and
-//! asserts the dataset reaches a permanent `error`, the process keeps running, and
-//! the staging dir is moved to `inbox/.rejected/{id}/`.
+//! A parquet with a malformed embedded `ARROW:schema` must not crash the worker. Run
+//! through the inbox runtime (`scan_once` → `spawn_blocking`), the dataset must end in a
+//! permanent `error`, the process must keep running, and the staging dir must move to
+//! `inbox/.rejected/{id}/`. (`arrow-ipc` 59 panicked on this file, which exercised the
+//! `catch_unwind` and `JoinError::is_panic` guards; 60 returns a parse error first.)
 #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
 
 use std::path::Path;
@@ -25,15 +21,14 @@ use crate::fixtures::{manifest_for, poll_until};
 const CATALOG: &str = "gdi-aggregated";
 const ID: &str = "GDI-EE-UTARTU-20260409143052837";
 
-/// The crafted parquet whose schema decode panics arrow-ipc (shared with core's
-/// `catch_parquet_panic` regression test).
-fn panic_parquet() -> std::path::PathBuf {
+/// Crafted parquet with a malformed embedded Arrow schema (shared with core's tests).
+fn malformed_parquet() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../core/tests/fixtures/malformed/arrow_schema_panic.parquet")
 }
 
 #[tokio::test]
-async fn panicking_ingest_becomes_a_permanent_error_not_a_crash() {
+async fn a_malformed_parquet_ingest_becomes_a_permanent_error_not_a_crash() {
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
     let inbox = tmp.path().join("inbox");
@@ -41,10 +36,8 @@ async fn panicking_ingest_becomes_a_permanent_error_not_a_crash() {
         std::fs::create_dir_all(d).unwrap();
     }
 
-    // A complete inbox staging dir: a valid manifest plus the panic-triggering
-    // parquet renamed to the canonical data-file pattern (so the layout check
-    // accepts it and the per-file parquet validation — where the schema decode
-    // panics — runs on it).
+    // A valid manifest plus the malformed parquet under a canonical data-file name, so
+    // the layout check passes and per-file validation runs.
     let staging = inbox.join(ID);
     std::fs::create_dir_all(&staging).unwrap();
     std::fs::write(
@@ -53,7 +46,7 @@ async fn panicking_ingest_becomes_a_permanent_error_not_a_crash() {
     )
     .unwrap();
     std::fs::copy(
-        panic_parquet(),
+        malformed_parquet(),
         staging.join("allele-freq.chr1.0.br10000000.0123456789abcdef.parquet"),
     )
     .unwrap();
@@ -62,8 +55,7 @@ async fn panicking_ingest_becomes_a_permanent_error_not_a_crash() {
     let state = AppState::new(config, StatusIndex::new(), NodeIdentities::empty());
     let runtime = IngestRuntime::start(state.clone());
 
-    // Drive the scan: the blocking ingest hits the panicking schema decode. The
-    // guard must contain it — `scan_once` returns normally (no crash/escape).
+    // Run the scan; it must return normally despite the malformed schema.
     runtime.scan_once().await;
 
     // The dataset reaches a permanent `error` in the status index.
@@ -79,16 +71,11 @@ async fn panicking_ingest_becomes_a_permanent_error_not_a_crash() {
         let status = state.status.lock().unwrap();
         let e = status.get(ID).expect("status entry recorded");
         assert_eq!(e.state, DatasetState::Error);
-        // The error_message is the sanitized, closed-class error string (never the
-        // panic payload or a path).
-        // The fixture's only failure mode is the arrow-ipc schema-decode panic, so
-        // reaching `error` proves the panic boundary contained it (an uncontained
-        // panic would crash the test process instead). The class is the sanitized,
-        // closed-class string — path-free and not echoing the id.
+        // error_message is the sanitized error class: no path, no id.
         assert_eq!(
             e.error_message,
             Some(gdi_node_standalone_core::error::ErrorClass::InvalidParquetSchema),
-            "the contained schema-decode panic must surface as the sanitized class"
+            "the malformed schema must surface as the sanitized class"
         );
         // Path-freeness is structural: the field is typed, so the only strings it can
         // render are the compile-time class constants, which the taxonomy golden test

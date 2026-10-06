@@ -46,11 +46,11 @@ REUSE resolves each file's `SPDX-License-Identifier` against.
 
 ## Overview
 
-- **Apache License 2.0** — 234 crate(s)
-- **MIT License** — 64 crate(s)
+- **Apache License 2.0** — 235 crate(s)
+- **MIT License** — 63 crate(s)
 - **ISC License** — 20 crate(s)
 - **Unicode License v3** — 19 crate(s)
-- **BSD 3-Clause "New" or "Revised" License** — 10 crate(s)
+- **BSD 3-Clause "New" or "Revised" License** — 11 crate(s)
 - **zlib License** — 2 crate(s)
 - **Creative Commons Zero v1.0 Universal** — 1 crate(s)
 - **Community Data License Agreement Permissive 2.0** — 1 crate(s)
@@ -482,19 +482,20 @@ Used by:
 ### Apache License 2.0 (Apache-2.0)
 
 Used by:
-- arrow-array 59.3.0
-- arrow-buffer 59.3.0
-- arrow-data 59.3.0
-- arrow-ipc 59.3.0
-- arrow-schema 59.3.0
-- arrow-select 59.3.0
+- arrow-array 60.0.0
+- arrow-buffer 60.0.0
+- arrow-cmp 60.0.0
+- arrow-data 60.0.0
+- arrow-ipc 60.0.0
+- arrow-schema 60.0.0
+- arrow-select 60.0.0
 - cmov 0.5.4
 - ctutils 0.4.3
 - encode_unicode 1.0.0
 - encoding_rs 0.8.42
 - multiversion_no_op 1.0.0
 - nohash-hasher 0.2.0
-- parquet 59.3.0
+- parquet 60.0.0
 - utf8_iter 1.0.4
 - zeroize 1.9.0
 
@@ -8124,8 +8125,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
-- zstd-safe 7.3.0
+- zstd-safe 8.0.0
 - zstd-sys 2.1.0+zstd.1.5.7
+- zstd 0.14.0
 
 ```
 BSD 3-Clause License
@@ -9803,7 +9805,7 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License (MIT)
 
 Used by:
-- arrow-array 59.3.0
+- arrow-array 60.0.0
 
 ```
 MIT License
@@ -10286,23 +10288,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-
-```
-
-### MIT License (MIT)
-
-Used by:
-- zstd 0.13.3
-
-```
-The MIT License (MIT)
-Copyright (c) 2016 Alexandre Bury
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```
 

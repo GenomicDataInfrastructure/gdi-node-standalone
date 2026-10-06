@@ -24,7 +24,7 @@
 //! metadata is small: the gnomAD chr21 corpus slice has 2.2 KB of footer and 1.5 KB of page
 //! index, and a 1 GiB file from our writer has a few thousand row groups.
 //!
-//! The schema is the part of `parquet-format` that `parquet` 59 reads here, minus the
+//! The schema is the part of `parquet-format` that `parquet` 60 reads here, minus the
 //! encryption fields and geospatial statistics, which plaintext files from our writer never
 //! carry. Encrypted footers (`PARE`) are not walked: `parquet` reads them only with the node's
 //! key, so only the node's own store gets that far.
@@ -269,7 +269,7 @@ impl Elem {
     }
 }
 
-// `parquet-format`'s schema as `parquet` 59 reads it on this path. Enums are `i32`.
+// `parquet-format`'s schema as `parquet` 60 reads it on this path. Enums are `i32`.
 
 static FILE_META_DATA: Shape = Shape {
     name: "FileMetaData",
@@ -435,6 +435,7 @@ static STATISTICS: Shape = Shape {
         (6, Ty::Binary),
         (7, Ty::Bool),
         (8, Ty::Bool),
+        (9, Ty::I64),
     ],
 };
 
@@ -457,10 +458,10 @@ static KEY_VALUE: Shape = Shape {
     fields: &[(1, Ty::Binary), (2, Ty::Binary)],
 };
 
-/// A union whose one member, `TYPE_ORDER`, is an empty struct.
+/// A union of empty structs: `TYPE_ORDER`, and `IEEE_754_TOTAL_ORDER` for float columns.
 static COLUMN_ORDER: Shape = Shape {
     name: "ColumnOrder",
-    fields: &[(1, Ty::Struct(&EMPTY))],
+    fields: &[(1, Ty::Struct(&EMPTY)), (2, Ty::Struct(&EMPTY))],
 };
 
 static OFFSET_INDEX: Shape = Shape {
@@ -486,6 +487,7 @@ static COLUMN_INDEX: Shape = Shape {
         (5, Ty::List(Elem::I64)),
         (6, Ty::List(Elem::I64)),
         (7, Ty::List(Elem::I64)),
+        (8, Ty::List(Elem::I64)),
     ],
 };
 
@@ -675,7 +677,7 @@ mod tests {
     use std::io::Write;
     use std::sync::Arc;
 
-    use arrow_array::{Int32Array, RecordBatch};
+    use arrow_array::{Float32Array, Int32Array, RecordBatch};
     use arrow_schema::{DataType, Field, Schema};
     use parquet::arrow::ArrowWriter;
     use parquet::file::properties::{EnabledStatistics, WriterProperties};
@@ -761,7 +763,9 @@ mod tests {
     #[test]
     fn a_field_that_differs_from_the_schema_is_refused() {
         // `parquet` reads field 5 as a list whatever its wire type, so to it these bytes are
-        // `i32::MAX` key-value pairs. A 37-byte file built this way aborts `parquet` 59.
+        // `i32::MAX` key-value pairs. This 37-byte file aborted `parquet` 59. 60 caps that
+        // list by the bytes left, but still preallocates row groups and page locations from
+        // their declared length.
         let mistyped = [
             vec![field(5, I32)],
             vec![0xfc, 0xff, 0xff, 0xff, 0xff, 0x07],
@@ -893,10 +897,21 @@ mod tests {
 
     #[test]
     fn a_written_file_passes_and_its_page_index_is_walked() {
-        let schema = Arc::new(Schema::new(vec![Field::new("POS", DataType::Int32, false)]));
+        // A float column makes `parquet` write NaN counts and the IEEE 754 column order, as
+        // every real file's `AF` does. With integers only, this would pass while real files
+        // are refused.
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("POS", DataType::Int32, false),
+            Field::new("AF", DataType::Float32, true),
+        ]));
         let batch = RecordBatch::try_new(
             schema.clone(),
-            vec![Arc::new(Int32Array::from_iter_values(0..10_000))],
+            vec![
+                Arc::new(Int32Array::from_iter_values(0..10_000)),
+                Arc::new(Float32Array::from_iter_values(std::iter::repeat_n(
+                    0.5, 10_000,
+                ))),
+            ],
         )
         .unwrap();
         let props = WriterProperties::builder()
@@ -908,8 +923,8 @@ mod tests {
         writer.write(&batch).unwrap();
         writer.close().unwrap();
 
-        // The one column chunk's offset index and column index.
-        assert_eq!(check_metadata_bounds(&file).unwrap(), 2);
+        // Each column chunk's offset index and column index.
+        assert_eq!(check_metadata_bounds(&file).unwrap(), 4);
         let rows: usize = open_arrow_reader(
             file,
             Path::new("written.parquet"),

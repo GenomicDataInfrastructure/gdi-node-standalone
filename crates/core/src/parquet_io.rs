@@ -837,8 +837,7 @@ fn pos_row_selection(
     kept: &[usize],
     window: PosWindow,
 ) -> Option<RowSelection> {
-    let column_index = meta.column_index()?;
-    let offset_index = meta.offset_index()?;
+    meta.page_index()?;
 
     let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
     // Running row offset across the concatenated kept groups.
@@ -854,10 +853,8 @@ fn pos_row_selection(
         let group_end = base.checked_add(group_rows)?;
         // POS is column 0. A missing page index for this group (or a non-INT32 POS
         // column index, which never happens for our schema) keeps the whole group.
-        match (
-            offset_index.get(rg).and_then(|cols| cols.first()),
-            column_index.get(rg).and_then(|cols| cols.first()),
-        ) {
+        let group_index = meta.page_index_for_row_group(rg);
+        match (group_index.offset_index(0), group_index.column_index(0)) {
             (Some(off_col), Some(ColumnIndexMetaData::INT32(pos_idx))) => {
                 // Fail closed on a malformed page index: keep the whole group, always
                 // correct and merely unpruned, rather than building a range the reader
@@ -1442,10 +1439,11 @@ mod tests {
     }
 
     #[test]
-    fn read_matching_rows_isolates_a_malformed_file_panic() {
-        // A decode panic on the read path, here a malformed `ARROW:schema` flatbuffer,
-        // must become a clean `InvalidParquet` error rather than abort: the tool `lint`
-        // path has no request-level unwind isolation. Reuses the validate panic fixture.
+    fn read_matching_rows_rejects_a_malformed_arrow_schema() {
+        // A malformed `ARROW:schema` on the read path must give a clean `InvalidParquet`,
+        // not an abort: the tool's `lint` path has no unwind isolation. (`arrow-ipc` 59
+        // panicked here; 60 returns a parse error. `validate_parquet`'s tests cover
+        // `catch_parquet_panic` with a synthetic panic.)
         let path = std::path::Path::new("tests/fixtures/malformed/arrow_schema_panic.parquet");
         let dec = DatasetDecryptor::plaintext();
         let err = read_matching_rows(
@@ -1463,10 +1461,6 @@ mod tests {
             err,
             CoreError::InvalidParquet { .. },
             "expected InvalidParquet, got {err:?}"
-        );
-        assert!(
-            format!("{err}").contains("panicked"),
-            "expected the panic-boundary detail: {err}"
         );
     }
 
@@ -1689,7 +1683,11 @@ mod tests {
         .unwrap();
         assert!(probe.metadata().num_row_groups() >= 3);
         assert!(
-            probe.metadata().offset_index().is_some(),
+            probe
+                .metadata()
+                .page_index_for_row_group(0)
+                .offset_index(0)
+                .is_some(),
             "page index loaded"
         );
 
@@ -2352,7 +2350,10 @@ mod tests {
             )
             .unwrap();
             assert!(
-                probe.metadata().offset_index().is_none(),
+                probe
+                    .metadata()
+                    .page_index()
+                    .is_none_or(|index| !index.has_offset_indexes()),
                 "the fixture must carry no OffsetIndex, or this test cannot detect the bypass"
             );
 
@@ -2585,22 +2586,20 @@ mod probe_tests {
     }
 
     #[test]
-    fn probe_dataset_readable_maps_decoder_panic_to_error() {
-        // The readiness self-test's panic boundary: a parquet whose embedded
-        // `ARROW:schema` flatbuffer panics the arrow-ipc decoder must come back as a clean
-        // `Err` rather than unwind out of the probe. An escaped panic here becomes a
-        // `spawn_blocking` `JoinError` that latches `/health/ready` to 503 for the process
-        // lifetime, so one crafted dataset would take the node offline.
+    fn probe_dataset_readable_rejects_a_malformed_arrow_schema() {
+        // The readiness probe must return a clean `Err` on a malformed `ARROW:schema`. A
+        // panic escaping here latches `/health/ready` at 503 for good, so one crafted
+        // dataset could take the node offline. (`arrow-ipc` 59 panicked on this file.)
         let dir = tempfile::tempdir().unwrap();
         let dest = dir
             .path()
             .join("allele-freq.chr1.0.br10000000.0123456789abcdef.parquet");
         std::fs::copy("tests/fixtures/malformed/arrow_schema_panic.parquet", &dest).unwrap();
         let err = probe_dataset_readable(dir.path(), &DatasetDecryptor::plaintext())
-            .expect_err("a decoder panic must surface as an error, not a panic");
+            .expect_err("a malformed schema must surface as an error, not a panic");
         assert!(
-            format!("{err}").contains("panicked"),
-            "expected the panic-boundary detail, got {err}"
+            format!("{err}").contains("invalid parquet"),
+            "expected a parquet error, got {err}"
         );
     }
 }
