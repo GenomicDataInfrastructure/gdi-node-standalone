@@ -17,11 +17,11 @@
     reason = "the docs use Crypt4GH and ChaCha20-Poly1305 as prose, not as code"
 )]
 
-use chacha20poly1305::aead::{AeadInPlace, KeyInit};
-use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce, Tag};
-use rand_core::{OsRng, RngCore};
+use chacha20poly1305::ChaCha20Poly1305;
+use chacha20poly1305::aead::{AeadInOut, KeyInit};
 use std::io::{Read, Write};
 
+use super::fill_random;
 use super::header::SESSION_KEY_LEN;
 use crate::error::{CoreError, CoreResult};
 use zeroize::Zeroizing;
@@ -38,13 +38,13 @@ pub const CIPHER_SEGMENT_SIZE: usize = SEGMENT_SIZE + NONCE_LEN + TAG_LEN;
 ///
 /// # Errors
 /// Returns [`CoreError::Io`] on a read/write failure, or
-/// [`CoreError::InternalError`] if the AEAD encryption fails.
+/// [`CoreError::InternalError`] if the AEAD encryption or the OS random source fails.
 pub(crate) fn encrypt_body<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
     session_key: &[u8; SESSION_KEY_LEN],
 ) -> CoreResult<()> {
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(session_key));
+    let cipher = ChaCha20Poly1305::new(session_key.into());
     // `Zeroizing`, as for every other segment buffer in this codec. The success path
     // overwrites this in place with ciphertext, so the exposure is the error path: a read or
     // write failure mid-stream would otherwise drop a buffer holding 64 KiB of plaintext
@@ -58,12 +58,12 @@ pub(crate) fn encrypt_body<R: Read, W: Write>(
         }
 
         let mut nonce_bytes = [0u8; NONCE_LEN];
-        OsRng.fill_bytes(&mut nonce_bytes);
+        fill_random(&mut nonce_bytes)?;
         // Encrypt in place: `plaintext[..n]` becomes the ciphertext and the 16-byte tag
         // comes back detached, so no segment allocates. The wire layout is
         // `nonce || ciphertext || tag`.
         let tag = cipher
-            .encrypt_in_place_detached(Nonce::from_slice(&nonce_bytes), &[], &mut plaintext[..n])
+            .encrypt_inout_detached((&nonce_bytes).into(), &[], (&mut plaintext[..n]).into())
             .map_err(|_| CoreError::InternalError {
                 detail: "body segment encryption failed".to_string(),
             })?;
@@ -99,7 +99,7 @@ pub(crate) fn decrypt_body<R: Read, W: Write>(
 ) -> CoreResult<Option<usize>> {
     let ciphers: Vec<ChaCha20Poly1305> = session_keys
         .iter()
-        .map(|k| ChaCha20Poly1305::new(Key::from_slice(k)))
+        .map(|k| ChaCha20Poly1305::new(k.into()))
         .collect();
 
     // Reusable scratch for the multi-key retry path. An in-place trial decrypt XORs the
@@ -147,11 +147,11 @@ pub(crate) fn decrypt_body<R: Read, W: Write>(
             // Single key, the common case: decrypt straight into the segment buffer.
             [cipher] => {
                 let ok = cipher
-                    .decrypt_in_place_detached(
-                        Nonce::from_slice(&nonce_bytes),
+                    .decrypt_inout_detached(
+                        (&nonce_bytes).into(),
                         &[],
-                        &mut cipher_segment[NONCE_LEN..n - TAG_LEN],
-                        Tag::from_slice(&tag_bytes),
+                        (&mut cipher_segment[NONCE_LEN..n - TAG_LEN]).into(),
+                        (&tag_bytes).into(),
                     )
                     .is_ok();
                 if ok {
@@ -176,11 +176,11 @@ pub(crate) fn decrypt_body<R: Read, W: Write>(
                     scratch[..plaintext_len]
                         .copy_from_slice(&cipher_segment[NONCE_LEN..n - TAG_LEN]);
                     if candidates[i]
-                        .decrypt_in_place_detached(
-                            Nonce::from_slice(&nonce_bytes),
+                        .decrypt_inout_detached(
+                            (&nonce_bytes).into(),
                             &[],
-                            &mut scratch[..plaintext_len],
-                            Tag::from_slice(&tag_bytes),
+                            (&mut scratch[..plaintext_len]).into(),
+                            (&tag_bytes).into(),
                         )
                         .is_ok()
                     {

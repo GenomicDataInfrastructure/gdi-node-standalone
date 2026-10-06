@@ -161,12 +161,12 @@ arrow-schema = { version = "=59.3.0", default-features = false }
 arrow-buffer = { version = "=59.3.0", default-features = false }
 arrow-data = { version = "=59.3.0", default-features = false }
 arrow-select = { version = "=59.3.0", default-features = false }
-sha2 = "=0.10.9"
+sha2 = "=0.11.0"
 # crypt4gh codec: the pure-Rust RustCrypto stack, so nothing here needs `unsafe` or C.
-x25519-dalek = { version = "=2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
-chacha20poly1305 = { version = "=0.10.1", default-features = false, features = ["alloc"] }
-blake2 = { version = "=0.10.6", default-features = false }
-rand_core = { version = "=0.6.4", default-features = false, features = ["getrandom"] }
+x25519-dalek = { version = "=3.0.0", default-features = false, features = ["static_secrets", "zeroize", "getrandom"] }
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"] }
+blake2 = { version = "=0.11.0", default-features = false }
+getrandom = { version = "=0.4.3", default-features = false }
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
 tempfile = "=3.27.0"
 # tar assembly for the `.tar.c4gh` package; default features off, so no xattr support.

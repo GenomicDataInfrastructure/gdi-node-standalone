@@ -85,21 +85,33 @@ pub fn rand_suffix() -> String {
 /// # Errors
 ///
 /// Propagates any I/O error from reading `reader`.
-pub fn sha256_hex_reader<R: Read>(mut reader: R) -> io::Result<(String, u64)> {
+pub fn sha256_hex_reader<R: Read>(reader: R) -> io::Result<(String, u64)> {
     let mut hasher = Sha256::new();
+    let size = sha256_update_reader(&mut hasher, reader)?;
+    Ok((sha256_hex(hasher), size))
+}
+
+/// Feed `reader` into `hasher` and return the number of bytes read. (`Sha256` doesn't
+/// implement [`std::io::Write`], so [`io::copy`] can't do this.)
+///
+/// # Errors
+///
+/// Propagates read errors other than [`io::ErrorKind::Interrupted`], which is retried.
+pub fn sha256_update_reader<R: Read>(hasher: &mut Sha256, mut reader: R) -> io::Result<u64> {
     // 128 KiB read buffer: far fewer read syscalls than `io::copy`'s 8 KiB default on a
     // large file, at trivial memory cost. The digest is fed the same bytes either way.
     let mut buf = vec![0u8; 128 * 1024];
     let mut size: u64 = 0;
     loop {
-        let n = reader.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
+        let n = match reader.read(&mut buf) {
+            Ok(0) => return Ok(size),
+            Ok(n) => n,
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+            Err(e) => return Err(e),
+        };
         hasher.update(&buf[..n]);
         size += n as u64;
     }
-    Ok((sha256_hex(hasher), size))
 }
 
 /// Render a finalized SHA-256 hasher as 64 lowercase hex chars.

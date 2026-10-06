@@ -57,7 +57,6 @@ use std::io::{Read, Write};
 
 use body::{decrypt_body, encrypt_body};
 use header::{PacketDecrypt, SESSION_KEY_LEN, decrypt_packet, encrypt_packet};
-use rand_core::{OsRng, RngCore};
 use zeroize::Zeroizing;
 
 pub use body::{CIPHER_SEGMENT_SIZE, SEGMENT_SIZE};
@@ -297,7 +296,7 @@ fn read_header_packet<R: Read>(reader: &mut R) -> CoreResult<Vec<u8>> {
 /// # Errors
 /// Returns [`CoreError::InvalidConfig`] if `recipients` is empty,
 /// [`CoreError::Io`] on a read/write failure, or [`CoreError::InternalError`]
-/// if header/body AEAD encryption fails.
+/// if header/body AEAD encryption or the OS random source fails.
 pub fn encrypt<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
@@ -312,7 +311,7 @@ pub fn encrypt<R: Read, W: Write>(
 
     // One session key for the whole body, as the reference implementation does.
     let mut session_key = Zeroizing::new([0u8; SESSION_KEY_LEN]);
-    OsRng.fill_bytes(session_key.as_mut());
+    fill_random(session_key.as_mut())?;
 
     // Build one header packet per recipient.
     let mut packets: Vec<Vec<u8>> = Vec::with_capacity(recipients.len());
@@ -643,6 +642,16 @@ fn read_exact_or_decrypt_fail<R: Read>(reader: &mut R, buf: &mut [u8]) -> CoreRe
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => Err(CoreError::DecryptFailed),
         Err(e) => Err(CoreError::Io(e)),
     }
+}
+
+/// Fill `buf` with OS randomness. Every session key and nonce comes from here.
+///
+/// # Errors
+/// Returns [`CoreError::InternalError`] if the OS random source fails.
+pub(crate) fn fill_random(buf: &mut [u8]) -> CoreResult<()> {
+    getrandom::fill(buf).map_err(|e| CoreError::InternalError {
+        detail: format!("the system random source failed: {e}"),
+    })
 }
 
 #[cfg(test)]

@@ -46,7 +46,7 @@ REUSE resolves each file's `SPDX-License-Identifier` against.
 
 ## Overview
 
-- **Apache License 2.0** — 237 crate(s)
+- **Apache License 2.0** — 234 crate(s)
 - **MIT License** — 64 crate(s)
 - **ISC License** — 20 crate(s)
 - **Unicode License v3** — 19 crate(s)
@@ -488,6 +488,8 @@ Used by:
 - arrow-ipc 59.3.0
 - arrow-schema 59.3.0
 - arrow-select 59.3.0
+- cmov 0.5.4
+- ctutils 0.4.3
 - encode_unicode 1.0.0
 - encoding_rs 0.8.42
 - multiversion_no_op 1.0.0
@@ -495,7 +497,6 @@ Used by:
 - parquet 59.3.0
 - utf8_iter 1.0.4
 - zeroize 1.9.0
-- zeroize_derive 1.5.0
 
 ```
 
@@ -6581,26 +6582,23 @@ limitations under the License.
 ### Apache License 2.0 (Apache-2.0)
 
 Used by:
-- blake2 0.10.6
-- block-buffer 0.10.4
+- blake2 0.11.0
 - block-buffer 0.12.1
 - chacha20 0.10.2
-- chacha20 0.9.1
-- chacha20poly1305 0.10.1
-- cipher 0.4.4
-- cpufeatures 0.2.17
+- chacha20poly1305 0.11.0
+- cipher 0.5.2
+- const-oid 0.10.2
 - cpufeatures 0.3.1
 - crypto-common 0.1.7
 - crypto-common 0.2.2
 - digest 0.10.7
 - digest 0.11.3
 - hybrid-array 0.4.15
-- inout 0.1.4
+- inout 0.2.2
 - md-5 0.11.0
-- opaque-debug 0.3.1
-- poly1305 0.8.0
-- sha2 0.10.9
-- universal-hash 0.5.1
+- poly1305 0.9.1
+- sha2 0.11.0
+- universal-hash 0.6.1
 
 ```
                               Apache License
@@ -6810,7 +6808,7 @@ limitations under the License.
 ### Apache License 2.0 (Apache-2.0)
 
 Used by:
-- aead 0.5.2
+- aead 0.6.1
 
 ```
                               Apache License
@@ -7022,7 +7020,6 @@ limitations under the License.
 
 Used by:
 - rand_core 0.10.1
-- rand_core 0.6.4
 - rand_core 0.9.5
 
 ```
@@ -8242,7 +8239,45 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
-- x25519-dalek 2.0.1
+- curve25519-dalek 5.0.0
+
+```
+Copyright (c) 2016-2021 isis agora lovecruft. All rights reserved.
+Copyright (c) 2016-2021 Henry de Valence. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+notice, this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright
+notice, this list of conditions and the following disclaimer in the
+documentation and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+contributors may be used to endorse or promote products derived from
+this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
+IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED
+TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED
+TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+```
+
+### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
+
+Used by:
+- x25519-dalek 3.0.0
 
 ```
 Copyright (c) 2017-2021 isis agora lovecruft. All rights reserved.
@@ -8274,26 +8309,6 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
 LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
 NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE. 
-
-```
-
-### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
-
-Used by:
-- curve25519-dalek 4.1.3
-
-```
-Copyright (c) <year> <owner>. 
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ```
 
