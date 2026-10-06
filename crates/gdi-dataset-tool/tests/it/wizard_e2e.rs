@@ -158,9 +158,15 @@ fn scripted_author(fixture: &str) -> ScriptedPrompter {
             "gdi-aggregated",                           // catalog (free text; no profile catalogs)
             "AF test (synthetic data)",                 // title
             "Synthetic allele-frequency test dataset.", // description (required by validator)
+            "",                                         // provenance: skipped
             "allele-frequency,genomics",                // keywords (comma-separated)
             "2504",                                     // numberOfUniqueIndividuals
+            "",                                         // age range: skipped
             "Test Institute",                           // creator
+            "Data access team",                         // contact name
+            "data@example.org",                         // contact e-mail
+            "",                                         // contact web page: skipped
+            "",                                         // publication: none
             "5",                                        // minAlleleCount (the wizard asks for it)
         ])
         .with_selects(vec![
@@ -176,6 +182,7 @@ fn scripted_author(fixture: &str) -> ScriptedPrompter {
             true,  // Add discovery keywords?
             true,  // Record cohort size?
             true,  // Is this synthetic data?
+            false, // Remember this contact point in the profile?
             false, // Add another legislation ELI or IRI?
             true,  // Use the standard Genome of Europe AF provenance? -> fills BOTH fields
         ])
@@ -267,10 +274,16 @@ fn the_authored_package_carries_conforms_to_and_every_legislation_entry() {
             "gdi-aggregated",
             "AF test (synthetic data)",
             "Synthetic allele-frequency test dataset.",
+            "", // provenance: skipped
             "allele-frequency,genomics",
             "2504",
+            "", // age range: skipped
             "Test Institute",
-            national, // the one freely typed legislation IRI
+            "Data access team", // contact name
+            "data@example.org", // contact e-mail
+            "",                 // contact web page: skipped
+            "",                 // publication: none
+            national,           // the one freely typed legislation IRI
             "5",
         ])
         .with_multiselects(vec![
@@ -284,6 +297,7 @@ fn the_authored_package_carries_conforms_to_and_every_legislation_entry() {
             true,  // Add discovery keywords?
             true,  // Record cohort size?
             true,  // Is this synthetic data?
+            false, // Remember this contact point in the profile?
             true,  // Add another legislation ELI or IRI? -> yes, the national one
             false, // Add another legislation ELI or IRI? -> no more
             true,  // Use the standard Genome of Europe AF provenance?
@@ -500,9 +514,15 @@ fn wizard_author_to_pack_e2e() {
             "gdi-aggregated",                           // catalog
             "AF test (synthetic data)",                 // title
             "Synthetic allele-frequency test dataset.", // description (non-empty required)
+            "",                                         // provenance: skipped
             "allele-frequency,genomics",                // keywords (comma-separated)
             "2504",                                     // numberOfUniqueIndividuals
+            "",                                         // age range: skipped
             "Test Institute",                           // creator
+            "Data access team",                         // contact name
+            "data@example.org",                         // contact e-mail
+            "",                                         // contact web page: skipped
+            "",                                         // publication: none
             "",                                         // afSource (optional, empty)
             "",                                         // afSourceReference (optional, empty)
             "5",                                        // minAlleleCount (the wizard asks for it)
@@ -520,6 +540,7 @@ fn wizard_author_to_pack_e2e() {
             true,  // Add discovery keywords?
             true,  // Record cohort size?
             true,  // Is this synthetic data?
+            false, // Remember this contact point in the profile?
             false, // Add another legislation ELI or IRI?
             false, // Use the standard Genome of Europe AF provenance? -> NO: blank-skip path
             true,  // Publish these populations? (the Build stage's disclosure preview)
@@ -814,6 +835,7 @@ fn publish_prompter(fixture: &str, keyless: bool) -> ScriptedPrompter {
         true,  // Add discovery keywords?
         true,  // Record cohort size?
         true,  // Is this synthetic data?
+        false, // Remember this contact point in the profile?
         false, // Add another legislation ELI or IRI?
         false, // Use the standard Genome of Europe AF provenance? -> NO: blank-skip path
         true,  // Publish these populations? (the Build stage's disclosure preview)
@@ -828,9 +850,15 @@ fn publish_prompter(fixture: &str, keyless: bool) -> ScriptedPrompter {
             "gdi-aggregated",
             "AF test (synthetic data)",
             "Synthetic allele-frequency test dataset.",
+            "", // provenance: skipped
             "allele-frequency,genomics",
             "0",
+            "", // age range: skipped
             "Test Institute",
+            "Data access team", // contact name
+            "data@example.org", // contact e-mail
+            "",                 // contact web page: skipped
+            "",                 // publication: none
             "",
             "",
             "5",
@@ -944,6 +972,7 @@ fn declining_the_disclosure_preview_aborts_the_wizard() {
         true,  // Add discovery keywords?
         true,  // Record cohort size?
         true,  // Is this synthetic data?
+        false, // Remember this contact point in the profile?
         false, // Add another legislation ELI or IRI?
         true,  // Use the standard Genome of Europe AF provenance?
         false, // Publish these populations?  -> NO: the operator refuses the disclosure
@@ -1246,9 +1275,15 @@ fn an_existing_complete_package_yaml_is_a_question_not_a_pass_through() {
             "gdi-aggregated",                           // catalog
             "Second dataset",                           // title
             "Authored beside a previous package.yaml.", // description
+            "",                                         // provenance: skipped
             "allele-frequency,genomics",                // keywords
             "2504",                                     // numberOfUniqueIndividuals
+            "",                                         // age range: skipped
             "Test Institute",                           // creator
+            "Data access team",                         // contact name
+            "data@example.org",                         // contact e-mail
+            "",                                         // contact web page: skipped
+            "",                                         // publication: none
             "0",                                        // minAlleleCount
         ])
         .with_selects(vec![
@@ -1270,6 +1305,7 @@ fn an_existing_complete_package_yaml_is_a_question_not_a_pass_through() {
             true,  // Add discovery keywords?
             true,  // Record cohort size?
             true,  // Is this synthetic data?
+            false, // Remember this contact point in the profile?
             false, // Add another legislation ELI or IRI?
             true,  // Use the standard Genome of Europe AF provenance?
         ]);
@@ -1335,9 +1371,15 @@ fn the_profile_org_is_used_without_asking() {
             "gdi-aggregated",
             "AF test (synthetic data)",
             "Synthetic allele-frequency test dataset.",
+            "", // provenance: skipped
             "allele-frequency,genomics",
             "2504",
+            "", // age range: skipped
             "Test Institute",
+            "Data access team", // contact name
+            "data@example.org", // contact e-mail
+            "",                 // contact web page: skipped
+            "",                 // publication: none
             "0",
         ])
         .with_selects(vec![1, 0, 0, 0, 0])
@@ -1351,6 +1393,7 @@ fn the_profile_org_is_used_without_asking() {
             true,  // keywords
             true,  // cohort
             true,  // synthetic
+            false, // Remember this contact point in the profile?
             false, // Add another legislation ELI or IRI?
             true,  // GoE provenance
         ]);
@@ -1391,6 +1434,7 @@ fn a_typed_org_is_remembered_in_the_profile_when_asked_to() {
         true,  // keywords
         true,  // cohort
         true,  // synthetic
+        false, // Remember this contact point in the profile?
         false, // Add another legislation ELI or IRI?
         true,  // GoE provenance
     ]);

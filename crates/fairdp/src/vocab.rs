@@ -56,6 +56,10 @@ pub(crate) const DCT_LANGUAGE: &str = "http://purl.org/dc/terms/language";
 pub(crate) const DCT_TYPE: &str = "http://purl.org/dc/terms/type";
 /// `dct:isReferencedBy`.
 pub(crate) const DCT_IS_REFERENCED_BY: &str = "http://purl.org/dc/terms/isReferencedBy";
+/// `dct:provenance`.
+pub(crate) const DCT_PROVENANCE: &str = "http://purl.org/dc/terms/provenance";
+/// `dct:ProvenanceStatement` (class).
+pub(crate) const DCT_PROVENANCE_STATEMENT: &str = "http://purl.org/dc/terms/ProvenanceStatement";
 /// `dct:issued`.
 pub(crate) const DCT_ISSUED: &str = "http://purl.org/dc/terms/issued";
 /// `dct:modified`.
@@ -135,6 +139,12 @@ pub(crate) const HEALTHDCATAP_NUMBER_OF_RECORDS: &str =
 /// `healthdcatap:numberOfUniqueIndividuals`.
 pub(crate) const HEALTHDCATAP_NUMBER_OF_UNIQUE_INDIVIDUALS: &str =
     "http://healthdataportal.eu/ns/health#numberOfUniqueIndividuals";
+/// `healthdcatap:minTypicalAge`.
+pub(crate) const HEALTHDCATAP_MIN_TYPICAL_AGE: &str =
+    "http://healthdataportal.eu/ns/health#minTypicalAge";
+/// `healthdcatap:maxTypicalAge`.
+pub(crate) const HEALTHDCATAP_MAX_TYPICAL_AGE: &str =
+    "http://healthdataportal.eu/ns/health#maxTypicalAge";
 /// `healthdcatap:hdab`.
 pub(crate) const HEALTHDCATAP_HDAB: &str = "http://healthdataportal.eu/ns/health#hdab";
 

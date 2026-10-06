@@ -6,12 +6,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
+use gdi_node_standalone_core::config::ProfileContactPoint;
 use gdi_node_standalone_core::convert::{
     ConvertOptions, preview_vcf_with_progress, read_header_hints, read_header_populations,
 };
 use gdi_node_standalone_core::model::PackageYaml;
 use gdi_node_standalone_core::validate_pkg::{
-    MAX_CREATOR_NAME_LEN, MAX_DESCRIPTION_LEN, MAX_TITLE_LEN, validate_package_collect_all,
+    MAX_CONTACT_FN_LEN, MAX_CREATOR_NAME_LEN, MAX_DESCRIPTION_LEN, MAX_PROVENANCE_LEN,
+    MAX_TITLE_LEN, validate_package_collect_all,
 };
 
 use crate::ToolError;
@@ -50,6 +52,16 @@ pub struct AuthorValues {
     pub keywords: Vec<String>,
     /// `metadata.numberOfUniqueIndividuals`.
     pub number_of_unique_individuals: Option<u64>,
+    /// `metadata.contactPoint`, its e-mail without `mailto:`.
+    pub contact_point: ProfileContactPoint,
+    /// `metadata.minTypicalAge`.
+    pub min_typical_age: Option<u32>,
+    /// `metadata.maxTypicalAge`.
+    pub max_typical_age: Option<u32>,
+    /// `metadata.provenance` (plain).
+    pub provenance: Option<String>,
+    /// `metadata.isReferencedBy` IRIs.
+    pub is_referenced_by: Vec<String>,
     /// `config.afSource`.
     pub af_source: Option<String>,
     /// `config.afSourceReference`.
@@ -76,6 +88,8 @@ pub struct AuthorResult {
     /// An `org` the operator typed and asked to have remembered in the profile. Authoring
     /// has no config handle, so the wizard orchestrator stores it.
     pub org_to_store: Option<String>,
+    /// A contact point the operator typed and asked to have remembered, stored the same way.
+    pub contact_point_to_store: Option<ProfileContactPoint>,
 }
 
 /// Context above the build-time k-anonymity floor prompt.
@@ -230,11 +244,34 @@ pub fn render_template(v: &AuthorValues) -> String {
     if let Some(n) = v.number_of_unique_individuals {
         let _ = writeln!(meta_opt, "  numberOfUniqueIndividuals: {n}");
     }
+    if let Some(age) = v.min_typical_age {
+        let _ = writeln!(meta_opt, "  minTypicalAge: {age}");
+    }
+    if let Some(age) = v.max_typical_age {
+        let _ = writeln!(meta_opt, "  maxTypicalAge: {age}");
+    }
+    if let Some(text) = &v.provenance {
+        let _ = writeln!(meta_opt, "  provenance: {}", yaml_quote(text));
+    }
+    if !v.is_referenced_by.is_empty() {
+        meta_opt.push_str("  isReferencedBy:\n");
+        for iri in &v.is_referenced_by {
+            let _ = writeln!(meta_opt, "    - {}", yaml_quote(iri));
+        }
+    }
     if !v.conforms_to_iris.is_empty() {
         meta_opt.push_str("  conformsTo:\n");
         for iri in &v.conforms_to_iris {
             let _ = writeln!(meta_opt, "    - {}", yaml_quote(iri));
         }
+    }
+    let mut contact = format!(
+        "  contactPoint:\n    fn: {}\n    hasEmail: {}\n",
+        yaml_quote(&v.contact_point.name),
+        yaml_quote(&format!("mailto:{}", v.contact_point.email)),
+    );
+    if let Some(url) = &v.contact_point.url {
+        let _ = writeln!(contact, "    hasURL: {}", yaml_quote(url));
     }
     let mut cfg_opt = String::new();
     if let Some(s) = &v.af_source {
@@ -259,7 +296,7 @@ pub fn render_template(v: &AuthorValues) -> String {
         "metadata:\n  \
 prefix: {prefix}\n  org: {org}\n  catalog: {catalog}\n  title: {title}\n\
 {meta_opt}  accessRights: {ar}\n  applicableLegislation:\n{legislation}  \
-license: {lic}\n  creator:\n    - name: {creator}\n  healthCategory:\n{hc}\
+license: {lic}\n  creator:\n    - name: {creator}\n{contact}  healthCategory:\n{hc}\
 \nfiles:\n  - category: \"VCF\"\n    reference: {asm}\n    files:\n{files}\
 \ninternal: {{}}\n\nconfig:\n  mode: aggregated\n  blockRange: {br}\n  minAlleleCount: {mac}\n{cfg_opt}",
         prefix = yaml_quote(&v.prefix),
@@ -458,6 +495,7 @@ pub fn author_fixup(p: &dyn Prompter, path: &Path) -> Result<AuthorResult, ToolE
         return Ok(AuthorResult {
             path: path.to_path_buf(),
             org_to_store: None,
+            contact_point_to_store: None,
         });
     }
     let rewritten = format!("{}\n", lines.join("\n"));
@@ -468,6 +506,7 @@ pub fn author_fixup(p: &dyn Prompter, path: &Path) -> Result<AuthorResult, ToolE
     Ok(AuthorResult {
         path: path.to_path_buf(),
         org_to_store: None,
+        contact_point_to_store: None,
     })
 }
 
@@ -526,6 +565,106 @@ fn prompt_cohort_size(p: &dyn Prompter) -> Result<Option<u64>, ToolError> {
         },
     )?;
     Ok(raw.trim().parse::<u64>().ok())
+}
+
+/// Ask for the typical age range of the people in the dataset, in years. Optional;
+/// `18+` gives only the youngest.
+///
+/// # Errors
+///
+/// Propagates a prompt failure.
+fn prompt_age_range(p: &dyn Prompter) -> Result<(Option<u32>, Option<u32>), ToolError> {
+    let raw = p.input_validated(
+        "Typical age range in years, e.g. 18-90 or 18+ (blank to skip)",
+        None,
+        &|s: &str| {
+            if s.trim().is_empty() {
+                return Ok(());
+            }
+            fields::resolve_age_range(s).map(|_| ())
+        },
+    )?;
+    Ok(match fields::resolve_age_range(&raw) {
+        Ok((min, max)) => (Some(min), max),
+        Err(_) => (None, None),
+    })
+}
+
+/// Ask who to write to about the dataset. The profile's contact point is offered first;
+/// a newly typed one comes back a second time when the operator asks to remember it.
+///
+/// # Errors
+///
+/// Propagates a prompt failure.
+fn prompt_contact_point(
+    p: &dyn Prompter,
+    remembered: Option<&ProfileContactPoint>,
+) -> Result<(ProfileContactPoint, Option<ProfileContactPoint>), ToolError> {
+    if let Some(cp) = remembered
+        && p.confirm(
+            &format!(
+                "Contact point: {} <{}>. Use it for this dataset?",
+                cp.name, cp.email
+            ),
+            true,
+        )?
+    {
+        return Ok((cp.clone(), None));
+    }
+    crate::output::progress(
+        "  who to write to about the dataset, shown on its catalogue page: a team or \
+         service mailbox rather than a person's.",
+    );
+    let name = p.input_validated("Contact name (e.g. Data access team)", None, &|s| {
+        fields::resolve_bounded("contact name", s, MAX_CONTACT_FN_LEN).map(|_| ())
+    })?;
+    let email = p.input_validated("Contact e-mail", None, &|s| {
+        fields::resolve_contact_email(s).map(|_| ())
+    })?;
+    let url = p.input_validated("Contact web page (blank to skip)", None, &|s| {
+        if s.trim().is_empty() {
+            return Ok(());
+        }
+        fields::resolve_url("contact web page", s).map(|_| ())
+    })?;
+    let contact = ProfileContactPoint {
+        name: name.trim().to_owned(),
+        email: fields::resolve_contact_email(&email).unwrap_or(email),
+        url: (!url.trim().is_empty()).then(|| url.trim().to_owned()),
+    };
+    let store = p.confirm(
+        "Remember this contact point in the profile for future datasets?",
+        true,
+    )?;
+    Ok((contact.clone(), store.then_some(contact)))
+}
+
+/// Ask for publications that describe the dataset (`isReferencedBy`), until a blank answer.
+///
+/// # Errors
+///
+/// Propagates a prompt failure.
+fn prompt_references(p: &dyn Prompter) -> Result<Vec<String>, ToolError> {
+    let mut refs: Vec<String> = Vec::new();
+    loop {
+        let prompt = if refs.is_empty() {
+            "Publication about the dataset, as a DOI (blank to skip)"
+        } else {
+            "Another publication (blank to finish)"
+        };
+        let answer = p.input_validated(prompt, None, &|s: &str| {
+            if s.trim().is_empty() {
+                return Ok(());
+            }
+            fields::resolve_reference(s).map(|_| ())
+        })?;
+        let Ok(iri) = fields::resolve_reference(&answer) else {
+            return Ok(refs);
+        };
+        if !refs.contains(&iri) {
+            refs.push(iri);
+        }
+    }
 }
 
 /// A group header inside the Author flow — always-on so `-q` cannot orphan the prompts
@@ -600,6 +739,8 @@ pub struct AuthorContext<'a> {
     /// organisation segment is the provider's identity (an integrating backend refuses an
     /// id carrying any other), not a per-dataset choice.
     pub org: Option<&'a str>,
+    /// The profile's `contact_point`, offered as the dataset's contact point.
+    pub contact_point: Option<&'a ProfileContactPoint>,
     /// Fetch the node's catalogs and persist them into the profile — what `catalogs --sync`
     /// does — returning the new allow-list. `None` when the profile has no `service_url`.
     pub refresh_catalogs: Option<&'a dyn Fn() -> Result<BTreeMap<String, String>, ToolError>>,
@@ -1202,6 +1343,17 @@ pub fn author_greenfield(
     let description = p.input_validated("Description", None, &|s| {
         fields::resolve_bounded("description", s, MAX_DESCRIPTION_LEN).map(|_| ())
     })?;
+    crate::output::progress(
+        "  how the data was produced: e.g. sequencing, variant calling and how the \
+         frequencies were computed.",
+    );
+    let provenance = p.input_validated("Provenance (blank to skip)", None, &|s| {
+        if s.trim().is_empty() {
+            return Ok(());
+        }
+        fields::resolve_bounded("provenance", s, MAX_PROVENANCE_LEN).map(|_| ())
+    })?;
+    let provenance = (!provenance.trim().is_empty()).then(|| provenance.trim().to_owned());
     let keywords = if p.confirm("Add discovery keywords?", true)? {
         let raw = p.input_validated(
             "Keywords (comma-separated)",
@@ -1213,6 +1365,7 @@ pub fn author_greenfield(
         Vec::new()
     };
     let number_of_unique_individuals = prompt_cohort_size(p)?;
+    let (min_typical_age, max_typical_age) = prompt_age_range(p)?;
     let synthetic = p.confirm("Is this synthetic data?", false)?;
     // Role contrast, no example value: setup asks for an "Institute abbreviation
     // (e.g. UTARTU)" and this looks like the same question, but it is the human-readable
@@ -1224,10 +1377,12 @@ pub fn author_greenfield(
     let creator = p.input_validated("Creating organisation", None, &|s| {
         fields::resolve_bounded("creator", s, MAX_CREATOR_NAME_LEN).map(|_| ())
     })?;
+    let (contact_point, contact_point_to_store) = prompt_contact_point(p, ctx.contact_point)?;
     let health_category_iris = prompt_health_categories(p)?;
     // Also catalog metadata: `dct:conformsTo` is a claim about the dataset the FDP
     // publishes beside its health categories, not about reuse terms.
     let conforms_to_iris = prompt_conforms_to(p)?;
+    let is_referenced_by = prompt_references(p)?;
 
     // 3. Access & legal — also part of the catalog entry, grouped apart because these
     //    are claims about reuse rather than description.
@@ -1320,6 +1475,11 @@ pub fn author_greenfield(
         applicable_legislation,
         keywords,
         number_of_unique_individuals,
+        contact_point,
+        min_typical_age,
+        max_typical_age,
+        provenance,
+        is_referenced_by,
         af_source,
         af_source_reference,
         vcf_paths: sources.paths,
@@ -1336,6 +1496,7 @@ pub fn author_greenfield(
     Ok(AuthorResult {
         path: out.to_path_buf(),
         org_to_store,
+        contact_point_to_store,
     })
 }
 
@@ -1967,6 +2128,15 @@ mod tests {
             applicable_legislation: vec![crate::wizard::fields::EHDS_ELI.into()],
             keywords: vec!["allele-frequency".into(), "genomics".into()],
             number_of_unique_individuals: Some(1200),
+            contact_point: ProfileContactPoint {
+                name: "Data access team".into(),
+                email: "data@example.org".into(),
+                url: Some("https://example.org/data".into()),
+            },
+            min_typical_age: Some(18),
+            max_typical_age: Some(90),
+            provenance: Some("Whole-genome sequencing, allele counts per population.".into()),
+            is_referenced_by: vec!["https://doi.org/10.1234/example".into()],
             af_source: Some("Test cohort".into()),
             af_source_reference: Some("https://example.org/".into()),
             vcf_paths: vec!["data/test.vcf.gz".into()],
@@ -2049,6 +2219,39 @@ mod tests {
         assert!(!yaml.contains("REPLACE:"), "no placeholders remain");
         // 4. Synthetic type IRI present when synthetic=true.
         assert!(yaml.contains(crate::wizard::fields::SYNTHETIC_TYPE_IRI));
+        // 5. The contact point and the optional answers land in their fields.
+        let m = &pkg.metadata;
+        let cp = m.contact_point.as_ref().expect("contactPoint is written");
+        assert_eq!(cp.has_email.as_deref(), Some("mailto:data@example.org"));
+        assert_eq!(cp.has_url.as_deref(), Some("https://example.org/data"));
+        assert_eq!((m.min_typical_age, m.max_typical_age), (Some(18), Some(90)));
+        assert!(m.provenance.is_some());
+        assert_eq!(
+            m.is_referenced_by.as_deref(),
+            Some(&["https://doi.org/10.1234/example".to_owned()][..])
+        );
+    }
+
+    #[test]
+    fn the_profile_contact_point_is_offered_and_a_typed_one_can_be_remembered() {
+        use crate::wizard::prompts::ScriptedPrompter;
+        let remembered = ProfileContactPoint {
+            name: "Data access team".into(),
+            email: "data@example.org".into(),
+            url: None,
+        };
+        // Offered and taken: nothing new to remember.
+        let p = ScriptedPrompter::new().with_confirms(vec![true]);
+        let (cp, store) = prompt_contact_point(&p, Some(&remembered)).unwrap();
+        assert_eq!((cp, store), (remembered.clone(), None));
+
+        // Declined: typed with `mailto:`, stored without it, and remembered on request.
+        let p = ScriptedPrompter::new()
+            .with_confirms(vec![false, true])
+            .with_inputs(vec!["Helpdesk", "mailto:help@example.org", ""]);
+        let (cp, store) = prompt_contact_point(&p, Some(&remembered)).unwrap();
+        assert_eq!(cp.email, "help@example.org");
+        assert_eq!(store, Some(cp));
     }
 
     #[test]
@@ -2145,17 +2348,18 @@ mod tests {
         let original = std::fs::read_to_string(&path).unwrap();
         let markers = replace_markers(&original);
         let n = markers.len();
-        // The init template must have exactly these 11 REPLACE markers (top-to-bottom):
+        // The init template must have exactly these 13 REPLACE markers (top-to-bottom):
         //   1  prefix           2  org                3  catalog
         //   4  title            5  description        6  accessRights
-        //   7  license          8  creator name       9  healthCategory (bare list)
-        //  10  VCF reference   11  VCF path (bare)
+        //   7  license          8  creator name       9  contact name
+        //  10  contact e-mail  11  healthCategory (bare list)
+        //  12  VCF reference   13  VCF path (bare)
         //
         // `config.afSource` / `afSourceReference` are not markers here. They are optional
         // fields and are rendered commented out, like `preciseReference`,
         // `internalId` and `pastVersion`: an uncommented placeholder on an optional field
         // is one a provider can legitimately leave alone.
-        assert_eq!(n, 11, "expected 11 REPLACE markers; got {n}: {markers:?}");
+        assert_eq!(n, 13, "expected 13 REPLACE markers; got {n}: {markers:?}");
 
         // Valid answers in top-to-bottom file order. The VCF marker goes through the
         // source prompt, so it must name a file that exists and reads as a VCF.
@@ -2170,9 +2374,11 @@ mod tests {
             access_rights_iri,                                       // 6  accessRights
             "https://creativecommons.org/licenses/by/4.0/",          // 7  license
             "Test Institute",                                        // 8  creator name
-            "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic", // 9  healthCategory
-            "GRCh38",                                                // 10 VCF reference
-            vcf.to_str().unwrap(),                                   // 11 VCF path
+            "Data access team",                                      // 9  contact name
+            "mailto:data@example.org",                               // 10 contact e-mail
+            "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic", // 11 healthCategory
+            "GRCh38",                                                // 12 VCF reference
+            vcf.to_str().unwrap(),                                   // 13 VCF path
         ];
         assert_eq!(answers.len(), n, "one answer per marker");
         let p = ScriptedPrompter::new()
@@ -2358,6 +2564,7 @@ mod tests {
         let ctx = AuthorContext {
             catalogs: pinned(),
             org: None,
+            contact_point: None,
             refresh_catalogs: Some(refresh),
             header_policy: None,
         };
@@ -2368,6 +2575,7 @@ mod tests {
         let ctx = AuthorContext {
             catalogs: BTreeMap::new(),
             org: None,
+            contact_point: None,
             refresh_catalogs: Some(refresh),
             header_policy: None,
         };
@@ -2389,6 +2597,7 @@ mod tests {
         let ctx = AuthorContext {
             catalogs: pinned(),
             org: None,
+            contact_point: None,
             refresh_catalogs: Some(failing_ref),
             header_policy: None,
         };
@@ -2399,6 +2608,7 @@ mod tests {
         let ctx = AuthorContext {
             catalogs: pinned(),
             org: None,
+            contact_point: None,
             refresh_catalogs: None,
             header_policy: None,
         };

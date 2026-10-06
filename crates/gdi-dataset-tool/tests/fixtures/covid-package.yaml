@@ -16,6 +16,9 @@ metadata:
     - allele-frequency
     - genomics
   numberOfUniqueIndividuals: 4008
+  contactPoint:
+    fn: "Data access team"
+    hasEmail: "mailto:data@example.org"
 
 files:
   - category: "VCF"

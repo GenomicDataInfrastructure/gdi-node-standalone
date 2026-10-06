@@ -168,6 +168,9 @@ impl Fixture {
             legal_basis: m.legal_basis,
             is_referenced_by: m.is_referenced_by,
             other_identifier: m.other_identifier,
+            min_typical_age: None,
+            max_typical_age: None,
+            provenance: None,
             contact_point: m.contact_point,
             // Not authored in `package.yaml`: the node computes both during ingest. This test
             // renders a record instead, so a synthetic count is right (any nonNegativeInteger

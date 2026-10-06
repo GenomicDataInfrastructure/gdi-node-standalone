@@ -659,6 +659,7 @@ fn author_new(
             .map(|profile| profile.catalogs.clone())
             .unwrap_or_default(),
         org: active.and_then(|profile| profile.org.as_deref()),
+        contact_point: active.and_then(|profile| profile.contact_point.as_ref()),
         refresh_catalogs: can_refresh.then_some(refresh_ref),
         header_policy: active.and_then(|profile| profile.header_policy),
     };
@@ -672,6 +673,19 @@ fn author_new(
             Err(e) => crate::output::warn(&format!(
                 "warning: could not store the org in the profile ({}); you will be asked again \
                  next time",
+                e.message
+            )),
+        }
+    }
+    if let Some(contact) = result.contact_point_to_store {
+        match setup::store_profile_contact_point(config_path, profile_name, contact) {
+            Ok(path) => crate::output::progress(&format!(
+                "remembered the contact point in {}: the wizard will offer it next time",
+                path.display()
+            )),
+            Err(e) => crate::output::warn(&format!(
+                "warning: could not store the contact point in the profile ({}); you will be \
+                 asked again next time",
                 e.message
             )),
         }

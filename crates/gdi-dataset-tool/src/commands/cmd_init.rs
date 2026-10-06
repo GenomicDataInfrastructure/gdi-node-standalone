@@ -116,6 +116,14 @@ fn template(catalog_line: &str) -> String {
   creator:
     - name: "REPLACE: Creating organisation"
 
+  # --- Contact point (REQUIRED) ---
+  # Who to write to about the dataset, shown on its catalogue page. Prefer a team or service
+  # mailbox to a person's.
+  contactPoint:
+    fn: "REPLACE: Data access team"
+    hasEmail: "REPLACE: mailto:data@example.org"
+    # hasURL: "https://example.org/data"  # Optional web page
+
   # --- Health-specific (REQUIRED) ---
   # {health_categories}
   healthCategory:
@@ -145,9 +153,9 @@ fn template(catalog_line: &str) -> String {
   #   - notation: "DOI-12345"        # Required within identifier
   #     schemaAgency: "DataCite"     # Recommended within the identifier
   #     name: "Example identifier"   # Optional
-  # contactPoint:                    # Dataset-level contact (fn and hasEmail required when present)
-  #   fn: "Data team"
-  #   hasEmail: "mailto:data@example.org"
+  # minTypicalAge: 18                # Typical age range of the people in the dataset, in years
+  # maxTypicalAge: 90
+  # provenance: "How the data was produced: sequencing, variant calling, frequencies"
 
 files:
   # The dataset's content + provenance inventory. The first VCF group is REQUIRED and drives

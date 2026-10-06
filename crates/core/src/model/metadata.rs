@@ -33,10 +33,10 @@ pub struct Agent {
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ContactPoint {
-    /// `vcard:fn` (required when a contact point is present).
+    /// `vcard:fn` (required).
     #[serde(rename = "fn", skip_serializing_if = "Option::is_none")]
     pub fn_: Option<String>,
-    /// `vcard:hasEmail` (required when a contact point is present).
+    /// `vcard:hasEmail`, a `mailto:` IRI (required).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub has_email: Option<String>,
     /// `vcard:hasURL` (optional; recommended sub-field).

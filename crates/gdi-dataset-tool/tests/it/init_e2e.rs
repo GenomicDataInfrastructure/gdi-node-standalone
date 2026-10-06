@@ -228,6 +228,11 @@ fn filled_template_parses_as_valid_package_with_ehds_eli() {
             "REPLACE: Creating organisation",
             "Genome of Europe - EE node",
         )
+        .replace("REPLACE: Data access team", "Data access team")
+        .replace(
+            "REPLACE: mailto:data@example.org",
+            "mailto:data@example.org",
+        )
         .replace(
             "REPLACE: http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic",
             "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic",

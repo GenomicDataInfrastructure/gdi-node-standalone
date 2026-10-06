@@ -2905,6 +2905,69 @@ mod tests {
         assert!(complete.exists(), "keep() must preserve the file");
     }
 
+    /// The on-disk baseline manifest of the overlay-precedence test's dataset.
+    fn overlay_baseline_manifest(
+        id: &str,
+        catalog: &str,
+    ) -> gdi_node_standalone_core::model::Manifest {
+        gdi_node_standalone_core::model::Manifest {
+            payload: None,
+            metadata: ManifestMetadata {
+                dataset_id: id.to_owned(),
+                catalog: catalog.to_owned(),
+                title: gdi_node_standalone_core::model::LocalizedText::Plain(
+                    "Baseline title".to_owned(),
+                ),
+                description: None,
+                access_rights:
+                    "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
+                        .to_owned(),
+                applicable_legislation: vec![
+                    "http://data.europa.eu/eli/reg/2018/1725/oj".to_owned(),
+                ],
+                license: "https://creativecommons.org/licenses/by/4.0/".to_owned(),
+                creator: vec![gdi_node_standalone_core::model::Agent {
+                    name: "University of Tartu".to_owned(),
+                }],
+                health_category: vec![
+                    "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic".to_owned(),
+                ],
+                keywords: None,
+                number_of_unique_individuals: None,
+                conforms_to: None,
+                type_: None,
+                legal_basis: None,
+                is_referenced_by: None,
+                other_identifier: None,
+                min_typical_age: None,
+                max_typical_age: None,
+                provenance: None,
+                contact_point: Some(gdi_node_standalone_core::model::ContactPoint {
+                    fn_: Some("Data team".to_owned()),
+                    has_email: Some("mailto:data@example.org".to_owned()),
+                    has_url: None,
+                }),
+                number_of_records: Some(1),
+                populations: None,
+            },
+            files: Vec::new(),
+            internal: gdi_node_standalone_core::model::Internal::default(),
+            config: gdi_node_standalone_core::model::ManifestConfig {
+                mode: gdi_node_standalone_core::model::DatasetMode::Aggregated,
+                block_range: 10_000_000,
+                af_source: None,
+                af_source_reference: None,
+                min_allele_count: 0,
+                hide_lower_counts: None,
+                assembly: gdi_node_standalone_core::model::Assembly {
+                    reference: "GRCh38".to_owned(),
+                },
+                manifest_version: 1,
+                generated_by: "test".to_owned(),
+            },
+        }
+    }
+
     /// Build an `AppState` for the overlay-precedence test below: a `Visible` dataset under
     /// `channel`, with a durable `manifest.json` on disk, since `overlay::apply` and
     /// `overlay::revert` read the baseline from disk rather than from the cache.
@@ -2937,55 +3000,7 @@ name = "Test Beacon"
         let config = gdi_node_standalone_core::config::ServiceConfig::from_toml_str(&toml).unwrap();
         config.preflight().unwrap();
 
-        let manifest = gdi_node_standalone_core::model::Manifest {
-            payload: None,
-            metadata: ManifestMetadata {
-                dataset_id: id.to_owned(),
-                catalog: catalog.to_owned(),
-                title: gdi_node_standalone_core::model::LocalizedText::Plain(
-                    "Baseline title".to_owned(),
-                ),
-                description: None,
-                access_rights:
-                    "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
-                        .to_owned(),
-                applicable_legislation: vec![
-                    "http://data.europa.eu/eli/reg/2018/1725/oj".to_owned(),
-                ],
-                license: "https://creativecommons.org/licenses/by/4.0/".to_owned(),
-                creator: vec![gdi_node_standalone_core::model::Agent {
-                    name: "University of Tartu".to_owned(),
-                }],
-                health_category: vec![
-                    "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic".to_owned(),
-                ],
-                keywords: None,
-                number_of_unique_individuals: None,
-                conforms_to: None,
-                type_: None,
-                legal_basis: None,
-                is_referenced_by: None,
-                other_identifier: None,
-                contact_point: None,
-                number_of_records: Some(1),
-                populations: None,
-            },
-            files: Vec::new(),
-            internal: gdi_node_standalone_core::model::Internal::default(),
-            config: gdi_node_standalone_core::model::ManifestConfig {
-                mode: gdi_node_standalone_core::model::DatasetMode::Aggregated,
-                block_range: 10_000_000,
-                af_source: None,
-                af_source_reference: None,
-                min_allele_count: 0,
-                hide_lower_counts: None,
-                assembly: gdi_node_standalone_core::model::Assembly {
-                    reference: "GRCh38".to_owned(),
-                },
-                manifest_version: 1,
-                generated_by: "test".to_owned(),
-            },
-        };
+        let manifest = overlay_baseline_manifest(id, catalog);
         std::fs::write(
             data_dir.join(id).join("manifest.json"),
             serde_json::to_vec(&manifest).unwrap(),

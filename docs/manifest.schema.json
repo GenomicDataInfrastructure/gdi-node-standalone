@@ -68,33 +68,6 @@
         "reference"
       ]
     },
-    "ContactPoint": {
-      "description": "A vCard-style contact point (`vcard:Kind`).",
-      "type": "object",
-      "properties": {
-        "fn": {
-          "description": "`vcard:fn` (required when a contact point is present).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "hasEmail": {
-          "description": "`vcard:hasEmail` (required when a contact point is present).",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "hasURL": {
-          "description": "`vcard:hasURL` (optional; recommended sub-field).",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      }
-    },
     "ConversionDiscarded": {
       "description": "What the projection discarded. Only the four `records_*` counts are whole records.",
       "type": "object",
@@ -546,15 +519,31 @@
           }
         },
         "contactPoint": {
-          "description": "Dataset-level contact point.",
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ContactPoint"
+          "description": "Who to write to about the dataset. Required.",
+          "type": "object",
+          "properties": {
+            "fn": {
+              "description": "`vcard:fn` (required).",
+              "type": [
+                "string",
+                "null"
+              ]
             },
-            {
-              "type": "null"
+            "hasEmail": {
+              "description": "`vcard:hasEmail`, a `mailto:` IRI (required).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "hasURL": {
+              "description": "`vcard:hasURL` (optional; recommended sub-field).",
+              "type": [
+                "string",
+                "null"
+              ]
             }
-          ]
+          }
         },
         "creator": {
           "description": "Creating agents (>= 1).",
@@ -624,6 +613,24 @@
           "description": "Reuse license for this dataset (IRI).",
           "type": "string"
         },
+        "maxTypicalAge": {
+          "description": "Typical age of the oldest people in the dataset, in years.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
+        "minTypicalAge": {
+          "description": "Typical age of the youngest people in the dataset, in years.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        },
         "numberOfRecords": {
           "description": "Computed: distinct `(chromosome, POS, REF, ALT)` variants the dataset serves.\n\nOptional in this schema, but required by the node at ingest. It is served verbatim\nin the public FDP and DCAT records and cross-checked against the parquet data, so a\npackage that omits it or miscounts is rejected.",
           "type": [
@@ -662,6 +669,17 @@
             "type": "string"
           }
         },
+        "provenance": {
+          "description": "How the data was produced (plain string or language map).",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LocalizedText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "title": {
           "description": "Dataset title (plain string or language map).",
           "$ref": "#/$defs/LocalizedText"
@@ -686,7 +704,8 @@
         "applicableLegislation",
         "license",
         "creator",
-        "healthCategory"
+        "healthCategory",
+        "contactPoint"
       ]
     },
     "OtherIdentifier": {

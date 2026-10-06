@@ -40,3 +40,7 @@
   { a = "csvw:Column", "csvw:name" = "AC_HET", "csvw:title" = "Heterozygous count", "dct:description" = "Number of alternate alleles carried by heterozygous individuals (one each), if given.", "csvw:datatype" = "integer" },
   { a = "csvw:Column", "csvw:name" = "AC_HEMI", "csvw:title" = "Hemizygous count", "dct:description" = "Number of alternate alleles carried by hemizygous individuals (one each), if given.", "csvw:datatype" = "integer" },
 ]
+
+# What a user reaches through an aggregated dataset's distribution.
+[fairdp.publish.add.distribution.aggregated]
+"dct:description" = "Allele frequencies, shown in the GDI User Portal and queryable through the GA4GH Beacon v2 API."

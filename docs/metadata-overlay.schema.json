@@ -32,7 +32,7 @@
       }
     },
     "contactPoint": {
-      "description": "Dataset-level contact point.",
+      "description": "Who to write to about the dataset.",
       "anyOf": [
         {
           "$ref": "#/$defs/ContactPoint"
@@ -110,6 +110,24 @@
         "null"
       ]
     },
+    "maxTypicalAge": {
+      "description": "Typical age of the oldest people in the dataset, in years.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
+    "minTypicalAge": {
+      "description": "Typical age of the youngest people in the dataset, in years.",
+      "type": [
+        "integer",
+        "null"
+      ],
+      "format": "uint32",
+      "minimum": 0
+    },
     "numberOfUniqueIndividuals": {
       "description": "Distinct sequenced subjects across the whole dataset (recommended).",
       "type": [
@@ -128,6 +146,17 @@
       "items": {
         "$ref": "#/$defs/OtherIdentifier"
       }
+    },
+    "provenance": {
+      "description": "How the data was produced (plain string or language map).",
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LocalizedText"
+        },
+        {
+          "type": "null"
+        }
+      ]
     },
     "title": {
       "description": "Dataset title (plain string or language map).",
@@ -171,14 +200,14 @@
       "type": "object",
       "properties": {
         "fn": {
-          "description": "`vcard:fn` (required when a contact point is present).",
+          "description": "`vcard:fn` (required).",
           "type": [
             "string",
             "null"
           ]
         },
         "hasEmail": {
-          "description": "`vcard:hasEmail` (required when a contact point is present).",
+          "description": "`vcard:hasEmail`, a `mailto:` IRI (required).",
           "type": [
             "string",
             "null"

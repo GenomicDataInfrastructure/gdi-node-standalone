@@ -59,9 +59,18 @@ pub struct MetadataOverlay {
     /// Secondary identifiers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub other_identifier: Option<Vec<OtherIdentifier>>,
-    /// Dataset-level contact point.
+    /// Who to write to about the dataset.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contact_point: Option<ContactPoint>,
+    /// Typical age of the youngest people in the dataset, in years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_typical_age: Option<u32>,
+    /// Typical age of the oldest people in the dataset, in years.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_typical_age: Option<u32>,
+    /// How the data was produced (plain string or language map).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<LocalizedText>,
 }
 
 impl MetadataOverlay {
@@ -99,6 +108,9 @@ impl ManifestMetadata {
             is_referenced_by: self.is_referenced_by.clone(),
             other_identifier: self.other_identifier.clone(),
             contact_point: self.contact_point.clone(),
+            min_typical_age: self.min_typical_age,
+            max_typical_age: self.max_typical_age,
+            provenance: self.provenance.clone(),
         }
     }
 
@@ -141,6 +153,9 @@ impl ManifestMetadata {
             is_referenced_by: _,
             other_identifier: _,
             contact_point: _,
+            min_typical_age: _,
+            max_typical_age: _,
+            provenance: _,
         } = self;
 
         let MetadataOverlay {
@@ -159,6 +174,9 @@ impl ManifestMetadata {
             is_referenced_by: _,
             other_identifier: _,
             contact_point: _,
+            min_typical_age: _,
+            max_typical_age: _,
+            provenance: _,
         } = ov;
 
         if let Some(v) = &ov.title {
@@ -206,6 +224,15 @@ impl ManifestMetadata {
         if let Some(v) = &ov.contact_point {
             self.contact_point = Some(v.clone());
         }
+        if let Some(v) = ov.min_typical_age {
+            self.min_typical_age = Some(v);
+        }
+        if let Some(v) = ov.max_typical_age {
+            self.max_typical_age = Some(v);
+        }
+        if let Some(v) = &ov.provenance {
+            self.provenance = Some(v.clone());
+        }
     }
 }
 
@@ -239,6 +266,9 @@ mod tests {
             is_referenced_by: None,
             other_identifier: None,
             contact_point: None,
+            min_typical_age: None,
+            max_typical_age: None,
+            provenance: None,
             number_of_records: Some(42),
             populations: None,
         }
@@ -269,7 +299,10 @@ mod tests {
             "legalBasis": ["http://example.org/lb"],
             "isReferencedBy": ["http://example.org/ref"],
             "otherIdentifier": [{"notation": "DOI:10.x"}],
-            "contactPoint": {"fn": "N", "hasEmail": "mailto:a@b.co"}
+            "contactPoint": {"fn": "N", "hasEmail": "mailto:a@b.co"},
+            "minTypicalAge": 18,
+            "maxTypicalAge": 90,
+            "provenance": "P"
         });
         let ov: MetadataOverlay =
             serde_json::from_value(overlay_json).expect("fixture must deserialize");
@@ -295,6 +328,9 @@ mod tests {
             is_referenced_by,
             other_identifier,
             contact_point,
+            min_typical_age,
+            max_typical_age,
+            provenance,
         } = &ov;
         for (field, is_set) in [
             ("title", title.is_some()),
@@ -315,6 +351,9 @@ mod tests {
             ("isReferencedBy", is_referenced_by.is_some()),
             ("otherIdentifier", other_identifier.is_some()),
             ("contactPoint", contact_point.is_some()),
+            ("minTypicalAge", min_typical_age.is_some()),
+            ("maxTypicalAge", max_typical_age.is_some()),
+            ("provenance", provenance.is_some()),
         ] {
             assert!(
                 is_set,

@@ -9,7 +9,9 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use gdi_node_standalone_core::config::{Profile, ProfileHeaderPolicy, ProfileS3, ToolConfig};
+use gdi_node_standalone_core::config::{
+    Profile, ProfileContactPoint, ProfileHeaderPolicy, ProfileS3, ToolConfig,
+};
 
 use crate::commands::cmd_keys;
 use crate::s3::S3Credentials;
@@ -582,6 +584,34 @@ pub fn store_profile_org(
     profile_name: Option<&str>,
     org: &str,
 ) -> Result<PathBuf, ToolError> {
+    update_profile(config_path, profile_name, |profile| {
+        profile.org = Some(org.to_owned());
+    })
+}
+
+/// Store `contact` as the active profile's `contact_point`, the wizard's default dataset
+/// contact, the same way [`store_profile_org`] stores the org.
+///
+/// # Errors
+///
+/// Returns a [`ToolError`] when the config cannot be read or written.
+pub fn store_profile_contact_point(
+    config_path: Option<&Path>,
+    profile_name: Option<&str>,
+    contact: ProfileContactPoint,
+) -> Result<PathBuf, ToolError> {
+    update_profile(config_path, profile_name, |profile| {
+        profile.contact_point = Some(contact);
+    })
+}
+
+/// Apply `change` to the active profile in the config file the tool writes to, creating
+/// the file and the profile when they do not exist yet.
+fn update_profile(
+    config_path: Option<&Path>,
+    profile_name: Option<&str>,
+    change: impl FnOnce(&mut Profile),
+) -> Result<PathBuf, ToolError> {
     let target = resolve_write_target(config_path)?;
     let mut cfg = if target.exists() {
         ToolConfig::load_file_only(&target).map_err(|e| {
@@ -594,7 +624,7 @@ pub fn store_profile_org(
         ToolConfig::default()
     };
     let name = crate::profile::select_active_name(&cfg, profile_name)?;
-    cfg.profiles.entry(name).or_default().org = Some(org.to_owned());
+    change(cfg.profiles.entry(name).or_default());
     gdi_node_standalone_core::config::write(&cfg, &target)
         .map_err(|e| ToolError::user(format!("cannot write {}: {e}", target.display())))?;
     Ok(target)
@@ -2657,5 +2687,21 @@ secret_access_key = "archive-secret-value"
             "the other keys survive"
         );
         assert_eq!(cfg.country_code.as_deref(), Some("EE"));
+    }
+
+    #[test]
+    fn a_stored_contact_point_reads_back_beside_the_org() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("tool.toml");
+        std::fs::write(&cfg_path, "[profiles.default]\norg = \"UTARTU\"\n").unwrap();
+        let contact = ProfileContactPoint {
+            name: "Data access team".to_owned(),
+            email: "data@example.org".to_owned(),
+            url: None,
+        };
+        store_profile_contact_point(Some(&cfg_path), None, contact.clone()).unwrap();
+        let cfg = ToolConfig::load(Some(&cfg_path)).unwrap();
+        assert_eq!(cfg.profiles["default"].contact_point, Some(contact));
+        assert_eq!(cfg.profiles["default"].org.as_deref(), Some("UTARTU"));
     }
 }

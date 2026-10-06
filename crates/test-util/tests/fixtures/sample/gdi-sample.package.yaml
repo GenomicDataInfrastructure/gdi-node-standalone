@@ -17,6 +17,9 @@ metadata:
     - genomics
     - synthetic
   numberOfUniqueIndividuals: 4986
+  contactPoint:
+    fn: "Data access team"
+    hasEmail: "mailto:data@example.org"
 
 files:
   - category: "VCF"

@@ -48,6 +48,12 @@ pub(crate) enum MetaField {
     OtherIdentifier,
     /// dataset-level `contactPoint` (nested `vcard:Kind` blank node).
     ContactPoint,
+    /// `minTypicalAge` (`xsd:nonNegativeInteger`).
+    MinTypicalAge,
+    /// `maxTypicalAge` (`xsd:nonNegativeInteger`).
+    MaxTypicalAge,
+    /// Localized `provenance` (nested `dct:ProvenanceStatement` blank node).
+    Provenance,
     /// `dct:issued` (creation time, `xsd:dateTime`).
     Issued,
     /// `dct:modified` (creation time while immutable, `xsd:dateTime`).
@@ -159,6 +165,18 @@ pub(crate) const DATASET_MAPPING: &[FieldMapping] = &[
         predicate: vocab::DCAT_CONTACT_POINT,
     },
     FieldMapping {
+        field: MetaField::MinTypicalAge,
+        predicate: vocab::HEALTHDCATAP_MIN_TYPICAL_AGE,
+    },
+    FieldMapping {
+        field: MetaField::MaxTypicalAge,
+        predicate: vocab::HEALTHDCATAP_MAX_TYPICAL_AGE,
+    },
+    FieldMapping {
+        field: MetaField::Provenance,
+        predicate: vocab::DCT_PROVENANCE,
+    },
+    FieldMapping {
         field: MetaField::Theme,
         predicate: vocab::DCAT_THEME,
     },
@@ -214,6 +232,9 @@ mod tests {
             MetaField::IsReferencedBy,
             MetaField::OtherIdentifier,
             MetaField::ContactPoint,
+            MetaField::MinTypicalAge,
+            MetaField::MaxTypicalAge,
+            MetaField::Provenance,
             MetaField::Issued,
             MetaField::Modified,
             MetaField::Theme,
@@ -245,6 +266,9 @@ mod tests {
                 | MetaField::IsReferencedBy
                 | MetaField::OtherIdentifier
                 | MetaField::ContactPoint
+                | MetaField::MinTypicalAge
+                | MetaField::MaxTypicalAge
+                | MetaField::Provenance
                 | MetaField::Issued
                 | MetaField::Modified
                 | MetaField::Theme
@@ -309,6 +333,9 @@ mod tests {
                 is_referenced_by: _,
                 other_identifier: _,
                 contact_point: _,
+                min_typical_age: _,
+                max_typical_age: _,
+                provenance: _,
                 number_of_records: _,
                 // Not published: the population breakdown is beacon query surface,
                 // re-derived at ingest and disclosure-gated at serve time. It has no DCAT

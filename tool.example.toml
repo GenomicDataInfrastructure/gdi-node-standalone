@@ -100,6 +100,12 @@ node_recipient_file = "keys/node-ee.pub"
 # Type: string. Optional (while unset, the wizard asks and offers to store the answer).
 org = "EXAMPLE"
 
+# The dataset contact point the wizard offers for every new dataset: who to write to about
+# the data, published on each dataset's catalogue page. Prefer a team or service mailbox to
+# a person's. The wizard asks for it and offers to store the answer here.
+# Type: table { name = string, email = string, url = string (optional) }. Optional.
+# contact_point = { name = "Data access team", email = "data@example.org" }
+
 # What `build` and `package` put in the packaged `headers/{vcfId}.vcf` members when no
 # `--header-policy` or `--no-headers` flag is given. The node drops these members at
 # ingest and never serves them; they travel only in the package's non-public sections
