@@ -176,13 +176,11 @@ services:
     # Persistent: file storage on the `openbao-file` volume + a static seal, so the
     # node crypt4gh identity and the Transit master key survive restarts.
     # `scripts/dev-reset.sh` is how you start clean.
-    image: openbao/openbao:2.6.2
+    image: openbao/openbao:2.6.4
     profiles: ["openbao"]
     logging: *default-logging
-    # Note the explicit -config here, and its absence on the `vault` service below:
-    # the hashicorp/vault entrypoint auto-appends -config=/vault/config (so passing
-    # it again double-loads the listener), while openbao's does not. See the header
-    # comment in compose/vault.hcl.
+    # This -config is redundant but harmless; on the `vault` service below it would bind
+    # the listener twice. See compose/vault.hcl.
     command: server -config=/openbao/config/openbao.hcl
     environment:
       BAO_ADDR: http://127.0.0.1:8200
@@ -227,7 +225,7 @@ services:
   # active — so enabling both renders fine under `config` and then fails to bind on
   # `up`. That is the intended reading: pick one backend.
   vault:
-    image: hashicorp/vault:2.1.0
+    image: hashicorp/vault:2.1.1
     profiles: ["vault"]
     logging: *default-logging
     # No -config flag: the entrypoint already appends -config=/vault/config. Passing
