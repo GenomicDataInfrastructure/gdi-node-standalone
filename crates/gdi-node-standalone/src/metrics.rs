@@ -2530,8 +2530,8 @@ mod tests {
         // The shared `gdi-build-info` crate's build.rs injects these (at minimum
         // "unknown"); a missing var would fail to compile via `env!` inside that
         // crate, so this guards that the provenance is still wired through.
-        assert!(!gdi_build_info::GIT_SHA.is_empty());
-        assert!(!gdi_build_info::BUILD_EPOCH.is_empty());
+        assert_ne!(gdi_build_info::GIT_SHA, "");
+        assert_ne!(gdi_build_info::BUILD_EPOCH, "");
     }
 
     #[test]

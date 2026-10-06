@@ -52,8 +52,14 @@ fn submitted_request_echo_returns_arrays_verbatim() {
 fn submitted_request_echo_defaults_to_empty_when_absent_or_not_an_array() {
     // Absent.
     let (filters, schemas) = submitted_request_echo(&Map::new());
-    assert!(filters.is_empty());
-    assert!(schemas.is_empty());
+    assert!(
+        filters.is_empty(),
+        "absent filters echo as empty: {filters:?}"
+    );
+    assert!(
+        schemas.is_empty(),
+        "absent requestedSchemas echo as empty: {schemas:?}"
+    );
 
     // Present but not an array: an empty list, never a panic or a reflected scalar.
     let p = params(vec![
@@ -61,8 +67,14 @@ fn submitted_request_echo_defaults_to_empty_when_absent_or_not_an_array() {
         ("requestedSchemas", json!(42)),
     ]);
     let (filters, schemas) = submitted_request_echo(&p);
-    assert!(filters.is_empty());
-    assert!(schemas.is_empty());
+    assert!(
+        filters.is_empty(),
+        "non-array filters echo as empty: {filters:?}"
+    );
+    assert!(
+        schemas.is_empty(),
+        "non-array requestedSchemas echo as empty: {schemas:?}"
+    );
 }
 
 /// `requestedSchemas` is client-supplied and echoed into `receivedRequestSummary`, where the
@@ -136,7 +148,11 @@ fn echo_received_request_defaults_when_nothing_submitted() {
     let mut meta = error_response_meta(&cfg, "genomicVariant");
     echo_received_request(&mut meta, &Map::new());
 
-    assert!(meta.received_request_summary.requested_schemas.is_empty());
+    assert!(
+        meta.received_request_summary.requested_schemas.is_empty(),
+        "absent requestedSchemas echo as empty: {:?}",
+        meta.received_request_summary.requested_schemas
+    );
     assert!(!meta.received_request_summary.test_mode);
 
     let v = serde_json::to_value(&meta).unwrap();

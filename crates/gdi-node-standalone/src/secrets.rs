@@ -366,7 +366,11 @@ mod tests {
     #[test]
     fn s3_buckets_empty_without_section() {
         let cfg = ServiceConfig::default();
-        assert!(s3_buckets(&cfg).is_empty());
+        let buckets = s3_buckets(&cfg);
+        assert!(
+            buckets.is_empty(),
+            "no [s3] section means no buckets: {buckets:?}"
+        );
         let cfg = ServiceConfig {
             s3: Some(S3Config {
                 buckets: vec![bucket("primary")],

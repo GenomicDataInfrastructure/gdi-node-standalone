@@ -1719,7 +1719,8 @@ mod tests {
         assert_eq!(read(3_500, 9_500, &|p| (3_500..=9_500).contains(&p)), want);
 
         // A window past every row prunes to nothing.
-        assert!(read(1_000_000, 2_000_000, &|_| true).is_empty());
+        let past_end = read(1_000_000, 2_000_000, &|_| true);
+        assert!(past_end.is_empty(), "unexpected rows: {past_end:?}");
     }
 
     #[test]

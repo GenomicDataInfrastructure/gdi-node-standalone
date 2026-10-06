@@ -92,8 +92,8 @@ mod tests {
     fn provenance_consts_are_nonempty() {
         // build.rs injects these (at minimum "unknown"); a missing var would fail to
         // compile via `env!`, so this also guards that the build script ran.
-        assert!(!GIT_SHA.is_empty());
-        assert!(!BUILD_EPOCH.is_empty());
+        assert_ne!(GIT_SHA, "");
+        assert_ne!(BUILD_EPOCH, "");
     }
 }
 

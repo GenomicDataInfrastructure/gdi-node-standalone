@@ -1085,7 +1085,8 @@ mod tests {
             StatusWrite::unshared(),
             entry("ds-doomed", DatasetState::Visible),
         );
-        assert!(cache.ids_in_state(DatasetState::Error).is_empty());
+        let errored = cache.ids_in_state(DatasetState::Error);
+        assert!(errored.is_empty(), "no dataset is in Error: {errored:?}");
 
         // The visibility setters demand proof the status lock is held; a test takes it
         // exactly as production does.
@@ -1232,7 +1233,11 @@ mod tests {
         )
         .unwrap();
         index.insert("GDI-EE-UTARTU-1".to_owned(), unknown);
-        assert!(index.drain_retriable_errors().is_empty());
+        let retriable = index.drain_retriable_errors();
+        assert!(
+            retriable.is_empty(),
+            "unexpected retriable errors: {retriable:?}"
+        );
         assert_eq!(
             index.get("GDI-EE-UTARTU-1").unwrap().state,
             DatasetState::Error
@@ -1829,7 +1834,8 @@ mod tests {
             StatusWrite::unshared(),
             entry("GDI-EE-UTARTU-1", DatasetState::Hidden),
         );
-        assert!(cache.visible_datasets().is_empty());
+        let visible = cache.visible_datasets();
+        assert!(visible.is_empty(), "no dataset is visible: {visible:?}");
 
         let status_mutex = std::sync::Mutex::new(StatusIndex::new());
         let status = status_mutex.lock().expect("status lock");
@@ -1891,7 +1897,8 @@ mod tests {
             "GDI-EE-UTARTU-1",
             DatasetState::Hidden
         ));
-        assert!(cache.visible_datasets().is_empty());
+        let visible = cache.visible_datasets();
+        assert!(visible.is_empty(), "no dataset is visible: {visible:?}");
     }
 
     #[test]
@@ -1968,7 +1975,8 @@ mod tests {
             "GDI-EE-UTARTU-1",
             DatasetState::Hidden
         ));
-        assert!(cache.visible_datasets().is_empty());
+        let visible = cache.visible_datasets();
+        assert!(visible.is_empty(), "no dataset is visible: {visible:?}");
         assert!(
             cache
                 .remove(StatusWrite::held(&status), "GDI-EE-UTARTU-1")
@@ -2132,7 +2140,8 @@ mod tests {
         assert_eq!(hydrated.loaded, 1);
         assert_eq!(cache.get(id).unwrap().state, DatasetState::Hidden);
         // And it never appears in the served (Visible) set.
-        assert!(cache.visible_datasets().is_empty());
+        let visible = cache.visible_datasets();
+        assert!(visible.is_empty(), "no dataset is visible: {visible:?}");
     }
 
     #[test]
@@ -2356,7 +2365,8 @@ mod tests {
 
         assert_eq!(loaded, 1);
         assert_eq!(cache.get(id).unwrap().state, DatasetState::Hidden);
-        assert!(cache.visible_datasets().is_empty());
+        let visible = cache.visible_datasets();
+        assert!(visible.is_empty(), "no dataset is visible: {visible:?}");
     }
 
     #[test]

@@ -368,7 +368,11 @@ mod tests {
         let baseline = report_at(dir.path(), 0);
         let impact = floor_impact_at(0, &baseline, &baseline);
         assert_eq!(impact.rows_withheld, 0);
-        assert!(impact.populations_lost.is_empty());
+        assert!(
+            impact.populations_lost.is_empty(),
+            "a zero floor loses no population: {:?}",
+            impact.populations_lost
+        );
     }
 
     /// Every key of `preview --format json` is `camelCase`, at every depth.

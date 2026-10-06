@@ -204,11 +204,11 @@ struct OtelGauge {
 impl OtelGauge {
     fn apply(&self, update: impl Fn(f64) -> f64) {
         let mut next = 0.0;
-        // `fetch_update` retries on contention; the closure is pure, so re-running it is
+        // `try_update` retries on contention; the closure is pure, so re-running it is
         // harmless, and it cannot fail because the closure always returns `Some`.
         let _ = self
             .current
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |bits| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |bits| {
                 next = update(f64::from_bits(bits));
                 Some(next.to_bits())
             });

@@ -6852,7 +6852,7 @@ mod tests {
             panic!("--reset must parse");
         };
         assert!(args.reset);
-        assert!(args.field.is_empty());
+        assert!(args.field.is_empty(), "unexpected fields: {:?}", args.field);
         assert!(args.patch.is_none());
 
         // Exactly one mode is required (the `mode` arg group).

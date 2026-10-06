@@ -684,7 +684,11 @@ mod tests {
             writer: Some("zzzz".to_owned()),
             ..Default::default()
         };
-        assert!(matching_ids(&miss).is_empty());
+        let ids = matching_ids(&miss);
+        assert!(
+            ids.is_empty(),
+            "an unmatched writer selects nothing: {ids:?}"
+        );
     }
 
     #[test]

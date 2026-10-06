@@ -275,10 +275,16 @@ mod tests {
         let mut encrypted = Vec::new();
         encrypt_body(&mut &b""[..], &mut encrypted, &session_key).unwrap();
         // Empty plaintext means no segments are written.
-        assert!(encrypted.is_empty());
+        assert!(
+            encrypted.is_empty(),
+            "empty plaintext writes no segments: {encrypted:?}"
+        );
         let mut decrypted = Vec::new();
         decrypt_body(&mut &encrypted[..], &mut decrypted, &[session_key]).unwrap();
-        assert!(decrypted.is_empty());
+        assert!(
+            decrypted.is_empty(),
+            "no segments decrypt to no plaintext: {decrypted:?}"
+        );
     }
 
     #[test]

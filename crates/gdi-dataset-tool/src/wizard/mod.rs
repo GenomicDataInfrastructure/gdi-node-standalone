@@ -1260,7 +1260,11 @@ mod tests {
             secret_access_key: creds.then(|| "s".to_owned()),
             ..ProfileS3::default()
         };
-        assert!(publish_routes(None).is_empty());
+        let routes = publish_routes(None);
+        assert!(
+            routes.is_empty(),
+            "no profile means no publish routes: {routes:?}"
+        );
         assert!(
             publish_routes(Some(&Profile::default())).is_empty(),
             "nothing configured, nothing offered"

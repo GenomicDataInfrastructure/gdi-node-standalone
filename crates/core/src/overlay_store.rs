@@ -433,7 +433,11 @@ mod tests {
 
         let change = overlay_change(Some(&p), &p);
 
-        assert!(change.changed_fields.is_empty());
+        assert!(
+            change.changed_fields.is_empty(),
+            "unexpected changed fields: {:?}",
+            change.changed_fields
+        );
         assert!(change.access_rights_before.is_none());
         assert!(change.access_rights_after.is_none());
     }

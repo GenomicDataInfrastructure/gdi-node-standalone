@@ -753,7 +753,8 @@ mod tests {
     #[test]
     fn no_twins_when_names_are_distinct_or_underscore_safe() {
         let cfg = cfg_with_profiles(&["ee_prod", "ee_local", "se_prod"]);
-        assert!(cfg.phantom_profile_twins().is_empty());
+        let twins = cfg.phantom_profile_twins();
+        assert!(twins.is_empty(), "unexpected phantom twins: {twins:?}");
     }
 
     /// A `[profiles.<name>.s3]` header with every key commented out is not an S3 channel.
