@@ -266,7 +266,7 @@ jobs:
       # `ci-local.sh msrv` installs and pins the MSRV toolchain itself (`rustup
       # toolchain install $MSRV` + `cargo +$MSRV`), so it does not rely on this
       # action selecting the version: `cargo +<MSRV>` is rustup precedence #1 and
-      # beats both `rustup default` and the repo's rust-toolchain.toml (the 1.98.0
+      # beats both `rustup default` and the repo's rust-toolchain.toml (the 1.99.0
       # dev pin). The base `stable` toolchain set up here is only for rustup + cache
       # warming. The MSRV value is not duplicated here: `ci-local.sh` owns the default
       # (the `MSRV=${MSRV:-…}` fallback), which tracks `rust-version` in Cargo.toml.

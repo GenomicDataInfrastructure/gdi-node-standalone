@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # The ops sidecar image: a shell, `tar`, and the two release binaries. Nothing else.
 #
@@ -43,7 +43,7 @@ ARG BIN_SOURCE=builder
 # the service Dockerfile uses, so both images compile with one toolchain; bump it in both
 # files together.
 # ---------------------------------------------------------------------------
-FROM rust:1.98.0-trixie@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959 AS builder
+FROM rust:1.99.0-trixie@sha256:15ad267e7a4cb2dce5905c90c76765adb6714945c5ea6d7c82673897a5e4067b AS builder
 
 # The musl target's std, plus the musl C toolchain: `ring` and `zstd-sys` compile C, and
 # the stock image has no cross-libc `cc`. (CI cross-compiles the same target through
@@ -115,7 +115,7 @@ FROM ${BIN_SOURCE} AS binsrc
 # and bump tag+digest together; `ci-local.sh dockerfile-check` reports (without failing)
 # when upstream has moved past this pin.
 # ---------------------------------------------------------------------------
-FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
 
 # The node's numeric uid:gid — numeric, and the same as the service image's, because that
 # is what makes a `kubectl cp` into the shared inbox land owned by the node, the whole

@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32
+# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
 #
 # The syntax frontend is digest-pinned like both `FROM` images below, and it is not an
 # ordinary base image: BuildKit downloads and executes it to build every stage, and it
@@ -40,11 +40,11 @@ ARG BIN_SOURCE=builder
 
 # ---------------------------------------------------------------------------
 # builder — recompile from source (BIN_SOURCE=builder). Pinned by digest as well as
-# tag: the readable `1.98.0-trixie` tag is mutable (can be re-pushed), so the `@sha256:`
+# tag: the readable `1.99.0-trixie` tag is mutable (can be re-pushed), so the `@sha256:`
 # index digest fixes the exact multi-arch builder image; it is Debian 13, the same
 # glibc as the distroless runtime below. Bump both by hand, in Dockerfile.ops too.
 # ---------------------------------------------------------------------------
-FROM rust:1.98.0-trixie@sha256:620dbcd124499c59e2406d3741574b5c5838cf9eb9656f0c3a03948f79b02959 AS builder
+FROM rust:1.99.0-trixie@sha256:15ad267e7a4cb2dce5905c90c76765adb6714945c5ea6d7c82673897a5e4067b AS builder
 
 WORKDIR /build
 
