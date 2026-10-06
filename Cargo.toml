@@ -146,10 +146,10 @@ dbg_macro = "warn"
 # Shared dependencies, exact-pinned so the committed `Cargo.lock` is authoritative.
 [workspace.dependencies]
 anyhow = "=1.0.104"
-thiserror = "=2.0.20"
+thiserror = "=2.0.21"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
-serde-saphyr = "=1.2.0"
+serde-saphyr = "=1.3.0"
 regex = "=1.13.1"
 url = "=2.5.8"
 time = { version = "=0.3.55", features = ["formatting", "macros", "parsing"] }
@@ -171,11 +171,11 @@ zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
 tempfile = "=3.27.0"
 # tar assembly for the `.tar.c4gh` package; default features off, so no xattr support.
 tar = { version = "=0.4.46", default-features = false }
-clap = { version = "=4.6.6", features = ["derive"] }
+clap = { version = "=4.6.7", features = ["derive"] }
 # Shell-completion generator for the `gdi-dataset-tool completions <shell>` verb. Same
 # release train as `clap`, but patched independently, so the two pins differ; it adds no
 # crate beyond `clap` itself.
-clap_complete = "=4.6.9"
+clap_complete = "=4.6.11"
 # Progress bars for the tool's long offline streams (build/pack/unpack) and S3 transfers.
 # They draw to stderr and auto-hide off-TTY, so the stdout result / `--format json`
 # contract is untouched. Default features off drops the wasm-only `wasmbind`/`web-time`;
@@ -194,7 +194,7 @@ toml_edit = "=0.22.27"
 # the banned `aws-lc-rs`), `ring` is object_store's own SigV4/checksum crypto, and
 # `reqwest` is the HTTP transport. CA roots are supplied explicitly via
 # `core::tls::s3_client_options()`; see the `webpki-root-certs` note below.
-object_store = { version = "=0.14.1", default-features = false, features = ["aws-base", "ring", "reqwest"] }
+object_store = { version = "=0.14.2", default-features = false, features = ["aws-base", "ring", "reqwest"] }
 # Stream combinators for object_store's `list`/`get` streams (already in tree).
 futures = { version = "=0.3.34", default-features = false, features = ["std"] }
 # HTTP client for the tool's `GET /datasets/{id}/state` probe and the service's Vault
@@ -202,7 +202,7 @@ futures = { version = "=0.3.34", default-features = false, features = ["std"] }
 # is installed explicitly at startup) and without `aws-lc-rs`, which the umbrella `rustls`
 # feature would pull. Roots come from `core::tls`: the OS platform verifier merged with the
 # bundled Mozilla `webpki-root-certs`.
-reqwest = { version = "=0.13.4", default-features = false, features = ["json", "charset", "http2", "rustls-no-provider"] }
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "charset", "http2", "rustls-no-provider"] }
 # rustls with `custom-provider`, which disables the implicit provider so one must be
 # installed explicitly. Shared by the service's `tls` group and the tool's startup
 # crypto-provider install; this is the surface that keeps the build on `ring` alone.
@@ -213,7 +213,7 @@ rustls = { version = "=0.23.45", default-features = false, features = ["ring", "
 # so a self-contained binary verifies public TLS on any host — distroless, bare-metal
 # glibc, or a musl/scratch/HPC node with no system CA bundle. Centralized in `core::tls`.
 webpki-root-certs = "=1.0.9"
-tokio = { version = "=1.53.1", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "signal", "net"] }
+tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "signal", "net"] }
 notify = "=8.2.0"
 tracing = "=0.1.44"
 # `json` for the service's structured single-line stderr logs.
@@ -245,15 +245,15 @@ metrics-exporter-prometheus = { version = "=0.18.3", default-features = false }
 # `clock_ticks_per_second` for the `gdi_process_cpu_seconds` gauge — the kernel CLK_TCK
 # without the `unsafe` `libc::sysconf` the workspace's `unsafe_code` lint rules out. Both
 # are pure-Rust raw syscalls, with no libc linkage.
-rustix = { version = "=1.1.4", default-features = false, features = ["std", "fs", "param"] }
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "param"] }
 serial_test = { version = "=4.0.1", default-features = false }
 # FAIR Data Point RDF stack: the oxigraph split-out crates. oxttl 0.2.x and oxjsonld 0.2.x
 # both pin `oxrdf =0.3.x`, so exactly one oxrdf version resolves. The 0.2.x serializers
 # require rustc 1.87, comfortably below the workspace MSRV.
-oxrdf = "=0.3.3"
-oxttl = "=0.2.3"
-oxjsonld = "=0.2.5"
-insta = "=1.48.0"
+oxrdf = "=0.3.4"
+oxttl = "=0.2.4"
+oxjsonld = "=0.2.6"
+insta = "=1.49.0"
 # Performance benchmarks. Default features off drops the heavy `plotters`/`html_reports`
 # graph; `rayon` parallelises sample collection and `cargo_bench_support` wires
 # `cargo bench`.
@@ -268,7 +268,7 @@ dialoguer = { version = "=0.12.0", features = ["completion"] }
 # `ansi-parsing` is required for correctness rather than inherited from feature
 # unification: `measure_text_width` strips ANSI only with it, and the ColorfulTheme prompt
 # it measures carries ANSI when colors are on.
-console = { version = "=0.16.4", default-features = false, features = [
+console = { version = "=0.16.6", default-features = false, features = [
     "ansi-parsing",
     "unicode-width",
 ] }
