@@ -812,14 +812,18 @@ mod tests {
     /// surfaced as an error — proving the recipient goes through the durable atomic
     /// writer (which the fault seam guards) rather than a plain `fs::write` (which the
     /// seam cannot see, so an in-flight failure would be silently swallowed leaving a
-    /// durable secret beside a torn/absent `.pub`). Keyed on `.pub` so the fault fires
-    /// on the public write, never the secret write that precedes it.
+    /// durable secret beside a torn/absent `.pub`). Keyed on the `.pub` path so the fault
+    /// fires on the public write, never the secret write that precedes it.
     #[test]
     #[serial(faults)]
     fn public_recipient_write_is_durable() {
         let dir = tempfile::tempdir().unwrap();
         let secret = dir.path().join("id.key");
-        let _fault = arm_enospc(FaultPoint::DurableWrite, ".pub", 1);
+        let _fault = arm_enospc(
+            FaultPoint::DurableWrite,
+            &public_path_for(&secret).to_string_lossy(),
+            1,
+        );
         // `SecretKey` is not `Debug` (secret material), so match rather than `expect_err`.
         assert!(
             generate_identity_at(&secret).is_err(),

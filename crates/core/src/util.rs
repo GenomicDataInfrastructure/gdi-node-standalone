@@ -1050,12 +1050,11 @@ mod tests {
     #[test]
     #[serial_test::serial(faults)]
     fn write_durable_atomic_surfaces_injected_enospc() {
-        // A unique filename so the armed key cannot match a sibling test's write.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("fault-probe-durable.json");
         let _g = crate::faults::arm_enospc(
             crate::faults::FaultPoint::DurableWrite,
-            "fault-probe-durable",
+            &path.to_string_lossy(),
             1,
         );
         let err = write_durable_atomic(&path, b"data").unwrap_err();

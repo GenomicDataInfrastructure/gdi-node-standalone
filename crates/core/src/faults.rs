@@ -27,7 +27,9 @@
 //! ingest. Every arm therefore carries a key substring: [`guard`] fires only
 //! when the call-site key (the dataset id, or the durable-write path) contains it,
 //! and a non-matching call passes through without consuming a fire. Tests use a
-//! unique id/filename so their fault can never contaminate a sibling. Arming still
+//! unique id so their fault can never contaminate a sibling, and a
+//! [`FaultPoint::DurableWrite`] key must be an absolute path into the test's own temp
+//! dir: arming refuses a bare name like `.pub`, which every concurrent test has. Arming still
 //! serializes (`#[serial(faults)]`) and returns a `FaultGuard` whose `Drop`
 //! disarms the point, so a fault never leaks past the test that set it.
 //!
@@ -182,6 +184,10 @@ mod backend {
     }
 
     fn arm(point: FaultPoint, action: Action, key_match: &str, times: usize) -> FaultGuard {
+        assert!(
+            point != FaultPoint::DurableWrite || std::path::Path::new(key_match).is_absolute(),
+            "a DurableWrite fault needs an absolute path, not {key_match:?}"
+        );
         let mut reg = registry().lock().unwrap_or_else(PoisonError::into_inner);
         reg.insert(
             point,
@@ -197,6 +203,10 @@ mod backend {
     /// Arm `point` to return a simulated `ENOSPC` (disk full — a transient
     /// resource-exhaustion error) on each of its next `times` [`guard`] calls whose
     /// key contains `key_match`, then pass through.
+    ///
+    /// # Panics
+    ///
+    /// On a [`FaultPoint::DurableWrite`] `key_match` that is not an absolute path.
     pub fn arm_enospc(point: FaultPoint, key_match: &str, times: usize) -> FaultGuard {
         arm(
             point,
@@ -212,6 +222,10 @@ mod backend {
     /// Use for I/O failures other than ENOSPC, such as a permanent
     /// [`io::ErrorKind::ReadOnlyFilesystem`] to exercise the quarantine (not retry)
     /// classification path.
+    ///
+    /// # Panics
+    ///
+    /// On a [`FaultPoint::DurableWrite`] `key_match` that is not an absolute path.
     pub fn arm_io(
         point: FaultPoint,
         key_match: &str,
@@ -223,6 +237,10 @@ mod backend {
 
     /// Arm `point` to panic on each of its next `times` [`guard`] calls whose key
     /// contains `key_match` (models a crash mid-write), then pass through.
+    ///
+    /// # Panics
+    ///
+    /// On a [`FaultPoint::DurableWrite`] `key_match` that is not an absolute path.
     pub fn arm_panic(point: FaultPoint, key_match: &str, times: usize) -> FaultGuard {
         arm(point, Action::Panic, key_match, times)
     }
@@ -234,6 +252,10 @@ mod backend {
     /// thread (e.g. [`FaultPoint::IngestStore`]) with a `delay` longer than the caller's
     /// deadline forces that deadline to elapse deterministically — used to exercise the
     /// ingest detached-timeout accounting without relying on wall-clock flakiness.
+    ///
+    /// # Panics
+    ///
+    /// On a [`FaultPoint::DurableWrite`] `key_match` that is not an absolute path.
     pub fn arm_delay(
         point: FaultPoint,
         key_match: &str,
@@ -287,11 +309,11 @@ mod tests {
     #[test]
     #[serial(faults)]
     fn arm_enospc_fires_once_then_clears() {
-        let _g = arm_enospc(FaultPoint::DurableWrite, "probe", 1);
-        let err = guard(FaultPoint::DurableWrite, "probe").unwrap_err();
+        let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 1);
+        let err = guard(FaultPoint::DurableWrite, "/probe").unwrap_err();
         assert_eq!(err.kind(), ErrorKind::StorageFull);
         // Fired once (times == 1); the point is now disarmed.
-        assert!(guard(FaultPoint::DurableWrite, "probe").is_ok());
+        assert!(guard(FaultPoint::DurableWrite, "/probe").is_ok());
     }
 
     #[test]
@@ -311,10 +333,10 @@ mod tests {
     #[test]
     #[serial(faults)]
     fn arm_enospc_fires_the_requested_number_of_times() {
-        let _g = arm_enospc(FaultPoint::DurableWrite, "probe", 2);
-        assert!(guard(FaultPoint::DurableWrite, "probe").is_err());
-        assert!(guard(FaultPoint::DurableWrite, "probe").is_err());
-        assert!(guard(FaultPoint::DurableWrite, "probe").is_ok());
+        let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 2);
+        assert!(guard(FaultPoint::DurableWrite, "/probe").is_err());
+        assert!(guard(FaultPoint::DurableWrite, "/probe").is_err());
+        assert!(guard(FaultPoint::DurableWrite, "/probe").is_ok());
     }
 
     #[test]
@@ -353,10 +375,10 @@ mod tests {
     #[serial(faults)]
     fn guard_dropping_disarms() {
         {
-            let _g = arm_enospc(FaultPoint::DurableWrite, "probe", 5);
+            let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 5);
         } // dropped here, well before the 5 fires are consumed
         assert!(
-            guard(FaultPoint::DurableWrite, "probe").is_ok(),
+            guard(FaultPoint::DurableWrite, "/probe").is_ok(),
             "dropping the guard disarms the point"
         );
     }
@@ -364,10 +386,17 @@ mod tests {
     #[test]
     #[serial(faults)]
     fn faults_are_keyed_by_point() {
-        let _g = arm_enospc(FaultPoint::DurableWrite, "probe", 1);
+        let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 1);
         // A different point is unaffected by the arming.
-        assert!(guard(FaultPoint::IngestStore, "probe").is_ok());
+        assert!(guard(FaultPoint::IngestStore, "/probe").is_ok());
         // The armed point still fires.
-        assert!(guard(FaultPoint::DurableWrite, "probe").is_err());
+        assert!(guard(FaultPoint::DurableWrite, "/probe").is_err());
+    }
+
+    #[test]
+    #[serial(faults)]
+    #[should_panic(expected = "absolute path")]
+    fn a_durable_write_fault_keyed_on_a_bare_file_name_is_refused() {
+        let _g = arm_enospc(FaultPoint::DurableWrite, ".json", 1);
     }
 }
