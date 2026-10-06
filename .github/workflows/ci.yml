@@ -48,7 +48,7 @@ jobs:
   # (which also runs the full test suite) so the green path is gated only on the
   # ~minutes-long lint, not serialized behind the tests.
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -61,7 +61,7 @@ jobs:
   # `profiles` job below; the supply-chain scan (`cargo deny` + `cargo machete`)
   # runs in its own parallel `supply-chain` job below.
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -87,7 +87,7 @@ jobs:
   # transitive, no fix). Tool versions are pinned (Dependabot's docker/cargo
   # ecosystems don't track install-action tool versions — bump by hand).
   supply-chain:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -109,7 +109,7 @@ jobs:
   # PME" public-data deployment; it builds nowhere else in CI, so the `profiles`
   # gate is what keeps that feature combination compiling and tested.
   profiles:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -137,7 +137,7 @@ jobs:
   # VENDORED.md) and the Python deps are pinned in conformance/requirements.txt.
   conformance:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -260,7 +260,7 @@ jobs:
   # `check` (not build/test) — it proves the crates compile on the declared MSRV; correctness is
   # the `rust`/`profiles` jobs' job on stable.
   msrv:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # `ci-local.sh msrv` installs and pins the MSRV toolchain itself (`rustup
@@ -281,7 +281,7 @@ jobs:
   # the docs under `RUSTDOCFLAGS=-D warnings` so a moved/renamed item cannot leave a
   # dangling `[`path`]` intra-doc link (which `cargo test --doc` does not catch).
   doctests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -299,15 +299,14 @@ jobs:
   # observed somewhere — charted, alerted, or explicitly allowlisted — so a metric is
   # never emitted-but-unwired.
   promtool:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # This job runs a pure-Python gate leg, so it must run it on the pinned
           # interpreter like every other Python job — not on whatever `python3` the runner
-          # image happens to ship (ubuntu-latest is Ubuntu 24.04 => 3.12.3). Without this
-          # the leg runs below the declared syntax floor, silently.
+          # image happens to ship. Without this the leg silently runs on an unpinned one.
           python-version-file: .python-version
       - name: promtool check rules + config
         run: ./scripts/ci-local.sh promtool
@@ -330,15 +329,14 @@ jobs:
   # digest-pinned upstream image invoked via scripts/ci-local.sh `actionlint` (the
   # digest lives there), so no extra third-party Action joins the supply chain.
   actionlint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           # This job runs a pure-Python gate leg, so it must run it on the pinned
           # interpreter like every other Python job — not on whatever `python3` the runner
-          # image happens to ship (ubuntu-latest is Ubuntu 24.04 => 3.12.3). Without this
-          # the leg runs below the declared syntax floor, silently.
+          # image happens to ship. Without this the leg silently runs on an unpinned one.
           python-version-file: .python-version
       - name: actionlint (workflows + embedded shell)
         run: ./scripts/ci-local.sh actionlint
@@ -422,7 +420,7 @@ jobs:
   # covers only inline `run:` blocks, not these files. Same single-source pattern as
   # promtool and actionlint: a digest-pinned image invoked via ci-local.sh.
   shellcheck:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: shellcheck scripts/ + compose/
@@ -435,7 +433,7 @@ jobs:
   # install-action already pinned for every other tool — no new third-party Action, and
   # uvx fetches ruff at the exact version ci-local.sh pins.
   ruff:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
@@ -448,7 +446,7 @@ jobs:
   # compiled-in allocator are always covered) and publish it as a build artifact.
   # The release workflow publishes the same SBOM alongside the binaries.
   sbom:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -523,7 +521,7 @@ jobs:
           # should be mirrored in release.yml `build`.
           # --- gdi-dataset-tool CLI (Linux gnu + musl; mac/Windows in scheduled cross-native) ---
           - name: tool-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             crate: gdi-dataset-tool
             features: ""
@@ -531,7 +529,7 @@ jobs:
           # (the release-target guard in the `actionlint` job asserts every shipped
           # target is verified here or weekly).
           - name: tool-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             crate: gdi-dataset-tool
             features: ""
@@ -539,14 +537,14 @@ jobs:
           # artifact + container base; verify it cross-compiles with full features. The
           # aarch64-gnu leg runs weekly in `cross-linux-arm` (scheduled.yml).
           - name: service-gnu-x86_64
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             crate: gdi-node-standalone
             features: "full"
           # --- static musl service, x86_64 (full features) — secondary fallback; the
           # aarch64-musl leg runs weekly in `cross-linux-arm` (scheduled.yml) ---
           - name: service-musl-x86_64
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             crate: gdi-node-standalone
             features: "full"
@@ -554,7 +552,7 @@ jobs:
           # public-data feature combination still cross-compiles to a static musl
           # binary. Not released (see the release workflow / the comment above).
           - name: service-musl-x86_64-s3
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             crate: gdi-node-standalone
             features: "s3"
@@ -608,11 +606,11 @@ jobs:
   # It is the one test that catches reconcile / routing / config-wiring
   # regressions the unit + golden suites miss.
   #
-  # Gated to a Docker-capable runner (ubuntu-latest has Docker + Compose v2). The
+  # Gated to a Docker-capable runner (the Ubuntu image ships Docker and Compose). The
   # multi-stage build is slow, so this is a single job, not a matrix.
   e2e-smoke:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     # Boots a Compose stack + builds the service image; cap it so a wedged container or
     # health-poll fails fast instead of running to the 6h GitHub default.
     #
@@ -648,7 +646,7 @@ jobs:
   # `crypt4gh` version is pinned for reproducibility.
   crypt4gh-interop:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -727,7 +725,7 @@ jobs:
   # gitleaks is not in install-action's tool list, so it is fetched from its own release and
   # checksum-verified rather than routed through the cargo-binstall fallback.
   secrets:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # provides: gitleaks
@@ -755,7 +753,7 @@ jobs:
   # licence-drift comparisons between the fuzz manifest and the root workspace, which
   # nothing else checks.
   fuzz-smoke:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -774,7 +772,7 @@ jobs:
   # only correct answer on a repository whose history is a single squashed commit, where
   # HEAD~30 falls back to the root and compares the tree against itself.
   doc-attachment:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -788,7 +786,7 @@ jobs:
   # reason `supply-chain` is split out of `rust`: a lint failure and a licensing failure
   # must not be able to mask each other. Costs a `uv` install and no compilation.
   reuse:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
@@ -823,7 +821,7 @@ jobs:
       - fuzz-smoke
       - doc-attachment
       - reuse
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Verify no required job failed or was unexpectedly skipped
         shell: bash
