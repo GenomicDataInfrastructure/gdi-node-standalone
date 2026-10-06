@@ -36,6 +36,21 @@ class StripTestModulesTest(unittest.TestCase):
         self.assertNotIn("fn u()", kept)
         self.assertNotIn("mod tests", kept)
 
+    def test_a_raw_string_holding_a_url_does_not_end_the_module_early(self):
+        # Read as code, `https://` in a raw string starts a `//` comment that hides the
+        # string's closing quote, and the brace count drifts from there.
+        src = (
+            "fn a() {}\n"
+            "#[cfg(test)]\n"
+            "mod tests {\n"
+            '    const T: &str = r#"\nurl = "https://h.example"\nx = "{}"\n"#;\n'
+            "}\n"
+            "fn tail() {}\n"
+        )
+        kept = strip_test_modules(src)
+        self.assertIn("fn tail()", kept)
+        self.assertNotIn("mod tests", kept)
+
     def test_a_cfg_test_on_a_non_module_item_is_left_alone(self):
         src = '#[cfg(test)]\nconst FIXTURE: &str = "x";\nfn a() {}\n'
         self.assertEqual(src, strip_test_modules(src))

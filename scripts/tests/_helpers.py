@@ -113,15 +113,31 @@ if not (REPO_ROOT / "Cargo.toml").is_file():
     )
 
 
+# A raw string literal, `r"…"` or `r#"…"#` (any number of `#`); `br` prefixes too.
+_RAW_STRING = re.compile(r'r(#*)".*?"\1', re.DOTALL)
+
+
+def _starts_raw_string(src: str, i: int) -> bool:
+    """Whether the `r` at `i` opens a raw string rather than ending an identifier."""
+    before = src[i - 1] if i > 0 else " "
+    if before == "b":
+        before = src[i - 2] if i > 1 else " "
+    return not (before.isalnum() or before == "_") and bool(_RAW_STRING.match(src, i))
+
+
 def _block_end(src: str, open_brace: int) -> int:
     """The index just past the `}` that closes the block whose `{` is at `open_brace`,
-    skipping braces inside string literals and `//` comments (a test module is full of
-    both: `"{}"` format strings, `// { not a brace`)."""
+    skipping braces inside string literals, raw strings and `//` comments (a test module is
+    full of them: `"{}"` format strings, TOML fixtures in `r#"…"#` that hold `https://`,
+    `// { not a brace`)."""
     depth = 0
     i = open_brace
     n = len(src)
     while i < n:
         c = src[i]
+        if c == "r" and _starts_raw_string(src, i):
+            i = _RAW_STRING.match(src, i).end()
+            continue
         if c == '"':
             i += 1
             while i < n and src[i] != '"':
