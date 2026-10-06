@@ -1631,7 +1631,7 @@ fn axis_remainder_reidentifying(
         .iter()
         .find(|r| r.population == TOTAL_POPULATION)
         .and_then(|r| value(r))
-        .is_some_and(&leaves_remainder)
+        .is_some_and(leaves_remainder)
         || (0..PopulationAxis::COUNT).any(|b| present[b] && leaves_remainder(sum[b]));
     // (2) Nested: a `CountrySex` cell partitions not only `Total` but its parent Sex and
     //     Country marginals too, so `FI_M = M - sum(present *_M)` (or `FI - sum(present FI_*)`)
@@ -4779,22 +4779,20 @@ mod tests {
     }
 
     #[test]
-    #[expect(
-        clippy::float_cmp,
-        reason = "finite_af returns exact sentinels (0.0/1.0) or bit-preserved clamp values, so exact equality is intended"
-    )]
     fn finite_af_sanitizes_non_finite_and_out_of_range() {
+        // Compare bits: these values must come back exactly, and bits also tell 0.0 from -0.0.
+        let bits = |af: f32| finite_af(af).to_bits();
         // A valid in-range AF is preserved bit-exactly.
-        assert_eq!(finite_af(0.42_f32), 0.42_f32);
-        assert_eq!(finite_af(0.0_f32), 0.0_f32);
-        assert_eq!(finite_af(1.0_f32), 1.0_f32);
+        assert_eq!(bits(0.42), 0.42_f32.to_bits());
+        assert_eq!(bits(0.0), 0.0_f32.to_bits());
+        assert_eq!(bits(1.0), 1.0_f32.to_bits());
         // Non-finite maps to 0.0, or serde_json would emit `null` for the required field.
-        assert_eq!(finite_af(f32::NAN), 0.0_f32);
-        assert_eq!(finite_af(f32::INFINITY), 1.0_f32);
-        assert_eq!(finite_af(f32::NEG_INFINITY), 0.0_f32);
+        assert_eq!(bits(f32::NAN), 0.0_f32.to_bits());
+        assert_eq!(bits(f32::INFINITY), 1.0_f32.to_bits());
+        assert_eq!(bits(f32::NEG_INFINITY), 0.0_f32.to_bits());
         // Out-of-range clamped.
-        assert_eq!(finite_af(-0.5_f32), 0.0_f32);
-        assert_eq!(finite_af(1.5_f32), 1.0_f32);
+        assert_eq!(bits(-0.5), 0.0_f32.to_bits());
+        assert_eq!(bits(1.5), 1.0_f32.to_bits());
     }
 
     #[test]

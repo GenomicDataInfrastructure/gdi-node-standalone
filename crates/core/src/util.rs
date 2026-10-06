@@ -1245,7 +1245,11 @@ mod tests {
             "the interrupted erasure is completed"
         );
         // Idempotent: a second boot has nothing left to reap or purge.
-        assert!(reap_deleting(data_dir, None).is_empty());
+        let reaped_again = reap_deleting(data_dir, None);
+        assert!(
+            reaped_again.is_empty(),
+            "a second boot has nothing to reap: {reaped_again:?}"
+        );
     }
 
     /// Clearing an already-absent marker is a no-op rather than an error, so `reap_deleting`

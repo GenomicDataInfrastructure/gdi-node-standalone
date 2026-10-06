@@ -260,7 +260,7 @@ name = "University of Tartu"
         let s = set.get(ID).unwrap();
         assert_eq!(s.mode, SuppressMode::Hide);
         assert_eq!(s.reason, "embargo");
-        assert!(!s.at.is_empty());
+        assert_ne!(s.at, "");
 
         take_down_write_only(&cfg, ID, "consent withdrawn").unwrap();
         let set = load(&suppressions_subdir(&cfg.service.override_dir_resolved()));

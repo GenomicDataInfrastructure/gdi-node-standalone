@@ -1951,7 +1951,8 @@ mod tests {
     fn the_conforms_to_step_pre_ticks_nothing_and_may_be_skipped() {
         use crate::wizard::prompts::ScriptedPrompter;
         let p = ScriptedPrompter::new().with_multiselects(vec![vec![]]);
-        assert!(prompt_conforms_to(&p).unwrap().is_empty());
+        let chosen = prompt_conforms_to(&p).unwrap();
+        assert!(chosen.is_empty(), "nothing is pre-ticked: {chosen:?}");
         let (prompt, ticks) = p.seen_multiselect_defaults().remove(0);
         assert!(
             prompt.starts_with("Conforms to (GDI standards)"),

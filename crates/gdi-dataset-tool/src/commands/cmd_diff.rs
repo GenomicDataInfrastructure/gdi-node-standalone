@@ -651,7 +651,11 @@ mod tests {
         let d = diff_manifests(&old, &new);
         assert!(!d.identical);
         assert_eq!(d.populations_removed, ["EE", "FI"]);
-        assert!(d.populations_added.is_empty());
+        assert!(
+            d.populations_added.is_empty(),
+            "unexpected added populations: {:?}",
+            d.populations_added
+        );
         assert_eq!(d.newly_ignored_info_fields, ["AF_FI"]);
     }
 

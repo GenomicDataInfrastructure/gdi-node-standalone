@@ -2854,7 +2854,7 @@ mod tests {
             Instant::now(),
             POLL,
         );
-        assert!(evict.is_empty());
+        assert!(evict.is_empty(), "unexpected evictions: {evict:?}");
         assert!(next.is_empty());
     }
 

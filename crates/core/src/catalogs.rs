@@ -85,7 +85,11 @@ mod tests {
     #[test]
     fn an_empty_table_is_an_empty_list_not_an_error() {
         let list = CatalogList::from_config(&BTreeMap::new());
-        assert!(list.catalogs.is_empty());
+        assert!(
+            list.catalogs.is_empty(),
+            "an empty table lists no catalogs: {:?}",
+            list.catalogs
+        );
         assert_eq!(
             serde_json::to_string(&list).unwrap(),
             r#"{"catalogs":[]}"#,

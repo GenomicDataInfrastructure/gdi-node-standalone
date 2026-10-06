@@ -1761,7 +1761,8 @@ config:
     fn a_known_key_is_not_reported() {
         let authored = yaml_value("internal:\n  pastVersion: 1\n");
         let round_tripped = serde_json::json!({ "internal": { "pastVersion": 1 } });
-        assert!(unknown_keys(&authored, &round_tripped, "").is_empty());
+        let unknown = unknown_keys(&authored, &round_tripped, "");
+        assert!(unknown.is_empty(), "unexpected unknown keys: {unknown:?}");
     }
 
     /// An explicit `null` legitimately vanishes from the round trip and is not a typo.
@@ -1769,7 +1770,8 @@ config:
     fn an_explicit_null_is_not_an_unknown_key() {
         let authored = yaml_value("internal:\n  pastVersion: null\n");
         let round_tripped = serde_json::json!({ "internal": {} });
-        assert!(unknown_keys(&authored, &round_tripped, "").is_empty());
+        let unknown = unknown_keys(&authored, &round_tripped, "");
+        assert!(unknown.is_empty(), "unexpected unknown keys: {unknown:?}");
     }
 
     /// End-to-end through the real loader: `--strict` must reject a typo'd key inside one of

@@ -4941,8 +4941,16 @@ hs37d5\t50\t.\tA\tG\t.\tPASS\tAF=0.5;AN=100\n"
         let output = convert_vcf(&vcf, out.path(), &opts_with_floor(0)).unwrap();
         assert_eq!(output.rows_emitted, 3);
         assert_eq!(output.populations_recognized, vec!["EE", "FI", "Total"]);
-        assert!(output.ignored_info_fields.is_empty());
-        assert!(output.populations_without_af.is_empty());
+        assert!(
+            output.ignored_info_fields.is_empty(),
+            "unexpected ignored INFO fields: {:?}",
+            output.ignored_info_fields
+        );
+        assert!(
+            output.populations_without_af.is_empty(),
+            "unexpected AF-less populations: {:?}",
+            output.populations_without_af
+        );
     }
 
     #[test]
@@ -5457,7 +5465,11 @@ AF_EE_F=0.005;AC_EE_F=10;AN_EE_F=2000\n";
         );
         let out = convert(dir.path(), &vcf, 0).unwrap();
         assert_eq!(out.number_of_records, 0);
-        assert!(out.parquet_files.is_empty());
+        assert!(
+            out.parquet_files.is_empty(),
+            "no records means no parquet files: {:?}",
+            out.parquet_files
+        );
     }
 
     #[test]

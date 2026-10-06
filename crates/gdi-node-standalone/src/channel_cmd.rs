@@ -438,7 +438,7 @@ name = "University of Tartu"
         let s = set.channel_get("primary").unwrap();
         assert_eq!(s.mode, SuppressMode::Hide);
         assert_eq!(s.reason, "embargo");
-        assert!(!s.at.is_empty());
+        assert_ne!(s.at, "");
 
         take_down_write_only(&cfg, "primary", "consent withdrawn").unwrap();
         let set = load(&suppressions_subdir(&cfg.service.override_dir_resolved()));
@@ -699,6 +699,7 @@ name = "University of Tartu"
     fn configured_channel_names_is_empty_with_no_s3_and_no_inbox() {
         let dir = tempfile::tempdir().unwrap();
         let cfg = config_no_channels(dir.path());
-        assert!(configured_channel_names(&cfg).is_empty());
+        let names = configured_channel_names(&cfg);
+        assert!(names.is_empty(), "unexpected channels: {names:?}");
     }
 }

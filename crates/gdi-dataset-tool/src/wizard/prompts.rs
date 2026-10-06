@@ -901,7 +901,10 @@ mod tests {
         // Dot-files stay hidden until the dot is typed.
         let (extended, matches) = complete_path(&format!("{base}x"));
         assert_eq!(extended, None, "no visible entry starts with x");
-        assert!(matches.is_empty());
+        assert!(
+            matches.is_empty(),
+            "dot-files stay hidden until the dot is typed: {matches:?}"
+        );
         assert_eq!(
             complete_path(&format!("{base}.h")).0.as_deref(),
             Some(format!("{base}.hidden.vcf").as_str())

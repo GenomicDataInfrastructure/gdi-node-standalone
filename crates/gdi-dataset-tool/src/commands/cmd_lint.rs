@@ -555,7 +555,11 @@ mod tests {
             &[row("Total", Vt::Snp, 0.5, None, None)],
         );
         assert!(r.suppression.is_none());
-        assert!(r.ignored_info_fields.is_empty());
+        assert!(
+            r.ignored_info_fields.is_empty(),
+            "unexpected ignored INFO fields: {:?}",
+            r.ignored_info_fields
+        );
     }
 
     /// A `ConversionStats` with the given suppression counters and ignored fields.

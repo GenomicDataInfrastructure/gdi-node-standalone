@@ -112,7 +112,11 @@ fn thousand_genomes_chr21_slice() {
 
     // No AN=0 sites here, so nothing collapses and no population is AF-less.
     assert_eq!(report.suppression.variants_collapsed_to_total, 0);
-    assert!(report.populations_without_af.is_empty());
+    assert!(
+        report.populations_without_af.is_empty(),
+        "unexpected AF-less populations: {:?}",
+        report.populations_without_af
+    );
 
     // `--strict` must fail: a dropped population is exactly what it exists to catch.
     let warnings: Vec<&str> = report

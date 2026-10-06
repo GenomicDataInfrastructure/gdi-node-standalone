@@ -65,7 +65,11 @@ fn preview_reports_the_generators_aggregates_with_no_warning() {
         "a fill-tags export names every population field in the grammar: {:?}",
         report.ignored_info_fields
     );
-    assert!(report.populations_without_af.is_empty());
+    assert!(
+        report.populations_without_af.is_empty(),
+        "unexpected AF-less populations: {:?}",
+        report.populations_without_af
+    );
     let warnings: Vec<_> = report
         .diagnostics
         .iter()

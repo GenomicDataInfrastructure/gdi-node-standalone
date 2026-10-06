@@ -1163,7 +1163,7 @@ mod tests {
         m.insert("alternateBases".to_owned(), Value::String("T".to_owned()));
         let q = parse_request(&m, &cfg()).unwrap();
         assert_eq!(q.start, vec![100]);
-        assert!(q.end.is_empty()); // not auto-filled
+        assert!(q.end.is_empty(), "end is not auto-filled: {:?}", q.end);
     }
 
     #[test]

@@ -195,5 +195,5 @@ async fn the_public_plane_still_ignores_an_inbound_request_id() {
         "the public plane must NOT adopt a caller-supplied x-request-id: an unauthenticated \
          caller would then choose the correlation id on every audit line and error body"
     );
-    assert!(!returned.is_empty());
+    assert_ne!(returned, "");
 }

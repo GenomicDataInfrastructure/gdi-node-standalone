@@ -206,7 +206,11 @@ mod tests {
     #[test]
     fn dataset_ids_ignore_non_conforming_slugs() {
         let ttl = "<https://n/fairdp/dataset/not-a-valid-id> .";
-        assert!(dataset_ids_from_graph(ttl).is_empty());
+        let ids = dataset_ids_from_graph(ttl);
+        assert!(
+            ids.is_empty(),
+            "a non-conforming slug is not a dataset id: {ids:?}"
+        );
     }
 
     #[test]
@@ -261,8 +265,10 @@ mod tests {
 
     #[test]
     fn empty_body_yields_no_catalogs() {
-        assert!(parse_catalog_names("").is_empty());
-        assert!(parse_catalog_names("no catalogs here").is_empty());
+        let from_empty = parse_catalog_names("");
+        assert!(from_empty.is_empty(), "unexpected catalogs: {from_empty:?}");
+        let from_prose = parse_catalog_names("no catalogs here");
+        assert!(from_prose.is_empty(), "unexpected catalogs: {from_prose:?}");
     }
 
     #[test]

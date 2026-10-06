@@ -149,7 +149,8 @@ mod tests {
     #[test]
     fn list_ids_of_a_missing_dir_is_empty() {
         let d = tmp();
-        assert!(list_ids(&d.path().join("reingest")).is_empty());
+        let ids = list_ids(&d.path().join("reingest"));
+        assert!(ids.is_empty(), "unexpected ids: {ids:?}");
     }
 
     #[test]
@@ -160,7 +161,11 @@ mod tests {
         assert_eq!(list_ids(&sub), vec![ID.to_owned()]);
 
         remove_marker(&sub, ID).unwrap();
-        assert!(list_ids(&sub).is_empty());
+        let ids = list_ids(&sub);
+        assert!(
+            ids.is_empty(),
+            "the removed marker is still listed: {ids:?}"
+        );
         remove_marker(&sub, ID).unwrap(); // idempotent when already gone
     }
 
@@ -182,7 +187,8 @@ mod tests {
         std::fs::create_dir_all(&sub).unwrap();
         std::fs::write(sub.join("README"), b"x").unwrap(); // no .json
         std::fs::write(sub.join("not-an-id.json"), b"{}").unwrap(); // invalid id
-        assert!(list_ids(&sub).is_empty());
+        let ids = list_ids(&sub);
+        assert!(ids.is_empty(), "unexpected ids: {ids:?}");
     }
 
     #[test]

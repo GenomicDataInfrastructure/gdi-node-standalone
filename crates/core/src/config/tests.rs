@@ -333,7 +333,11 @@ fn keys_identities_default_empty_and_parse() {
         // No [keys] -> empty identities (the caller applies the implicit default).
         jail.create_file("empty.toml", "")?;
         let cfg = ToolConfig::load(Some(Path::new("empty.toml"))).unwrap();
-        assert!(cfg.keys.identities.is_empty());
+        assert!(
+            cfg.keys.identities.is_empty(),
+            "no [keys] means no identities: {:?}",
+            cfg.keys.identities
+        );
 
         // An explicit [keys].identities list parses in order.
         jail.create_file(
@@ -411,7 +415,11 @@ fn missing_file_loads_empty() {
         let cfg = ToolConfig::load(Some(Path::new("does-not-exist.toml"))).unwrap();
         assert!(cfg.country_code.is_none());
         assert!(cfg.profiles.is_empty());
-        assert!(cfg.keys.identities.is_empty());
+        assert!(
+            cfg.keys.identities.is_empty(),
+            "no [keys] means no identities: {:?}",
+            cfg.keys.identities
+        );
         Ok(())
     });
 }
@@ -724,7 +732,11 @@ fn beacon_id_convention_warning_skips_non_deployed_environments() {
 fn service_config_keys_default_empty_and_parse() {
     // No [keys] section -> empty identities (keyless node).
     let cfg = ServiceConfig::from_toml_str(SERVICE_TOML).unwrap();
-    assert!(cfg.keys.identities.is_empty());
+    assert!(
+        cfg.keys.identities.is_empty(),
+        "no [keys] means no identities: {:?}",
+        cfg.keys.identities
+    );
 
     // An explicit [keys].identities list parses into PathBufs in order.
     let with_keys = ServiceConfig::from_toml_str(
@@ -4320,7 +4332,11 @@ allowed_writer_fingerprints = ["sha256:egv1", "sha256:egv2"]
         ["sha256:egv1", "sha256:egv2"]
     );
     // An unknown channel (not the inbox, not a configured bucket) has no list.
-    assert!(cfg.writer_allowlist_for("nope").is_empty());
+    let allowlist = cfg.writer_allowlist_for("nope");
+    assert!(
+        allowlist.is_empty(),
+        "an unknown channel has no list: {allowlist:?}"
+    );
 }
 
 /// The body both writer-policy fixtures share — an inbox node with one catalog — with
@@ -4517,7 +4533,11 @@ fn reloadable_extracts_catalogs_and_writer_allowlists_only() {
     );
     // A channel not present in this snapshot has no list — same "empty means no list"
     // contract as `ServiceConfig::writer_allowlist_for`.
-    assert!(reloadable.writer_allowlist_for("unknown-bucket").is_empty());
+    let allowlist = reloadable.writer_allowlist_for("unknown-bucket");
+    assert!(
+        allowlist.is_empty(),
+        "an absent channel has no list: {allowlist:?}"
+    );
 }
 
 #[test]

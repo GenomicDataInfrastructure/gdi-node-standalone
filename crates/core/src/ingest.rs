@@ -2114,11 +2114,11 @@ mod tests {
 
     #[test]
     fn writer_provenance_reports_no_fingerprints_for_the_non_recovered_variants() {
-        assert!(WriterProvenance::Plaintext.fingerprints().is_empty());
-        assert!(
-            WriterProvenance::Unrecoverable("boom".to_owned())
-                .fingerprints()
-                .is_empty()
+        let none: &[String] = &[];
+        assert_eq!(WriterProvenance::Plaintext.fingerprints(), none);
+        assert_eq!(
+            WriterProvenance::Unrecoverable("boom".to_owned()).fingerprints(),
+            none
         );
         assert_eq!(
             WriterProvenance::Recovered(vec!["sha256:aa".to_owned()]).fingerprints(),
@@ -2286,7 +2286,11 @@ mod tests {
         );
         // files and internal are still stripped, alongside the additive-field preservation.
         let typed: Manifest = serde_json::from_slice(&raw).unwrap();
-        assert!(typed.files.is_empty());
+        assert!(
+            typed.files.is_empty(),
+            "files are stripped: {:?}",
+            typed.files
+        );
         assert_eq!(typed.internal, Internal::default());
     }
 
@@ -3068,7 +3072,11 @@ mod tests {
         );
         let raw = fs::read(published.join("manifest.json")).unwrap();
         let stored: Manifest = serde_json::from_slice(&raw).unwrap();
-        assert!(stored.files.is_empty());
+        assert!(
+            stored.files.is_empty(),
+            "files are stripped: {:?}",
+            stored.files
+        );
         assert_eq!(stored.internal, Internal::default());
 
         // The working dir was cleaned up.
