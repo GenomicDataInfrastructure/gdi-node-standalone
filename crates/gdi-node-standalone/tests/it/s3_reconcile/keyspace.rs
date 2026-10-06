@@ -308,9 +308,10 @@ async fn a_witness_that_cannot_be_written_refuses_removals_until_it_can() {
 
     // Every attempt to persist the witness fails (a read-only data dir); the dataset still
     // ingests and serves — only the removal gate is at stake.
+    let witness = rig.data_dir.join(".keyspace-primary.json");
     let fault = arm_io(
         FaultPoint::DurableWrite,
-        ".keyspace-primary",
+        &witness.to_string_lossy(),
         std::io::ErrorKind::PermissionDenied,
         8,
     );
