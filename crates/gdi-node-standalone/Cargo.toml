@@ -153,10 +153,10 @@ zeroize = { workspace = true }
 # export synchronously off their own threads, and `metrics` on all three carries the OTLP
 # metrics push (`metrics_otel.rs`). None of these compile into the default or `full`
 # builds.
-opentelemetry = { version = "=0.32.0", default-features = false, features = ["trace", "metrics"], optional = true }
-opentelemetry_sdk = { version = "=0.32.1", default-features = false, features = ["trace", "metrics"], optional = true }
-opentelemetry-otlp = { version = "=0.32.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"], optional = true }
-tracing-opentelemetry = { version = "=0.33.0", default-features = false, optional = true }
+opentelemetry = { version = "=0.33.0", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry_sdk = { version = "=0.33.0", default-features = false, features = ["trace", "metrics"], optional = true }
+opentelemetry-otlp = { version = "=0.33.0", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"], optional = true }
+tracing-opentelemetry = { version = "=0.34.0", default-features = false, optional = true }
 
 [dev-dependencies]
 test-util = { path = "../test-util" }
