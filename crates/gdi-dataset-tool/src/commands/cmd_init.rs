@@ -135,6 +135,10 @@ fn template(catalog_line: &str) -> String {
   keywords:                          # Tags for discovery (list; each max 64 chars, max 50)
     - allele-frequency
     - genomics
+  # Disease or healthcare areas (EU health-theme IRIs, list). Genomics is HEALTH_PRODUCTS;
+  # add the area of a disease cohort too, e.g. …/health-theme/CANCER_DISEASE.
+  healthTheme:
+    - "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
   # numberOfUniqueIndividuals: 1234  # DISTINCT sequenced subjects across the WHOLE dataset
   #                                  # (cohort size). Uncomment and set your REAL value:
   #                                  # `--strict` WARNS while it is absent (which nudges you

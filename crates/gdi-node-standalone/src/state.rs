@@ -2128,6 +2128,7 @@ name = "X"
                 min_typical_age: None,
                 max_typical_age: None,
                 provenance: None,
+                health_theme: None,
                 contact_point: Some(gdi_node_standalone_core::model::ContactPoint {
                     fn_: Some("Data team".to_owned()),
                     has_email: Some("mailto:data@example.org".to_owned()),

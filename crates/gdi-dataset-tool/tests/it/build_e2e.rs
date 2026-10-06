@@ -810,6 +810,8 @@ metadata:
     - \"http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic\"
   keywords:
     - \"allele-frequency\"
+  healthTheme:
+    - \"https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS\"
   numberOfUniqueIndividuals: 100";
 
 /// Write a `package.yaml` whose metadata is warning-clean, listing `in.vcf`.

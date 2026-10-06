@@ -84,6 +84,9 @@ pub struct PackageMetadata {
     /// How the data was produced (plain string or language map).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<LocalizedText>,
+    /// Health themes: the disease or healthcare areas, as EU health-theme IRIs (recommended).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub health_theme: Option<Vec<String>>,
 }
 
 /// The `config` section of a `package.yaml`.

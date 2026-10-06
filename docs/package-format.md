@@ -129,6 +129,7 @@ The package's first member. Serialized `camelCase`. Top level:
 | `healthCategory` | IRI array (≥ 1) | yes | GDI health-category IRIs. |
 | `contactPoint` | `{fn, hasEmail, hasURL?}` | yes | Who to write to about the dataset: a name and a `mailto:` e-mail, and optionally a web page. |
 | `keywords` | string array | no | Discovery tags. |
+| `healthTheme` | IRI array | no | Disease or healthcare areas, from the EU health-theme vocabulary (`https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/…`, 20 codes). Any other value is rejected; genomics is `HEALTH_PRODUCTS`. Recommended: `build` warns without it. |
 | `numberOfUniqueIndividuals` | uint | no | Distinct sequenced subjects. |
 | `conformsTo` | IRI array | no | GDI standards-compliance IRIs, a closed set: `ExternallyGoverned`, `1MGCompliant` and `1MGCohort` under `http://data.gdi.eu/core/p2/`. Any other value is rejected. |
 | `type` | IRI array | no | Dataset-type IRIs (set only for synthetic data). |

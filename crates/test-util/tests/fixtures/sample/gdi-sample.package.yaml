@@ -12,6 +12,8 @@ metadata:
     - name: "Genome of Europe - EE node"
   healthCategory:
     - "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+  healthTheme:
+    - "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
   keywords:
     - allele-frequency
     - genomics

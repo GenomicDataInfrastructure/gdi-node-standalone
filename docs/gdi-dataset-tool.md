@@ -488,6 +488,8 @@ metadata:
   keywords:
     - allele-frequency
     - genomics
+  healthTheme:                  # disease or healthcare areas; genomics is HEALTH_PRODUCTS
+    - "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
   numberOfUniqueIndividuals: 1234   # distinct sequenced subjects across the whole dataset
 
   # --- Optional ---

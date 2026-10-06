@@ -54,6 +54,8 @@ pub(crate) enum MetaField {
     MaxTypicalAge,
     /// Localized `provenance` (nested `dct:ProvenanceStatement` blank node).
     Provenance,
+    /// `healthTheme` EU health-theme IRIs.
+    HealthTheme,
     /// `dct:issued` (creation time, `xsd:dateTime`).
     Issued,
     /// `dct:modified` (creation time while immutable, `xsd:dateTime`).
@@ -177,6 +179,10 @@ pub(crate) const DATASET_MAPPING: &[FieldMapping] = &[
         predicate: vocab::DCT_PROVENANCE,
     },
     FieldMapping {
+        field: MetaField::HealthTheme,
+        predicate: vocab::HEALTHDCATAP_HEALTH_THEME,
+    },
+    FieldMapping {
         field: MetaField::Theme,
         predicate: vocab::DCAT_THEME,
     },
@@ -235,6 +241,7 @@ mod tests {
             MetaField::MinTypicalAge,
             MetaField::MaxTypicalAge,
             MetaField::Provenance,
+            MetaField::HealthTheme,
             MetaField::Issued,
             MetaField::Modified,
             MetaField::Theme,
@@ -269,6 +276,7 @@ mod tests {
                 | MetaField::MinTypicalAge
                 | MetaField::MaxTypicalAge
                 | MetaField::Provenance
+                | MetaField::HealthTheme
                 | MetaField::Issued
                 | MetaField::Modified
                 | MetaField::Theme
@@ -336,6 +344,7 @@ mod tests {
                 min_typical_age: _,
                 max_typical_age: _,
                 provenance: _,
+                health_theme: _,
                 number_of_records: _,
                 // Not published: the population breakdown is beacon query surface,
                 // re-derived at ingest and disclosure-gated at serve time. It has no DCAT

@@ -100,6 +100,15 @@ pub fn health_category_choices() -> Vec<(String, &'static str)> {
         .collect()
 }
 
+/// The `healthTheme` choices: every EU health theme with its label, in vocabulary order.
+#[must_use]
+pub fn health_theme_choices() -> Vec<(String, &'static str)> {
+    gdi_node_standalone_core::validate_pkg::HEALTH_THEMES
+        .iter()
+        .map(|&(iri, label)| (label.to_owned(), iri))
+        .collect()
+}
+
 /// The `conformsTo` choices: every IRI of the vendored closed set with the label the
 /// shape gives it (`core::validate_pkg::conforms_to_label`), in set order.
 ///

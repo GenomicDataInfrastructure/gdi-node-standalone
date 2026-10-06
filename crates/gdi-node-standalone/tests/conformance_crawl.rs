@@ -130,6 +130,10 @@ fn enriched_manifest(id: &str, catalog: &str, number_of_records: u64) -> Manifes
                 "Whole-genome sequencing, joint variant calling, allele counts per population."
                     .to_owned(),
             )),
+            health_theme: Some(vec![
+                "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
+                    .to_owned(),
+            ]),
             contact_point: Some(ContactPoint {
                 fn_: Some("Data team".to_owned()),
                 has_email: Some("mailto:data@example.org".to_owned()),
@@ -178,6 +182,7 @@ fn minimal_manifest(id: &str, catalog: &str, number_of_records: u64) -> Manifest
     m.metadata.min_typical_age = None;
     m.metadata.max_typical_age = None;
     m.metadata.provenance = None;
+    m.metadata.health_theme = None;
     m
 }
 

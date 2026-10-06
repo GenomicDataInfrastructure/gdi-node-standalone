@@ -41,6 +41,8 @@ pub struct AuthorValues {
     pub creator: String,
     /// `metadata.healthCategory` IRIs (1..n, all from the vendored closed set).
     pub health_category_iris: Vec<String>,
+    /// `metadata.healthTheme` IRIs (0..n, from the EU health-theme vocabulary).
+    pub health_theme_iris: Vec<String>,
     /// `metadata.conformsTo` IRIs (0..n, all from the vendored closed set). Empty omits
     /// the field; there is no node-level default.
     pub conforms_to_iris: Vec<String>,
@@ -291,6 +293,12 @@ pub fn render_template(v: &AuthorValues) -> String {
     let mut hc = String::new();
     for iri in &v.health_category_iris {
         let _ = writeln!(hc, "    - {}", yaml_quote(iri));
+    }
+    if !v.health_theme_iris.is_empty() {
+        hc.push_str("  healthTheme:\n");
+        for iri in &v.health_theme_iris {
+            let _ = writeln!(hc, "    - {}", yaml_quote(iri));
+        }
     }
     format!(
         "metadata:\n  \
@@ -1379,6 +1387,7 @@ pub fn author_greenfield(
     })?;
     let (contact_point, contact_point_to_store) = prompt_contact_point(p, ctx.contact_point)?;
     let health_category_iris = prompt_health_categories(p)?;
+    let health_theme_iris = prompt_health_themes(p)?;
     // Also catalog metadata: `dct:conformsTo` is a claim about the dataset the FDP
     // publishes beside its health categories, not about reuse terms.
     let conforms_to_iris = prompt_conforms_to(p)?;
@@ -1471,6 +1480,7 @@ pub fn author_greenfield(
         license_iri,
         creator,
         health_category_iris,
+        health_theme_iris,
         conforms_to_iris,
         applicable_legislation,
         keywords,
@@ -1533,6 +1543,36 @@ fn prompt_health_categories(p: &dyn Prompter) -> Result<Vec<String>, ToolError> 
         }
         crate::output::warn("warning: at least one health category is required");
     }
+}
+
+/// Pick 0..n health themes, the disease or healthcare areas, from the EU vocabulary.
+/// "Health products, technologies, data & research" is pre-ticked: GDI's guideline places
+/// genomics there. An empty selection omits the field, which `build` then warns about.
+///
+/// # Errors
+///
+/// Returns a [`ToolError`] on a prompt failure.
+fn prompt_health_themes(p: &dyn Prompter) -> Result<Vec<String>, ToolError> {
+    let choices = fields::health_theme_choices();
+    let labels: Vec<String> = choices.iter().map(|(label, _)| label.clone()).collect();
+    let checked: Vec<bool> = choices
+        .iter()
+        .map(|(_, iri)| fields::iri_tail(iri) == "HEALTH_PRODUCTS")
+        .collect();
+    crate::output::progress(
+        "  genomics belongs under \"Health products, technologies, data & research\";",
+    );
+    crate::output::progress("  for a disease cohort, also tick its disease area.");
+    let chosen = p.multiselect(
+        "Health themes (Space toggles, Enter confirms)",
+        &labels,
+        &checked,
+    )?;
+    Ok(chosen
+        .iter()
+        .filter_map(|&i| choices.get(i))
+        .map(|(_, iri)| (*iri).to_owned())
+        .collect())
 }
 
 /// Pick 0..n GDI standards from the vendored `conformsTo` closed set: a multi-select with
@@ -2124,6 +2164,10 @@ mod tests {
             creator: "Test Institute".into(),
             health_category_iris: vec![
                 "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic".into(),
+            ],
+            health_theme_iris: vec![
+                "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
+                    .into(),
             ],
             conforms_to_iris: Vec::new(),
             applicable_legislation: vec![crate::wizard::fields::EHDS_ELI.into()],

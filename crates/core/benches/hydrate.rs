@@ -62,6 +62,7 @@ fn write_dataset(data_dir: &Path, id: &str) {
             min_typical_age: None,
             max_typical_age: None,
             provenance: None,
+            health_theme: None,
             contact_point: None,
             number_of_records: None,
             populations: None,
