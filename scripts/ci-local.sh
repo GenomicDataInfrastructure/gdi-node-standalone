@@ -1165,7 +1165,7 @@ ci_gate() {
 # regenerate the conformance lockfiles, so this adds no new prerequisite, and pinning means a
 # ruff release cannot turn the gate red (or silently stop enforcing a rule) without a
 # reviewed bump here. Rules are pinned in ruff.toml for the same reason.
-RUFF_VERSION='0.16.4'
+RUFF_VERSION='0.16.10'
 ruff() {
   step "ruff — lint + format check (conformance/ + scripts/)"
   need uv "https://docs.astral.sh/uv/getting-started/installation/"
@@ -2463,9 +2463,8 @@ e2e_full() {
 # texts and copyright notices, and ships inside the release binaries and the container
 # image, so a dependency bump that changes the shipped licence set must refresh it.
 # Regenerate from the current lockfile and hard-fail if the committed copy differs. Not in
-# `all`, because cargo-about has no prebuilt installer and must be built from source, so it
-# lives in `release`, where attribution ships. On failure, regenerate and commit; the hint
-# below gives the command.
+# `all` (it needs cargo-about), so it lives in `release`, where attribution ships. On
+# failure, regenerate and commit; the hint below gives the command.
 licenses() {
   step "licenses — THIRD-PARTY-LICENSES.md is current (cargo-about drift guard)"
   need cargo-about "cargo install cargo-about --version 0.9.2 --locked --features cli"

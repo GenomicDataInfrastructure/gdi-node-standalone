@@ -900,7 +900,7 @@ def _tools_for(func, bodies, seen=None):
 def _provisioned_tools(job_block):
     """Tools a job installs, across the shapes this repo uses."""
     tools = set()
-    # taiki-e/install-action, inline (`with: { tool: nextest@0.9.143 }`) and block form.
+    # taiki-e/install-action, inline (`with: { tool: nextest@0.9.146 }`) and block form.
     for m in re.finditer(r"\btool:\s*\{?\s*([^\n}#]+)", job_block):
         for raw in m.group(1).split(","):
             item = raw.strip().strip("'\"")

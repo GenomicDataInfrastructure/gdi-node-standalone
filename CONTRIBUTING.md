@@ -601,10 +601,9 @@ inside the `release` meta-leg are marked.
 - **`image-scan`** — build the shipped image and Trivy-scan its base layer; a fixable
   HIGH/CRITICAL CVE fails. Local: `ci-local.sh image-scan` (**`release`**).
 - **`licenses`** — regenerates the `cargo-about` attribution bundle and fails if the
-  committed `THIRD-PARTY-LICENSES.md` is stale. It stays out of `all` because
-  `cargo-about` has no prebuilt installer, so a dependency bump can leave the bundle stale
-  through a green `all`. Run it after touching dependencies. Local: `ci-local.sh licenses`
-  (**`release`**). The bundle's *scope* is guarded on every `all`: `ci-gate` asserts
+  committed `THIRD-PARTY-LICENSES.md` is stale. It isn't in `all` (it needs
+  `cargo-about`), so a green `all` can still leave the bundle stale after a dependency
+  bump. Run it after touching dependencies. Local: `ci-local.sh licenses` (**`release`**). The bundle's *scope* is guarded on every `all`: `ci-gate` asserts
   `about.toml`'s `targets` equals the set `release.yml` ships.
 - **`stable-canary`** — builds on fresh `+stable` to signal when upstream stable has moved
   past the `rust-toolchain.toml` pin. Never a gate. Local: `cargo +stable check --workspace`.
