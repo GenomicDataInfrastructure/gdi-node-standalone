@@ -206,16 +206,11 @@ fn validate_corrupt_parquet_staging_dir_fails() {
 
 #[test]
 #[serial(env)]
-fn validate_subprocess_suppresses_the_raw_panic_for_a_handled_decode_panic() {
-    // A crafted parquet whose embedded Arrow IPC schema panics `arrow-ipc`'s
-    // `fb_to_schema` is caught by core's `catch_parquet_panic`
-    // (`std::panic::catch_unwind`) and reported as a clean `invalid parquet: parquet
-    // decode panicked ...` error. A `std::panic::set_hook` callback fires before that
-    // `catch_unwind` sees the unwind, so the `panic_guard` thread-local is what keeps the
-    // default hook's raw "thread 'main' panicked at ..." message off stderr for a case the
-    // product handles cleanly. This runs the real binary as a subprocess rather than the
-    // in-process `validate()` helper the other tests use: the panic hook is installed by
-    // `main()`, so only a real process exercises the end-to-end stderr contract.
+fn validate_subprocess_reports_a_malformed_parquet_without_a_raw_panic() {
+    // A parquet whose embedded Arrow schema has no fields must fail with one clean
+    // `invalid parquet: ...` line and no raw panic message. It runs the real binary
+    // because the stderr contract belongs to `main()`. (`arrow-ipc` 59 panicked here; 60
+    // returns a parse error. Core tests the panic hook's handled-decode flag.)
     let tmp = tempfile::tempdir().unwrap();
     let config_dir = tmp.path().join("config");
     let _config_dir = test_util::EnvGuard::set("GDI_CONFIG_DIR", &config_dir);
@@ -249,13 +244,12 @@ fn validate_subprocess_suppresses_the_raw_panic_for_a_handled_decode_panic() {
         "a malformed parquet must fail validation; stderr:\n{stderr}"
     );
     assert!(
-        stderr.contains("parquet decode panicked"),
-        "expected the clean panic-boundary error on stderr, got:\n{stderr}"
+        stderr.contains("invalid parquet"),
+        "expected a clean parquet error on stderr, got:\n{stderr}"
     );
     assert!(
         !stderr.contains("panicked at"),
-        "the raw Rust panic message leaked to stderr for a handled decode panic; \
-         stderr:\n{stderr}"
+        "a raw Rust panic message reached stderr; stderr:\n{stderr}"
     );
 }
 

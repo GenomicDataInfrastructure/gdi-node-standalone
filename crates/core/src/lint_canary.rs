@@ -74,6 +74,29 @@ fn canary_parquet_record_batch_reader_try_new(file: std::fs::File) {
     let _ = parquet::arrow::arrow_reader::ParquetRecordBatchReader::try_new(file, 1024);
 }
 
+/// Canary for `index_reader::decode_offset_index`.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "canary: proves `decode_offset_index` still resolves in clippy.toml"
+)]
+fn canary_parquet_decode_offset_index(data: &[u8]) {
+    let _ = parquet::file::page_index::index_reader::decode_offset_index(data);
+}
+
+/// Canary for `index_reader::decode_column_index`.
+#[expect(dead_code, reason = "canary: exists to be linted, never called")]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "canary: proves `decode_column_index` still resolves in clippy.toml"
+)]
+fn canary_parquet_decode_column_index(data: &[u8]) {
+    let _ = parquet::file::page_index::index_reader::decode_column_index(
+        data,
+        parquet::basic::Type::INT32,
+    );
+}
+
 /// Canary for the `SerializedFileReader` type ban.
 #[expect(dead_code, reason = "canary: exists to be linted, never called")]
 #[expect(

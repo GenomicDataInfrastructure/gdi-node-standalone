@@ -23,6 +23,7 @@ use std::sync::Arc;
 use arrow_array::{Array, ArrayRef, RecordBatch, StringArray};
 use parquet::arrow::ArrowWriter;
 use parquet::arrow::arrow_reader::{ArrowReaderMetadata, ArrowReaderOptions};
+use parquet::file::metadata::page_index::{PageIndexBuilder, PageIndexProvider};
 use parquet::file::metadata::{PageIndexPolicy, ParquetMetaDataBuilder};
 use parquet::file::page_index::offset_index::{OffsetIndexMetaData, PageLocation};
 use parquet::file::properties::WriterProperties;
@@ -147,8 +148,11 @@ fn probe_page_discovery_divergence() {
     .expect("load metadata with page index");
     let md = real.metadata();
 
-    let offset_index = md.offset_index().expect("offset index present");
-    let locations = &offset_index[0][0].page_locations;
+    let group = md.page_index_for_row_group(0);
+    let locations = &group
+        .offset_index(0)
+        .expect("offset index present")
+        .page_locations;
     println!("--- page-discovery probe: an index that omits a present page ---");
     println!("pages listed in the real OffsetIndex : {}", locations.len());
     for (i, p) in locations.iter().enumerate() {
@@ -179,7 +183,7 @@ fn probe_page_discovery_divergence() {
     }]];
     let patched_md = Arc::new(
         ParquetMetaDataBuilder::new_from_metadata(md.as_ref().clone())
-            .set_offset_index(Some(patched_index))
+            .set_page_index(page_index_with_offsets(md, Some(patched_index)))
             .build(),
     );
     let patched = ArrowReaderMetadata::try_new(
@@ -403,7 +407,8 @@ fn probe_page_size_cap_coverage_of_an_unlisted_page() {
     )
     .expect("load metadata");
     let md = real.metadata();
-    let locations = &md.offset_index().expect("offset index")[0][0].page_locations;
+    let group = md.page_index_for_row_group(0);
+    let locations = &group.offset_index(0).expect("offset index").page_locations;
     println!("--- page-size cap probe: coverage of an unlisted page ---");
     println!("pages physically present / listed: 2 / {}", locations.len());
 
@@ -419,7 +424,7 @@ fn probe_page_size_cap_coverage_of_an_unlisted_page() {
         unencoded_byte_array_data_bytes: None,
     }]];
     let patched = ParquetMetaDataBuilder::new_from_metadata(md.as_ref().clone())
-        .set_offset_index(Some(patched_index))
+        .set_page_index(page_index_with_offsets(md, Some(patched_index)))
         .build();
     let partial = gdi_node_standalone_core::parquet_pages::enforce_page_size_caps(&path, &patched);
     println!(
@@ -458,7 +463,10 @@ fn page_size_caps_reject_an_index_that_does_not_tile_the_chunk() {
     )
     .expect("load metadata");
     let md = real.metadata();
-    let locations = md.offset_index().expect("offset index")[0][0]
+    let locations = md
+        .page_index_for_row_group(0)
+        .offset_index(0)
+        .expect("offset index")
         .page_locations
         .clone();
     assert_eq!(
@@ -476,7 +484,7 @@ fn page_size_caps_reject_an_index_that_does_not_tile_the_chunk() {
             unencoded_byte_array_data_bytes: None,
         }]];
         ParquetMetaDataBuilder::new_from_metadata(md.as_ref().clone())
-            .set_offset_index(Some(index))
+            .set_page_index(page_index_with_offsets(md, Some(index)))
             .build()
     };
     for (anchor, keep, names) in [
@@ -542,9 +550,36 @@ fn patch_chunk(
     Arc::new(
         builder
             .set_row_groups(rgs)
-            .set_offset_index(offset_index)
+            .set_page_index(page_index_with_offsets(md, offset_index))
             .build(),
     )
+}
+
+/// `md`'s page index with the `OffsetIndex` swapped for `offset_index` (`None` drops it)
+/// and the `ColumnIndex` kept. `None` if neither is left.
+fn page_index_with_offsets(
+    md: &parquet::file::metadata::ParquetMetaData,
+    offset_index: Option<Vec<Vec<OffsetIndexMetaData>>>,
+) -> Option<Arc<dyn PageIndexProvider>> {
+    let num_row_groups = md.num_row_groups();
+    let num_columns = md.file_metadata().schema_descr().num_columns();
+    let mut builder = PageIndexBuilder::new(num_row_groups, num_columns);
+    for rg in 0..num_row_groups {
+        let group = md.page_index_for_row_group(rg);
+        for col in 0..num_columns {
+            if let Some(column_index) = group.column_index(col) {
+                builder.put_column_index(column_index.clone(), rg, col);
+            }
+        }
+    }
+    for (rg, columns) in offset_index.into_iter().flatten().enumerate() {
+        for (col, index) in columns.into_iter().enumerate() {
+            builder.put_offset_index(index, rg, col);
+        }
+    }
+    let index = builder.build();
+    (index.has_column_indexes() || index.has_offset_indexes())
+        .then(|| Arc::new(index) as Arc<dyn PageIndexProvider>)
 }
 
 /// Decode column 0 through a reader handed exactly `md`, and return the row count.
@@ -609,7 +644,10 @@ fn page_index_residual_shrunk_chunk_is_rejected_before_it_can_diverge() {
     )
     .expect("load metadata with page index");
     let md = real.metadata();
-    let locations = md.offset_index().expect("offset index")[0][0]
+    let locations = md
+        .page_index_for_row_group(0)
+        .offset_index(0)
+        .expect("offset index")
         .page_locations
         .clone();
     assert_eq!(locations.len(), 3, "fixture must list three pages");

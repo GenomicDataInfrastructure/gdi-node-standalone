@@ -126,23 +126,32 @@ fn declared_uncompressed_size(buf: &[u8]) -> Option<i32> {
 /// bounded size, or when the file carries no `OffsetIndex`. Absence fails closed: without
 /// page offsets there is nothing to bound the decode with.
 pub fn enforce_page_size_caps(path: &Path, meta: &ParquetMetaData) -> CoreResult<()> {
-    let Some(offset_index) = meta.offset_index() else {
+    if meta.page_index().is_none() {
         return Err(invalid_parquet(
             "parquet has no page (offset) index, so its page sizes cannot be bounded \
                      before decoding; rebuild it with gdi-dataset-tool"
                 .to_owned(),
         ));
-    };
+    }
 
     let mut file = std::fs::File::open(path)?;
     let mut probe = [0u8; HEADER_PROBE_BYTES];
 
-    for (rg, columns) in offset_index.iter().enumerate() {
+    for rg in 0..meta.num_row_groups() {
         let row_group = meta.row_group(rg);
+        let group_index = meta.page_index_for_row_group(rg);
         // The row-group total is what the existing caps already bound, so it is the ceiling
         // that makes this check transitively bounding.
         let group_limit = row_group.total_byte_size().max(0);
-        for (col, pages) in columns.iter().enumerate() {
+        for col in 0..row_group.num_columns() {
+            // Every chunk needs its own offset index; without one its pages can't be
+            // bounded, so fail closed, as for a file with no index.
+            let Some(pages) = group_index.offset_index(col) else {
+                return Err(invalid_parquet(format!(
+                    "row group {rg} column {col} has no page (offset) index, so its page sizes \
+                     cannot be bounded before decoding; rebuild it with gdi-dataset-tool"
+                )));
+            };
             // Probe the column chunk's own start unconditionally: it is the one offset the
             // decoder always reads a page header from, and the only probe origin the
             // producer's `OffsetIndex` cannot move. With no dictionary offset declared the

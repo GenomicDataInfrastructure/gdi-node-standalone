@@ -471,11 +471,7 @@ fn verify_pos_statistics(path: &Path, meta: &ParquetMetaData) -> CoreResult<()> 
     let mut page_starts: Vec<Vec<usize>> = Vec::with_capacity(counts.len());
     let mut page_observed: Vec<Vec<Option<(i32, i32)>>> = Vec::with_capacity(counts.len());
     for (rg, &group_rows) in counts.iter().enumerate() {
-        let ranges = match meta
-            .offset_index()
-            .and_then(|idx| idx.get(rg))
-            .and_then(|cols| cols.first())
-        {
+        let ranges = match meta.page_index_for_row_group(rg).offset_index(0) {
             Some(col) => crate::parquet_io::page_row_ranges(col, group_rows).ok_or_else(|| {
                 invalid_parquet(format!(
                     "row group {rg} has a malformed page index: first_row_index is not a \
@@ -549,29 +545,26 @@ fn verify_page_pos_statistics(
     // The same check at page granularity, against the column index the serve path prunes
     // with. A page whose declared bounds do not contain its own rows would make
     // `pos_row_selection` skip it, so stored variants would never be served.
-    if let Some(column_index) = meta.column_index() {
-        for (rg, pages) in page_observed.iter().enumerate() {
-            let Some(ColumnIndexMetaData::INT32(idx)) =
-                column_index.get(rg).and_then(|cols| cols.first())
+    for (rg, pages) in page_observed.iter().enumerate() {
+        let group_index = meta.page_index_for_row_group(rg);
+        let Some(ColumnIndexMetaData::INT32(idx)) = group_index.column_index(0) else {
+            continue; // no (or non-INT32) page index: the serve path keeps the group
+        };
+        let mins: Vec<Option<&i32>> = idx.min_values_iter().collect();
+        let maxs: Vec<Option<&i32>> = idx.max_values_iter().collect();
+        for (page, obs) in pages.iter().enumerate() {
+            let Some((omin, omax)) = *obs else { continue };
+            let (Some(Some(&dmin)), Some(Some(&dmax))) =
+                (mins.get(page).copied(), maxs.get(page).copied())
             else {
-                continue; // no (or non-INT32) page index: the serve path keeps the group
+                continue; // a page with no declared bounds is never pruned
             };
-            let mins: Vec<Option<&i32>> = idx.min_values_iter().collect();
-            let maxs: Vec<Option<&i32>> = idx.max_values_iter().collect();
-            for (page, obs) in pages.iter().enumerate() {
-                let Some((omin, omax)) = *obs else { continue };
-                let (Some(Some(&dmin)), Some(Some(&dmax))) =
-                    (mins.get(page).copied(), maxs.get(page).copied())
-                else {
-                    continue; // a page with no declared bounds is never pruned
-                };
-                if !pos_stat_bounds_observed(dmin, dmax, omin, omax) {
-                    return Err(invalid_parquet(format!(
-                        "row group {rg} page {page} POS statistics [{dmin}, {dmax}] do not \
-                             bound its rows [{omin}, {omax}]: the serve path prunes at page \
-                             granularity, so forged page bounds would hide stored variants"
-                    )));
-                }
+            if !pos_stat_bounds_observed(dmin, dmax, omin, omax) {
+                return Err(invalid_parquet(format!(
+                    "row group {rg} page {page} POS statistics [{dmin}, {dmax}] do not \
+                         bound its rows [{omin}, {omax}]: the serve path prunes at page \
+                         granularity, so forged page bounds would hide stored variants"
+                )));
             }
         }
     }
@@ -1812,11 +1805,9 @@ mod tests {
 
         // The first data page's offset comes from the `OffsetIndex`.
         let offset = metadata_with_page_index(&path)
-            .offset_index()
-            .expect("page index")
-            .first()
-            .and_then(|cols| cols.first())
-            .and_then(|c| c.page_locations().first())
+            .page_index_for_row_group(0)
+            .page_locations(0)
+            .and_then(|pages| pages.first())
             .map(|p| usize::try_from(p.offset).expect("offset fits"))
             .expect("at least one page");
         patch_page_to_claim_i32_max(&path, offset);
@@ -2648,13 +2639,12 @@ mod tests {
     }
 
     #[test]
-    fn malformed_arrow_schema_metadata_is_error_not_panic() {
-        // The fixture is a valid parquet whose embedded `ARROW:schema` flatbuffer holds an
-        // `Int` field with bitWidth 0, on which `arrow-ipc`'s `fb_to_schema` panics
-        // ("Int type with bit width of 0 ... not supported"). Under a panic=unwind build
-        // the boundary must turn that third-party panic into a clean `InvalidParquet` error
-        // rather than let it abort the process. The file carries the canonical data-file
-        // name so `collect_data_files` picks it up and the full per-file path runs.
+    fn malformed_arrow_schema_metadata_is_an_error() {
+        // The fixture's embedded `ARROW:schema` has an `Int` field with bitWidth 0.
+        // `arrow-ipc` 59 panicked on it; 60's parse error must surface as a clean schema
+        // error. (`handled_decode_flag_is_set_when_a_process_panic_hook_would_see_it` covers
+        // `catch_parquet_panic` with a synthetic panic.) The canonical data-file name makes
+        // `collect_data_files` pick it up, so the full per-file path runs.
         let dir = tempfile::tempdir().unwrap();
         let dest = dir
             .path()
@@ -2663,10 +2653,6 @@ mod tests {
         let err = validate_parquet_dir(dir.path(), &ParquetCaps::default())
             .expect_err("malformed parquet metadata must be an error, not a panic");
         assert_eq!(err.class(), ErrorClass::InvalidParquetSchema);
-        assert!(
-            format!("{err}").contains("panicked"),
-            "expected the panic-boundary detail, got {err}"
-        );
     }
 
     #[test]
@@ -2735,8 +2721,8 @@ mod tests {
         // fixtures directory.
         //
         // `fuzz_crash_fc0ea292.parquet` is a crafted footer whose embedded Arrow IPC schema
-        // has no `fields` (the `fb_to_schema` panic family); it still reaches that net, while
-        // the other two now stop earlier, at the metadata bounds. The fuzz target mirrors
+        // has no `fields`, which panicked `arrow-ipc` 59 and is a parse error in 60; the other
+        // two now stop earlier, at the metadata bounds. The fuzz target mirrors
         // production's `catch_unwind` boundary (see
         // `crates/core/fuzz/fuzz_targets/parquet_validate.rs`).
         for name in [

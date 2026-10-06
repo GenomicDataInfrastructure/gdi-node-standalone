@@ -10,14 +10,13 @@
 //!
 //! # Panics that the product already handles must not read as crashes
 //!
-//! `arrow-ipc`'s metadata schema decoder (`fb_to_schema`) panics rather than returning an
-//! error on some crafted parquet. A malformed embedded `ARROW:schema` flatbuffer whose `Int`
-//! field declares a bit width of 0, or one whose schema has no `fields` at all, both do it.
+//! `arrow-ipc` 59 panicked in `fb_to_schema` on a malformed embedded `ARROW:schema` (an
+//! `Int` with bit width 0, or no `fields`). 60 returns errors for both, but another decode
+//! panic in `parquet` or `arrow` is still possible.
 //!
-//! The product turns that into a clean error. `validate_parquet_dir` runs the read inside
-//! `core::validate_parquet::catch_parquet_panic`, so under the normal panic-unwind build a
-//! malformed file yields `Err(CoreError::InvalidParquet)` and never a process abort. The
-//! fixtures under `crates/core/tests/fixtures/malformed/` pin that in the `core` unit suite.
+//! `validate_parquet_dir` reads inside `core::validate_parquet::catch_parquet_panic`, so with
+//! panic=unwind a malformed file gives `Err(CoreError::InvalidParquet)`, never an abort. The
+//! fixtures in `crates/core/tests/fixtures/malformed/` keep those cases as clean errors.
 //!
 //! `libfuzzer-sys`'s default panic hook prints the panic and calls `process::abort()`
 //! synchronously at the panic site, before unwinding starts and therefore before
