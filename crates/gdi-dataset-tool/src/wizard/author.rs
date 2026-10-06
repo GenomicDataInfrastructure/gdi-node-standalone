@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 
 use gdi_node_standalone_core::config::ProfileContactPoint;
 use gdi_node_standalone_core::convert::{
-    ConvertOptions, preview_vcf_with_progress, read_header_hints, read_header_populations,
+    ConvertOptions, has_bgzf_extension, preview_vcf_with_progress, read_header_hints,
+    read_header_populations,
 };
 use gdi_node_standalone_core::model::PackageYaml;
 use gdi_node_standalone_core::validate_pkg::{
@@ -758,14 +759,11 @@ pub struct AuthorContext<'a> {
     pub header_policy: Option<gdi_node_standalone_core::config::ProfileHeaderPolicy>,
 }
 
-/// The file names the converter's reader accepts (`preflight_vcf_format`'s extension rule,
-/// case-insensitive).
-const VCF_EXTENSIONS: [&str; 4] = [".vcf", ".vcf.gz", ".vcf.bgz", ".vcf.bgzf"];
-
-/// Whether `name` carries one of [`VCF_EXTENSIONS`].
+/// Whether `name` is a VCF the converter reads: `.vcf`, plain or bgzip-compressed, in any case.
 fn is_vcf_name(name: &str) -> bool {
-    let lower = name.to_ascii_lowercase();
-    VCF_EXTENSIONS.iter().any(|ext| lower.ends_with(ext))
+    compression_base(name)
+        .to_ascii_lowercase()
+        .ends_with(".vcf")
 }
 
 /// The file name of `path`, lossily, for prompts and progress lines.
@@ -912,21 +910,13 @@ fn collect_vcf_sources(p: &dyn Prompter) -> Result<SourceSummary, ToolError> {
     }
 }
 
-/// The path with one trailing compression suffix (`.gz`/`.bgz`/`.bgzf`) removed — the
-/// identity under which `x.vcf` and `x.vcf.gz` are the same source twice.
+/// The path with one trailing bgzip suffix (`.gz`/`.bgz`/`.bgzf`) removed — the identity
+/// under which `x.vcf` and `x.vcf.gz` are the same source twice.
 fn compression_base(path: &str) -> String {
-    let lower = path.to_ascii_lowercase();
-    for ext in [".gz", ".bgz", ".bgzf"] {
-        if lower.ends_with(ext) {
-            // The suffix is ASCII and `to_ascii_lowercase` preserves byte offsets, so
-            // the cut is on a char boundary; `get` keeps the no-panic guarantee anyway.
-            return path
-                .get(..path.len() - ext.len())
-                .unwrap_or(path)
-                .to_owned();
-        }
+    match path.rsplit_once('.') {
+        Some((base, _)) if has_bgzf_extension(Path::new(path)) => base.to_owned(),
+        _ => path.to_owned(),
     }
-    path.to_owned()
 }
 
 /// Warn when two selected sources are the same path apart from compression
