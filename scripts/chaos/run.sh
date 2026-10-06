@@ -22,7 +22,7 @@
 #
 # Advisory and on-demand: it needs Docker, the e2e image build and several GB of disk, and
 # is not part of `scripts/ci-local.sh all`. Knobs: S3_BACKEND (garage|minio), VAULT_BACKEND
-# (openbao|vault), TOXIPROXY_ADMIN (default http://127.0.0.1:8474).
+# (openbao|vault), TOXIPROXY_ADMIN and MGMT_URL (default: looked up from Compose).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -32,8 +32,9 @@ COMPOSE="${COMPOSE:-docker compose}"
 PROJECT="gdi-node-standalone-chaos"
 S3_BACKEND="${S3_BACKEND:-garage}"
 VAULT_BACKEND="${VAULT_BACKEND:-openbao}"
-ADMIN="${TOXIPROXY_ADMIN:-http://127.0.0.1:8474}"
-MGMT_URL="${MGMT_URL:-http://127.0.0.1:9090}"
+# Unless set, found with `dc port` once the containers are up: host ports can be remapped.
+ADMIN="${TOXIPROXY_ADMIN:-}"
+MGMT_URL="${MGMT_URL:-}"
 
 # Upstream service:port the proxies point at (compose DNS names on the shared network).
 case "$S3_BACKEND" in
@@ -85,6 +86,7 @@ wait_unready() { for _ in $(seq 1 "${1:-30}"); do ready || return 0; sleep 1; do
 
 echo "==> bringing up the stack + toxiproxy (S3=$S3_BACKEND, Vault=$VAULT_BACKEND)"
 dc up -d --build toxiproxy
+[ -n "$ADMIN" ] || ADMIN="http://$(dc port toxiproxy 8474)"
 for _ in $(seq 1 30); do tp "$ADMIN/version" >/dev/null 2>&1 && break; sleep 1; done
 echo "==> creating proxies"
 mk_proxy s3    "0.0.0.0:23900" "$S3_UPSTREAM"
@@ -105,6 +107,7 @@ dc run --rm secrets-init                          # init + unseal (secrets-init.
 dc run --rm setup                                 # Vault Transit engine (setup.sh)
 dc run --rm gdi-node-standalone identity init --ensure  # mint the node crypt4gh identity into Vault
 dc up -d gdi-node-standalone
+[ -n "$MGMT_URL" ] || MGMT_URL="http://$(dc port gdi-node-standalone 9090)"
 
 fail=0
 
