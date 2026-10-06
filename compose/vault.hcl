@@ -10,16 +10,14 @@
 # The two paths must differ, so this is not a duplicated invariant.
 #
 # Do not pass `-config=` on the command line for this image.
-# The hashicorp/vault entrypoint already appends `-config=/vault/config` when that
-# directory exists, so an explicit `-config=/vault/config/vault.hcl` loads this file
-# twice and the second tcp listener dies with
+# The entrypoint already adds `-config=/vault/config`, so naming this file again loads
+# it twice and the second listener fails with
 #   "Error initializing listener of type tcp: listen tcp4 0.0.0.0:8200: bind:
 #    address already in use"
-# The compose service therefore runs a bare `server` and relies on the mount path.
-# openbao/openbao does not do this — it takes an explicit `-config=` — which is why
-# the two services' `command:` lines differ.
+# so the compose service runs a bare `server`. OpenBao's entrypoint does the same, but
+# it tolerates the duplicate, which is why its service can keep `-config=`.
 #
-# Behaviour of this profile, as observed on openbao/openbao:2.6.2 and hashicorp/vault:2.0.4:
+# Behaviour of this profile, as observed on openbao/openbao:2.6.4 and hashicorp/vault:2.1.1:
 #   * after `sys/init` it is still sealed (the static seal auto-unseals; Shamir does not)
 #   * after a container restart it comes back sealed and must be unsealed again —
 #     this is the case the seal-aware healthcheck exists to catch
