@@ -314,6 +314,10 @@ fn env_populates_nested_profile_and_default_profile() {
             "http://env.example:8080",
         );
         jail.set_env("GDI_TOOL__DEFAULT_PROFILE", "dev");
+        // `load(None)` reads the default config dir, which Jail doesn't isolate. Point it at
+        // the jail so the user's own tool.toml isn't merged in.
+        let config_dir = jail.directory().to_path_buf();
+        jail.set_env("GDI_CONFIG_DIR", config_dir.display());
         let cfg = ToolConfig::load(None).unwrap();
         assert_eq!(cfg.default_profile.as_deref(), Some("dev"));
         assert_eq!(

@@ -53,6 +53,8 @@ if [ ! -x "$TOOL" ] || [ ! -x "$NODE" ]; then
 fi
 
 WORK="$(mktemp -d)"
+# Keep the tool off the developer's own ~/.config/gdi/tool.toml.
+export GDI_CONFIG_DIR="$WORK/gdi-config"
 NODE_PID=""
 cleanup() {
   [ -n "$NODE_PID" ] && kill "$NODE_PID" 2>/dev/null || true

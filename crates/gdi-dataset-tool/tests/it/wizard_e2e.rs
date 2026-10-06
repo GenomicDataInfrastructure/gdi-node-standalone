@@ -3,6 +3,8 @@
 //! The TTY guard ([`gdi_dataset_tool::wizard::prompts::require_tty`]) lives in
 //! the `lib.rs` dispatch arm, not in [`gdi_dataset_tool::wizard::run`], so the
 //! orchestrator is fully testable here without an interactive terminal.
+// Tests that load the tool config pass a path or set `GDI_CONFIG_DIR` to their tempdir,
+// so the user's own `~/.config/gdi/tool.toml` can't leak in.
 
 #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
 
@@ -410,6 +412,7 @@ fn completions_include_wizard() {
 fn wizard_rejects_from_pack_and_from_publish() {
     let dir = tempfile::tempdir().unwrap();
     let pkg = dir.path().join("package.yaml");
+    let config_path = dir.path().join("tool.toml");
     let p = ScriptedPrompter::new();
     for stage in [Stage::Pack, Stage::Publish] {
         let args = WizardArgs {
@@ -419,7 +422,7 @@ fn wizard_rejects_from_pack_and_from_publish() {
             output: pkg.clone(),
             recipient: None,
         };
-        let result = gdi_dataset_tool::wizard::run(&p, &args, None, None);
+        let result = gdi_dataset_tool::wizard::run(&p, &args, None, Some(config_path.as_path()));
         assert!(
             result.is_err(),
             "--from {stage:?} must be rejected, but run() returned Ok"
@@ -912,6 +915,9 @@ fn authored_package_builds() {
     );
 
     // Build it — the ultimate drift guard: wizard output must build successfully.
+    // A missing tool.toml in the tempdir loads as the defaults. `None` would read the
+    // user's own, whose catalogs allow-list might reject this catalog.
+    let config_path = dir.path().join("tool.toml");
     let build_res = gdi_dataset_tool::commands::cmd_build::run(
         &BuildArgs {
             package: pkg.clone(),
@@ -928,7 +934,7 @@ fn authored_package_builds() {
             format: OutputFormat::Text,
         },
         None,
-        None,
+        Some(config_path.as_path()),
     );
     assert!(
         build_res.is_ok(),

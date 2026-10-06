@@ -401,6 +401,18 @@ need() {
 
 have_nextest() { cargo nextest --version >/dev/null 2>&1; }
 
+# user_config_isolation — sets USER_CONFIG_ISOLATION, an `env` prefix that points the
+# default config dir at an unparsable tool.toml. Anything that reads the developer's own
+# ~/.config/gdi/tool.toml then fails everywhere, not just on machines that have one.
+# Tests that need a config pass a path or set GDI_CONFIG_DIR themselves.
+user_config_isolation() {
+  local dir="$PWD/target/test-user-config"
+  mkdir -p "$dir/gdi"
+  printf '%s\n' '# Deliberately unparsable: see user_config_isolation in scripts/ci-local.sh.' \
+    'not = [toml' >"$dir/gdi/tool.toml"
+  USER_CONFIG_ISOLATION=(env -u GDI_CONFIG_DIR "XDG_CONFIG_HOME=$dir")
+}
+
 # run_tests [extra cargo args...]
 #
 # The no-nextest fallback is unconditionally single-threaded: every leg here has tests
@@ -417,11 +429,13 @@ run_tests() {
       break
     fi
   done
+  user_config_isolation
+  local isolate=("${USER_CONFIG_ISOLATION[@]}")
   if have_nextest; then
     if [[ -n "${CI:-}" ]]; then
-      run cargo nextest run "${scope[@]}" --locked --profile ci "$@"
+      run "${isolate[@]}" cargo nextest run "${scope[@]}" --locked --profile ci "$@"
     else
-      run cargo nextest run "${scope[@]}" --locked "$@"
+      run "${isolate[@]}" cargo nextest run "${scope[@]}" --locked "$@"
     fi
   else
     # shellcheck disable=SC2016  # the backticked `cargo test` is literal text, not a command substitution
@@ -437,7 +451,7 @@ run_tests() {
     # targets, and criterion's CLI rejects the flag outright. libtest honours
     # RUST_TEST_THREADS, the bench binaries ignore an env var they do not read, and
     # `--all-targets` coverage is kept.
-    run env RUST_TEST_THREADS=1 cargo test "${scope[@]}" --all-targets --locked "$@"
+    run "${isolate[@]}" RUST_TEST_THREADS=1 cargo test "${scope[@]}" --all-targets --locked "$@"
   fi
 }
 
@@ -2004,18 +2018,21 @@ load() {
   step "load — oha baseline + saturation (asserts load-shed still sheds)"
   need oha "cargo install oha --locked"
   need python3 "https://www.python.org/downloads/"
-  run scripts/load/run.sh
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" scripts/load/run.sh
 }
 soak() {
   step "soak — RSS/fd/thread plateau over sustained query load"
   need oha "cargo install oha --locked"
   need python3 "https://www.python.org/downloads/"
-  run scripts/soak/leak.sh
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" scripts/soak/leak.sh
 }
 crash_loop() {
   step "crash-loop — kill -9 mid-write, assert the store converges on reboot"
   need curl "https://curl.se/download.html"
-  run scripts/soak/crash-loop.sh
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" scripts/soak/crash-loop.sh
 }
 e2e_observability() {
   step "e2e-observability — node /metrics -> prometheus scrape -> queryable (Docker)"
@@ -2325,7 +2342,8 @@ sbom() {
 e2e() {
   step "e2e — lite end-to-end smoke against the minimal Compose stack (Docker)"
   need docker "https://docs.docker.com/get-docker/"
-  run ./scripts/e2e/run.sh
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" ./scripts/e2e/run.sh
 }
 
 # Assert a gnu binary's highest referenced GLIBC symbol stays at or below <max>, so the
@@ -2437,7 +2455,8 @@ cross_arm() { step "cross-arm — build-verify the weekly aarch64-linux targets 
 e2e_full() {
   step "e2e-full — Garage + OpenBao + PME at-rest crypt4gh round-trip (Docker)"
   need docker "https://docs.docker.com/get-docker/"
-  run ./scripts/e2e/run-full.sh
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" ./scripts/e2e/run-full.sh
 }
 
 # Third-party attribution drift guard. THIRD-PARTY-LICENSES.md carries the full licence
