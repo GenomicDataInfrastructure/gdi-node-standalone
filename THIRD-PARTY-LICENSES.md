@@ -9894,11 +9894,11 @@ SOFTWARE.
 
 Used by:
 - libm 0.2.16
-- noodles-bgzf 0.51.0
-- noodles-core 0.20.0
-- noodles-csi 0.61.0
-- noodles-tabix 0.67.0
-- noodles-vcf 0.93.0
+- noodles-bgzf 0.52.0
+- noodles-core 0.21.0
+- noodles-csi 0.62.0
+- noodles-tabix 0.68.0
+- noodles-vcf 0.94.0
 
 ```
 MIT License
