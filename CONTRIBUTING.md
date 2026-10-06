@@ -83,16 +83,16 @@ components, so every build uses the same compiler and lint set:
 ```toml
 # rust-toolchain.toml
 [toolchain]
-channel = "1.98.0"
+channel = "1.99.0"
 components = ["clippy", "rustfmt"]
 ```
 
-`rustup` installs and selects `1.98.0` when you `cd` into the repository. You do not need
+`rustup` installs and selects `1.99.0` when you `cd` into the repository. You do not need
 to select a toolchain manually.
 
 Two version numbers, answering different questions:
 
-- **`channel = "1.98.0"`** in `rust-toolchain.toml` is the toolchain you develop and lint
+- **`channel = "1.99.0"`** in `rust-toolchain.toml` is the toolchain you develop and lint
   with. The Dockerfile's `FROM rust:` builder must match it; `ci-local.sh ci-gate` asserts
   that, since a Dockerfile cannot read the version out of another file.
 - **MSRV `1.96`** (`rust-version` in `[workspace.package]`) is the minimum Rust the crates
@@ -651,7 +651,7 @@ restore a baseline from git history and reproduce the selection recorded in its
 
 The Minimum Supported Rust Version is `1.96`, declared once as `rust-version = "1.96"` in
 `[workspace.package]` and inherited by every crate. It is a ratchet: raised only when
-something requires it, never lowered, and not a function of the `1.98.0` development
+something requires it, never lowered, and not a function of the `1.99.0` development
 toolchain in `rust-toolchain.toml`. The pin tracks current stable on its own cadence; the
 floor moves when it must.
 
@@ -686,7 +686,7 @@ floor equal to the pin makes the `msrv` leg re-verify the compiler every other l
   two-component channel to the newest patch in the series, which is a compiler newer than
   the claim. `scripts/ci-local.sh` therefore derives `MSRV_TOOLCHAIN` by appending `.0` and
   asserts the resolved `rustc -vV` release equals it. That earliest patch (`1.96.0`) does
-  not coincide with the `rust-toolchain.toml` pin (`1.98.0`). `check-ci-gate.py` cannot
+  not coincide with the `rust-toolchain.toml` pin (`1.99.0`). `check-ci-gate.py` cannot
   catch this class of drift: it compares declared strings, not the compiler that ran.
 - A dependency that raises its own `rust-version` above the MSRV fails the `msrv` job, and
   that failure is the ratchet's trigger: raise the floor or hold the dependency. If you
