@@ -836,7 +836,7 @@ msrv() {
 # the tag and the digest together: Dependabot does not see an inline `docker run` image,
 # so these are bumped by hand.
 ACTIONLINT_IMAGE='rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667'
-PROMETHEUS_IMAGE='prom/prometheus:v3.14.0@sha256:5ce7540c3c00ef4ab0c9d2c995c6a5b9c421f44b4a115d97a2c7af3b1c21cbb0'
+PROMETHEUS_IMAGE='prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e'
 SHELLCHECK_IMAGE='koalaman/shellcheck:v0.11.0@sha256:61862eba1fcf09a484ebcc6feea46f1782532571a34ed51fedf90dd25f925a8d'
 # No GITLEAKS_IMAGE: `secrets` runs the native binary so it can sit in `all` rather than in
 # the Docker-only `lint-docker`. Going native gives up the digest pin, so this floor
