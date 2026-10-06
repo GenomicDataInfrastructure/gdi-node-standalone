@@ -17,8 +17,8 @@
 #   * no orphan working dir survives under data_dir/.incoming/ (boot reap);
 #   * every dataset dir on disk has a status-index entry (store consistency).
 #
-# Advisory long-runner. Tunables: SOAK_CYCLES (default 8). Uses target/release binaries,
-# building them if absent. No Docker, S3 or keys.
+# Advisory long-runner. Tunables: SOAK_CYCLES (default 8). Builds the release binaries
+# first unless NODE and TOOL are set. No Docker, S3 or keys.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -32,12 +32,9 @@ CYCLES="${SOAK_CYCLES:-8}"
 
 command -v curl >/dev/null 2>&1 || { echo "FAIL: curl not found" >&2; exit 127; }
 
-TOOL="${TOOL:-$ROOT/target/release/gdi-dataset-tool}"
-NODE="${NODE:-$ROOT/target/release/gdi-node-standalone}"
-if [ ! -x "$TOOL" ] || [ ! -x "$NODE" ]; then
-  echo "==> building release binaries"
-  cargo build --release --locked --bins -p gdi-node-standalone -p gdi-dataset-tool
-fi
+# shellcheck source=scripts/lib/release-bins.sh
+. "$ROOT/scripts/lib/release-bins.sh"
+release_bins
 
 WORK="$(mktemp -d)"
 # Keep the tool off the developer's own ~/.config/gdi/tool.toml.

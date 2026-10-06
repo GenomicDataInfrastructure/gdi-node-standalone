@@ -19,8 +19,8 @@
 # `.github/workflows/scheduled.yml` invokes it.
 #
 # Usage: scripts/load/run.sh, from the repo root. Requires `oha` (`cargo install oha`)
-# on PATH. Uses `target/release` binaries, building them if absent; override NODE / TOOL
-# to point at pre-built binaries, debug ones for instance.
+# on PATH. Builds the release binaries first; set NODE and TOOL to use others, such as
+# debug builds.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -45,12 +45,9 @@ command -v python3 >/dev/null 2>&1 || {
   exit 127
 }
 
-TOOL="${TOOL:-$ROOT/target/release/gdi-dataset-tool}"
-NODE="${NODE:-$ROOT/target/release/gdi-node-standalone}"
-if [ ! -x "$TOOL" ] || [ ! -x "$NODE" ]; then
-  echo "==> building release binaries"
-  cargo build --release --locked --bins -p gdi-node-standalone -p gdi-dataset-tool
-fi
+# shellcheck source=scripts/lib/release-bins.sh
+. "$ROOT/scripts/lib/release-bins.sh"
+release_bins
 
 WORK="$(mktemp -d)"
 # Keep the tool off the developer's own ~/.config/gdi/tool.toml.

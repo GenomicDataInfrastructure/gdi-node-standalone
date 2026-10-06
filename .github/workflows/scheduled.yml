@@ -160,7 +160,7 @@ jobs:
         # version pin is what makes that path reproducible, and
         # `ci-local.sh workflow-tool-pins` can only compare tools that carry one.
         with: { tool: oha@1.16.0 }
-      # The harness builds the release binaries itself if absent.
+      # The harness builds the release binaries itself.
       - run: ./scripts/load/run.sh
 
   # Endurance-leak + crash-loop soaks (long-runners; no Docker, no S3, no keys). `leak.sh`
