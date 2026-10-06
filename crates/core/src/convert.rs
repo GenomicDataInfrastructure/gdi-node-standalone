@@ -820,15 +820,27 @@ impl DigestState {
     }
 }
 
-/// The compression `vcf::io::reader::Builder::build_from_path` selects for `source`: by
-/// extension, `gz` and `bgz` mean bgzf and everything else is uncompressed. Spelled out here
-/// so [`open_reader`] can wrap the file in a [`CountingReader`] and still pick the same
-/// codec. `preflight_vcf_format` has already rejected an extension and content mismatch.
-fn vcf_compression_for(source: &Path) -> vcf::io::CompressionMethod {
-    match source.extension().and_then(|e| e.to_str()) {
-        Some("gz" | "bgz") => vcf::io::CompressionMethod::Bgzf,
-        _ => vcf::io::CompressionMethod::None,
-    }
+/// The extensions of a bgzip-compressed VCF (`x.vcf.gz`, `.bgz`, `.bgzf`), in any case.
+pub const BGZF_EXTENSIONS: [&str; 3] = ["gz", "bgz", "bgzf"];
+
+/// Whether `path` ends in one of [`BGZF_EXTENSIONS`].
+#[must_use]
+pub fn has_bgzf_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| BGZF_EXTENSIONS.iter().any(|x| e.eq_ignore_ascii_case(x)))
+}
+
+/// A VCF reader builder whose codec follows [`has_bgzf_extension`], the rule
+/// `preflight_vcf_format` checks the file against. noodles' own choice knows only lowercase
+/// `gz` and `bgz`, so a `.bgzf` or `.GZ` the preflight accepted would be read as plain text.
+fn vcf_reader_builder(path: &Path) -> vcf::io::reader::Builder {
+    let compression = if has_bgzf_extension(path) {
+        vcf::io::CompressionMethod::Bgzf
+    } else {
+        vcf::io::CompressionMethod::None
+    };
+    vcf::io::reader::Builder::default().set_compression_method(compression)
 }
 
 /// Open a VCF reader that counts every compressed on-disk byte read, for progress, and, when
@@ -849,11 +861,7 @@ fn open_reader<'a>(
     digest: Option<Rc<RefCell<DigestState>>>,
 ) -> CoreResult<vcf::io::Reader<Box<dyn std::io::BufRead + 'a>>> {
     let file = File::open(source)?;
-    let builder = vcf::io::reader::Builder::default().set_compression_method(
-        // Detect compression before the file is wrapped: `vcf_compression_for` reads the
-        // path, which the digesting wrapper would otherwise obscure.
-        vcf_compression_for(source),
-    );
+    let builder = vcf_reader_builder(source);
     let reader = match digest {
         Some(state) => {
             let digesting = DigestingReader { inner: file, state };
@@ -1362,7 +1370,7 @@ pub struct PreviewReport {
 /// [`CoreError::Io`] on an I/O failure.
 pub fn read_header_populations(path: &Path) -> CoreResult<Vec<String>> {
     preflight_vcf_format(path)?;
-    let mut reader = vcf::io::reader::Builder::default().build_from_path(path)?;
+    let mut reader = vcf_reader_builder(path).build_from_path(path)?;
     let header = reader.read_header()?;
     let mut diags = Vec::new();
     let scan = build_pop_fields(&header, &mut diags)?;
@@ -1406,7 +1414,7 @@ const CHR1_LENGTHS: [(usize, &str); 2] = [(249_250_621, "GRCh37"), (248_956_422,
 /// format-preflight error of [`convert_vcf`].
 pub fn read_header_hints(path: &Path) -> CoreResult<HeaderHints> {
     preflight_vcf_format(path)?;
-    let mut reader = vcf::io::reader::Builder::default().build_from_path(path)?;
+    let mut reader = vcf_reader_builder(path).build_from_path(path)?;
     let header = reader.read_header()?;
     let assembly = assembly_from_contigs(&header).or_else(|| assembly_from_reference_line(&header));
     let samples = header.sample_names().len();
@@ -2334,12 +2342,7 @@ fn preflight_vcf_format(path: &Path) -> CoreResult<()> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or_default();
-    // Case-insensitive bgzip-family extension check, so a mis-cased `.GZ` still counts.
-    let gz_ext = path.extension().is_some_and(|e| {
-        e.eq_ignore_ascii_case("gz")
-            || e.eq_ignore_ascii_case("bgz")
-            || e.eq_ignore_ascii_case("bgzf")
-    });
+    let gz_ext = has_bgzf_extension(path);
     if is_gzip && !gz_ext {
         return Err(invalid_parquet(format!(
             "{name} is BGZF/gzip-compressed but its name has no .gz extension; the reader \
@@ -3505,14 +3508,18 @@ mod tests {
     }
 
     #[test]
-    fn preflight_accepts_bgzip_family_extensions() {
-        // The bgzip-family extension set is `gz`, `bgz` or `bgzf`. Regrouping those
-        // alternatives collapses the set to `gz` alone, which would wrongly reject a real
-        // `.bgz` or `.bgzf` VCF as having no `.gz` extension.
+    fn every_bgzip_name_the_preflight_accepts_is_read_as_bgzf() {
+        // A name the preflight accepts but a reader opens as plain text fails with
+        // "empty input", so both must follow `has_bgzf_extension`.
         let dir = tempfile::tempdir().unwrap();
-        let p = dir.path().join("x.vcf.bgz");
-        File::create(&p).unwrap().write_all(&BGZF_HEADER).unwrap();
-        preflight_vcf_format(&p).expect("a BGZF .vcf.bgz must be accepted");
+        let vcf = "##fileformat=VCFv4.2\n##contig=<ID=chr1>\n\
+                   #CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n";
+        for name in ["x.vcf.bgz", "x.vcf.bgzf", "X.VCF.GZ"] {
+            let p = dir.path().join(name);
+            std::fs::rename(write_bgzf_vcf(dir.path(), vcf), &p).unwrap();
+            read_header_hints(&p).unwrap_or_else(|e| panic!("{name}: {e}"));
+            count_full_read(&p);
+        }
     }
 
     /// Convert with the default GRCh38/10Mb/no-floor options.
