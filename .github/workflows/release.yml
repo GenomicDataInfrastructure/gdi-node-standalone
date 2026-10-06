@@ -49,7 +49,7 @@ jobs:
           # its allowlist is empty, so an unverified new target fails the gate.
           # --- gdi-dataset-tool CLI, three+ platforms ---
           - name: tool-x86_64-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             crate: gdi-dataset-tool
             bin: gdi-dataset-tool
@@ -61,7 +61,7 @@ jobs:
           # hosts, and a fully-static musl binary runs on Alpine / musl / old-glibc where
           # the gnu build can't. The verify leg lives in ci.yml `cross-compile`.
           - name: tool-x86_64-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             crate: gdi-dataset-tool
             bin: gdi-dataset-tool
@@ -95,7 +95,7 @@ jobs:
           # Ubuntu 18.04+, Debian 10+). The x86_64 binary is what the `image` job packages
           # onto distroless/cc; both arches are also bare-metal downloads.
           - name: service-x86_64-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-gnu
             crate: gdi-node-standalone
             bin: gdi-node-standalone
@@ -103,7 +103,7 @@ jobs:
             features: "full"
             use-cross: true
           - name: service-aarch64-linux-gnu
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: aarch64-unknown-linux-gnu
             crate: gdi-node-standalone
             bin: gdi-node-standalone
@@ -115,7 +115,7 @@ jobs:
           # glibc binary can't run (no glibc / no dynamic loader). Not the default and not
           # packaged into a container image; shipped as a downloadable static binary only.
           - name: service-x86_64-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: x86_64-unknown-linux-musl
             crate: gdi-node-standalone
             bin: gdi-node-standalone
@@ -123,7 +123,7 @@ jobs:
             features: "full"
             use-cross: true
           - name: service-aarch64-linux-musl
-            os: ubuntu-latest
+            os: ubuntu-26.04
             target: aarch64-unknown-linux-musl
             crate: gdi-node-standalone
             bin: gdi-node-standalone
@@ -204,7 +204,7 @@ jobs:
   # Fast (no toolchain — reads [workspace.package].version straight from Cargo.toml).
   # `publish`/`image` `needs:` it alongside `gate`.
   version-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Assert the tag matches [workspace.package].version
@@ -243,7 +243,7 @@ jobs:
   #
   # Cheap and toolchain-free (awk over one file), so gating both jobs on it costs nothing.
   changelog-guard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Assert CHANGELOG.md has a section for this version
@@ -273,7 +273,7 @@ jobs:
   # gate and are simply discarded if it fails (nothing they produce is published
   # without the gate passing).
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -308,7 +308,7 @@ jobs:
   # CycloneDX SBOM, one per shipped binary (gdi-node-standalone, gdi-dataset-tool),
   # published with the release.
   sbom:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
@@ -346,7 +346,7 @@ jobs:
   # provenance (SLSA, keyless via OIDC), and publish the GitHub Release.
   publish:
     needs: [build, sbom, gate, version-guard, changelog-guard]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: write # create the release + upload assets
       id-token: write # OIDC token for keyless attestation
@@ -511,7 +511,7 @@ jobs:
   # the hardest artifact to retract. The cost is serialising the two.
   image:
     needs: [build, gate, version-guard, changelog-guard, publish]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     permissions:
       contents: read
       packages: write # push to GHCR
