@@ -10,7 +10,7 @@
 #
 # Mounted at /etc/tempo.yaml; started with `-config.file=/etc/tempo.yaml`.
 #
-# Schema: this matches the pinned `grafana/tempo:3.0.3` image. Tempo 3.0 removed the
+# Schema: this matches the pinned `grafana/tempo:3.1.0` image. Tempo 3.0 removed the
 # top-level `ingester:` and `compactor:` blocks (the write path is live-store +
 # block-builder, and a backend-scheduler replaces the compactor) — a 2.x config carrying
 # them crash-loops the container on "field ingester/compactor not found". Keep this
