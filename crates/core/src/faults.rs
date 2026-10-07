@@ -26,12 +26,11 @@
 //! runs tests in parallel, so an unscoped fault would fire on a concurrent test's
 //! ingest. Every arm therefore carries a key substring: [`guard`] fires only
 //! when the call-site key (the dataset id, or the durable-write path) contains it,
-//! and a non-matching call passes through without consuming a fire. Tests use a
-//! unique id so their fault can never contaminate a sibling, and a
-//! [`FaultPoint::DurableWrite`] key must be an absolute path into the test's own temp
-//! dir: arming refuses a bare name like `.pub`, which every concurrent test has. Arming still
-//! serializes (`#[serial(faults)]`) and returns a `FaultGuard` whose `Drop`
-//! disarms the point, so a fault never leaks past the test that set it.
+//! and a non-matching call passes through without consuming a fire. Key a dataset fault
+//! on an id no other test in the binary ingests: `#[serial(faults)]` orders only the tests
+//! that arm. Key a [`FaultPoint::DurableWrite`] fault on an absolute path in the test's own
+//! temp dir; arming refuses a bare name like `.pub`, which every test has. Arming returns a
+//! `FaultGuard` whose `Drop` disarms the point, so a fault never outlives its test.
 //!
 //! `FaultGuard` is spelled as plain code rather than an intra-doc link. It lives in the
 //! `fault-injection`-gated backend, so a link would fail a `-D warnings` doc build of this
@@ -304,6 +303,14 @@ mod tests {
         );
     }
 
+    /// A `DurableWrite` key that is absolute on Windows too, unlike `/probe`.
+    fn probe() -> String {
+        std::env::temp_dir()
+            .join("probe")
+            .to_string_lossy()
+            .into_owned()
+    }
+
     #[test]
     #[serial(faults)]
     fn unarmed_guard_is_ok() {
@@ -313,11 +320,11 @@ mod tests {
     #[test]
     #[serial(faults)]
     fn arm_enospc_fires_once_then_clears() {
-        let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 1);
-        let err = guard(FaultPoint::DurableWrite, "/probe").unwrap_err();
+        let _g = arm_enospc(FaultPoint::DurableWrite, &probe(), 1);
+        let err = guard(FaultPoint::DurableWrite, &probe()).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::StorageFull);
         // Fired once (times == 1); the point is now disarmed.
-        assert!(guard(FaultPoint::DurableWrite, "/probe").is_ok());
+        assert!(guard(FaultPoint::DurableWrite, &probe()).is_ok());
     }
 
     #[test]
@@ -337,10 +344,10 @@ mod tests {
     #[test]
     #[serial(faults)]
     fn arm_enospc_fires_the_requested_number_of_times() {
-        let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 2);
-        assert!(guard(FaultPoint::DurableWrite, "/probe").is_err());
-        assert!(guard(FaultPoint::DurableWrite, "/probe").is_err());
-        assert!(guard(FaultPoint::DurableWrite, "/probe").is_ok());
+        let _g = arm_enospc(FaultPoint::DurableWrite, &probe(), 2);
+        assert!(guard(FaultPoint::DurableWrite, &probe()).is_err());
+        assert!(guard(FaultPoint::DurableWrite, &probe()).is_err());
+        assert!(guard(FaultPoint::DurableWrite, &probe()).is_ok());
     }
 
     #[test]
@@ -379,10 +386,10 @@ mod tests {
     #[serial(faults)]
     fn guard_dropping_disarms() {
         {
-            let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 5);
+            let _g = arm_enospc(FaultPoint::DurableWrite, &probe(), 5);
         } // dropped here, well before the 5 fires are consumed
         assert!(
-            guard(FaultPoint::DurableWrite, "/probe").is_ok(),
+            guard(FaultPoint::DurableWrite, &probe()).is_ok(),
             "dropping the guard disarms the point"
         );
     }
@@ -390,11 +397,11 @@ mod tests {
     #[test]
     #[serial(faults)]
     fn faults_are_keyed_by_point() {
-        let _g = arm_enospc(FaultPoint::DurableWrite, "/probe", 1);
+        let _g = arm_enospc(FaultPoint::DurableWrite, &probe(), 1);
         // A different point is unaffected by the arming.
-        assert!(guard(FaultPoint::IngestStore, "/probe").is_ok());
+        assert!(guard(FaultPoint::IngestStore, &probe()).is_ok());
         // The armed point still fires.
-        assert!(guard(FaultPoint::DurableWrite, "/probe").is_err());
+        assert!(guard(FaultPoint::DurableWrite, &probe()).is_err());
     }
 
     #[test]

@@ -283,3 +283,12 @@ fn no_published_schema_description_names_a_rust_item() {
     }
     assert!(checked > 0, "no descriptions were examined");
 }
+
+/// The shared test manifest passes the node's validation, not only its parser.
+#[test]
+fn the_shared_stored_manifest_is_valid() {
+    let raw = test_util::stored_manifest_json("GDI-EE-TEST-20260101000000000");
+    let manifest: Manifest = serde_json::from_str(&raw).expect("the shared manifest parses");
+    gdi_node_standalone_core::validate_pkg::validate_overlay_result(&manifest.metadata)
+        .expect("the shared manifest is valid");
+}

@@ -2918,7 +2918,11 @@ mod tests {
                 title: gdi_node_standalone_core::model::LocalizedText::Plain(
                     "Baseline title".to_owned(),
                 ),
-                description: None,
+                // Valid as a whole, so a wrongly applied sidecar would change the served title
+                // rather than fail validation.
+                description: Some(gdi_node_standalone_core::model::LocalizedText::Plain(
+                    "Baseline description".to_owned(),
+                )),
                 access_rights:
                     "http://publications.europa.eu/resource/authority/access-right/PUBLIC"
                         .to_owned(),
