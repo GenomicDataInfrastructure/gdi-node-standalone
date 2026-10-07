@@ -957,8 +957,8 @@ access_url.aggregated = "https://portal.gdi.lu/allele-frequency"
 # already publishes what HealthDCAT-AP release 8 asks for on top of its own records, in a
 # form releases 5 and 7 accept too (hasStructuredData, the allele-frequency variables
 # table, a description of aggregated distributions, and an rdf:type on licence, access
-# rights, language, legislation and legal basis values). Those built-in settings are in crates/core/src/config/fairdp-publish.toml,
-# written the same way as this block.
+# rights, language, legislation and legal basis values). Those built-in settings are in
+# crates/core/src/config/fairdp-publish.toml, written the same way as this block.
 #
 # When GDI announces a change, add what it asks for here. Your settings go over the
 # built-in ones key by key, down into nested tables: a key you set replaces only that

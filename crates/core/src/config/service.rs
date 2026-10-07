@@ -3278,7 +3278,7 @@ impl ServiceConfig {
     ///   non-empty, `email` an address, with or without `mailto:`, `url` a valid URL if
     ///   set);
     /// - at least one `theme` and one `applicable_legislation` entry; these, every
-    ///   `theme_taxonomy` entry, and the publisher's and HDAB's `homepage` and
+    ///   `theme_taxonomy` entry, the publisher's and HDAB's `homepage`, and
     ///   `endpoint_description` are valid IRIs;
     /// - the distribution has a title and an access URL, and its IRIs are valid;
     /// - `[fairdp.publish]`: kinds only on datasets and distributions, namespace IRIs;

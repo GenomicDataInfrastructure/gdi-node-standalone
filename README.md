@@ -150,10 +150,10 @@ R=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalon
 mkdir -p ~/gdi-demo && cd ~/gdi-demo
 N=gdi-node-standalone-$V-x86_64-unknown-linux-gnu
 T=gdi-dataset-tool-$V-x86_64-unknown-linux-gnu
-curl -fsSLO "$U/$N" -O "$U/$T" -O "$U/SHA256SUMS"
+curl --fail-early -fsSLO "$U/$N" -O "$U/$T" -O "$U/SHA256SUMS"
 sha256sum -c SHA256SUMS --ignore-missing          # both must print OK
 mv "$N" gdi-node-standalone && mv "$T" gdi-dataset-tool
-curl -fsSLO "$R/covid-package.yaml" -O "$R/COVID.monogneic.aggregate.AFs.GRCh38.vcf"
+curl --fail-early -fsSLO "$R/covid-package.yaml" -O "$R/COVID.monogneic.aggregate.AFs.GRCh38.vcf"
 chmod +x gdi-node-standalone gdi-dataset-tool
 export PATH="$PWD:$PATH"
 ```
@@ -227,7 +227,7 @@ gdi-dataset-tool build covid-package.yaml --cc EE -o build   # in a checkout: cr
 ID=$(ls build)                          # build/ was empty; every build mints a new id
 gdi-dataset-tool deploy build/$ID --inbox ~/gdi-demo/inbox --wait --management-url http://127.0.0.1:9090
 gdi-dataset-tool publish $ID --inbox ~/gdi-demo/inbox   # writes {id}.state.json; the node applies it on its next scan
-until curl -fsS http://127.0.0.1:9090/datasets/$ID/state | grep -q '"visible"'; do sleep 1; done
+for _ in $(seq 60); do curl -fsS http://127.0.0.1:9090/datasets/$ID/state | grep -q '"visible"' && break; sleep 1; done   # up to a minute
 
 curl -s -X POST http://localhost:8080/aggregated/beacon/v2/g_variants \
   -H 'content-type: application/json' \
@@ -242,7 +242,7 @@ build the realistic sample instead and repeat the `deploy` and `publish` lines w
 ```bash
 V=v1.0.0-rc.2
 S=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalone/$V/crates/test-util/tests/fixtures/sample
-curl -fsSLO "$S/gdi-sample.package.yaml" -O "$S/gdi-sample.GRCh38.vcf.gz"
+curl --fail-early -fsSLO "$S/gdi-sample.package.yaml" -O "$S/gdi-sample.GRCh38.vcf.gz"
 gdi-dataset-tool build gdi-sample.package.yaml --cc EE -o build-sample   # checkout: crates/test-util/tests/fixtures/sample/
 ID=$(ls build-sample)
 ```

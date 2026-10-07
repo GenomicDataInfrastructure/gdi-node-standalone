@@ -580,10 +580,8 @@ inside the `release` meta-leg are marked.
   RSS/open-fd/thread plateau; `scripts/soak/crash-loop.sh` `kill -9`s the node and asserts
   the store converges on restart. Local: run those scripts directly.
 - **`advisories`** — re-runs the RustSec scan against the shipped lockfile and the
-  isolated fuzz lockfile; fails on a freshly-disclosed advisory. Local: `ci-local.sh deny`
-  covers the workspace lock. The fuzz lock is a local gap: scan it by hand with
-  `cargo deny --locked --manifest-path crates/core/fuzz/Cargo.toml check advisories` after
-  refreshing it.
+  isolated fuzz lockfile; fails on a freshly-disclosed advisory. Local: `ci-local.sh
+  supply-chain` scans both (`deny` the workspace lock, `deny_fuzz` the fuzz lock).
 - **`vendored-sync`** — two questions, one tree. `scripts/vendored.sh check` asserts every
   vendored conformance file is byte-identical to its pinned commit. Because that commit is
   an immutable SHA it stays green however far upstream moves, so `scripts/vendored.sh
@@ -938,9 +936,10 @@ Then:
    tag. A `v0.x` tag and any suffixed tag publish as pre-releases and do not move
    `:latest`; only a stable tag does.
 
-   Update the version strings in the prose too. `README.md`, `docs/deployment.md`,
-   `docs/gdi-dataset-tool.md`, `docs/operating.md` and `docs/testing.md` name the current
-   release, and nothing checks them: `git grep 'v1\.0\.0-rc\.1'` finds the lot.
+   Update the version strings in the prose too. `README.md` and several docs name the
+   current release, with and without the `v`, and nothing checks them. With `old` set to
+   the version step 1 replaced, `git grep -nF "$old" -- ':!*Cargo.lock' ':!THIRD-PARTY-LICENSES.md'`
+   finds the lot.
 5. **What the tag enforces.** `release.yml` gates `publish` and `image` behind `gate`
    (`ci-local.sh rust supply-chain`), `version-guard`, and the changelog assembly, and
    `ci.yml` also runs on the tag. If anything is red, nothing publishes: fix and re-tag.
