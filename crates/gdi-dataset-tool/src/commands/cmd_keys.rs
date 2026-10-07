@@ -166,9 +166,9 @@ fn loose_permission_warning(path: &Path) -> Option<String> {
     gdi_node_standalone_core::util::loose_secret_mode(path).map(|mode| {
         format!(
             "warning: the provider secret key {} is readable beyond its owner (mode {mode:o}); \
-             file permissions are its only protection; run `chmod 600 {}`",
+             file permissions are its only protection; run `{}`",
             path.display(),
-            path.display()
+            crate::chmod_hint(path)
         )
     })
 }
