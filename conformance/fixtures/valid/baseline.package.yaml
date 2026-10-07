@@ -39,6 +39,11 @@ metadata:
     - "http://data.gdi.eu/core/p2/1MGCompliant"
   legalBasis:
     - "https://w3id.org/dpv#Consent"
+  minTypicalAge: 18
+  maxTypicalAge: 90
+  provenance: "Whole-genome sequencing of the cohort's participants, aggregated per population."
+  healthTheme:
+    - "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
   contactPoint:
     fn: "Data team"
     hasEmail: "mailto:data@example.org"
