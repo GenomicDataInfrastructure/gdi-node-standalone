@@ -51,6 +51,23 @@ class StripTestModulesTest(unittest.TestCase):
         self.assertIn("fn tail()", kept)
         self.assertNotIn("mod tests", kept)
 
+    def test_a_brace_or_quote_in_a_char_literal_or_block_comment_does_not_count(self):
+        src = (
+            "fn a() {}\n"
+            "#[cfg(test)]\n"
+            "mod tests {\n"
+            "    fn t<'a>(s: &'a str) -> bool { s.starts_with('{') || s.ends_with('\"') }\n"
+            "    /* a } in a block comment /* nested } */ still } */\n"
+            "    const Q: char = '\\'';\n"
+            "    fn u() { let _ = '}'; }\n"
+            "}\n"
+            "fn tail() {}\n"
+        )
+        kept = strip_test_modules(src)
+        self.assertIn("fn tail()", kept)
+        self.assertNotIn("fn u()", kept)
+        self.assertNotIn("mod tests", kept)
+
     def test_a_cfg_test_on_a_non_module_item_is_left_alone(self):
         src = '#[cfg(test)]\nconst FIXTURE: &str = "x";\nfn a() {}\n'
         self.assertEqual(src, strip_test_modules(src))

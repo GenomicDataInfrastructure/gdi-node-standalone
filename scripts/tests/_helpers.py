@@ -127,9 +127,9 @@ def _starts_raw_string(src: str, i: int) -> bool:
 
 def _block_end(src: str, open_brace: int) -> int:
     """The index just past the `}` that closes the block whose `{` is at `open_brace`,
-    skipping braces inside string literals, raw strings and `//` comments (a test module is
-    full of them: `"{}"` format strings, TOML fixtures in `r#"…"#` that hold `https://`,
-    `// { not a brace`)."""
+    skipping braces inside string literals, raw strings, char literals and comments (a test
+    module is full of them: `"{}"` format strings, TOML fixtures in `r#"…"#` that hold
+    `https://`, `'{'` and `'"'`, `// { not a brace`, `/* } */`)."""
     depth = 0
     i = open_brace
     n = len(src)
@@ -138,6 +138,30 @@ def _block_end(src: str, open_brace: int) -> int:
         if c == "r" and _starts_raw_string(src, i):
             i = _RAW_STRING.match(src, i).end()
             continue
+        if src.startswith("/*", i):
+            # Block comments nest in Rust.
+            nested = 0
+            while i < n:
+                if src.startswith("/*", i):
+                    nested += 1
+                    i += 2
+                elif src.startswith("*/", i):
+                    nested -= 1
+                    i += 2
+                    if nested == 0:
+                        break
+                else:
+                    i += 1
+            continue
+        if c == "'":
+            # A char literal (`'{'`, `'\''`, `'\u{7d}'`); otherwise a lifetime or label.
+            if src.startswith("\\", i + 1):
+                close = src.find("'", i + 3)
+                i = close + 1 if close >= 0 else n
+                continue
+            if i + 2 < n and src[i + 2] == "'":
+                i += 3
+                continue
         if c == '"':
             i += 1
             while i < n and src[i] != '"':

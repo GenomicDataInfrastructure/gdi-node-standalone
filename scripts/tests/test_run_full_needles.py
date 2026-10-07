@@ -31,9 +31,13 @@ from _helpers import (
 
 RUN_FULL = SCRIPTS / "e2e" / "run-full.sh"
 
-#: Where a command can start: a line, or after `;`, `&&`, `||`, `!`, `(`, `if`, `then`,
-#: `do` or `else`, so a call like `sighup && wait_log …` is read too.
-_COMMAND_START = r"(?:^|[;&|!(]|\b(?:if|then|do|else)\b)\s*"
+#: Where a command can start: a line, or after `;`, `&&`, `||`, `!`, `(`, `{`, a keyword
+#: that takes a command (`if`, `then`, `do`, `else`, `elif`, `until`, `while`, `time`), and
+#: any `NAME=value` prefixes, so a call like `sighup && wait_log …` is read too.
+_COMMAND_START = (
+    r"(?:^|[;&|!({]|\b(?:if|then|do|else|elif|until|while|time)\b)\s*"
+    r"(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*"
+)
 #: A `wait_log` call and its first argument, a double- or single-quoted word.
 WAIT_LOG_CALL = re.compile(
     _COMMAND_START + r"""wait_log\s+("[^"]*"|'[^']*')""", re.MULTILINE
@@ -148,6 +152,22 @@ class RunFullNeedles(unittest.TestCase):
             f"would go unchecked. Read: {self.needles}",
         )
         self.assertIn("PME active", self.needles)
+
+    def test_a_call_in_any_command_position_is_counted_and_read(self):
+        script = (
+            "until wait_log 'a' x; do :; done\n"
+            "while wait_log 'b' x; do :; done\n"
+            "if false; then :; elif wait_log 'c' x; then :; fi\n"
+            "{ wait_log 'd' x; }\n"
+            "time wait_log 'e' x\n"
+            "LOG_FORMAT=json wait_log 'f' x\n"
+        )
+        self.assertEqual(len(ANY_WAIT_LOG_CALL.findall(script)), 6)
+        self.assertEqual(needles(script), ["a", "b", "c", "d", "e", "f"])
+        # Still not a call: the definition, and the words in a trailing comment.
+        self.assertEqual(
+            ANY_WAIT_LOG_CALL.findall("wait_log() {  # wait_log <needle> <what>\n"), []
+        )
 
     def test_every_needle_is_emitted_by_a_tracing_event(self):
         self.assertGreater(
