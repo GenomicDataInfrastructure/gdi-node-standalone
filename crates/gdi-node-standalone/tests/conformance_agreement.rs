@@ -34,7 +34,7 @@ use gdi_node_standalone_core::config::{
     ContactPointCfg, FairdpAccessUrls, FairdpAgent, FairdpConfig, FairdpDistribution, FairdpPublish,
 };
 use gdi_node_standalone_core::model::{
-    Assembly, DatasetMode, ManifestConfig, ManifestMetadata, PackageYaml,
+    Assembly, DatasetMode, ManifestConfig, ManifestMetadata, PackageMetadata, PackageYaml,
 };
 use gdi_node_standalone_core::state::DatasetState;
 use gdi_node_standalone_core::validate_pkg::{validate_overlay_result, validate_package};
@@ -147,32 +147,57 @@ impl Fixture {
     /// sides from drifting: pySHACL only ever sees this side, so a field the YAML carries but
     /// a hand-written struct omitted would go unexercised.
     fn metadata(self) -> ManifestMetadata {
-        let m = self.package_yaml().metadata;
-        ManifestMetadata {
+        // Destructured in full: a field added to the package model fails to compile here, and
+        // one dropped on the way to the record is an unused binding.
+        let PackageMetadata {
             // `package.yaml` carries `prefix` and `org`; the node mints `datasetId` at build
             // time. This test renders rather than ingests, so pin the constant the FDP context
             // is configured with.
+            prefix: _,
+            org: _,
+            catalog,
+            title,
+            description,
+            access_rights,
+            applicable_legislation,
+            license,
+            creator,
+            health_category,
+            keywords,
+            number_of_unique_individuals,
+            conforms_to,
+            type_,
+            legal_basis,
+            is_referenced_by,
+            other_identifier,
+            contact_point,
+            min_typical_age,
+            max_typical_age,
+            provenance,
+            health_theme,
+        } = self.package_yaml().metadata;
+        ManifestMetadata {
             dataset_id: DATASET_ID.to_owned(),
-            catalog: m.catalog,
-            title: m.title,
-            description: m.description,
-            access_rights: m.access_rights,
-            applicable_legislation: m.applicable_legislation,
-            license: m.license,
-            creator: m.creator,
-            health_category: m.health_category,
-            keywords: m.keywords,
-            number_of_unique_individuals: m.number_of_unique_individuals,
-            conforms_to: m.conforms_to,
-            type_: m.type_,
-            legal_basis: m.legal_basis,
-            is_referenced_by: m.is_referenced_by,
-            other_identifier: m.other_identifier,
-            min_typical_age: None,
-            max_typical_age: None,
-            provenance: None,
-            health_theme: None,
-            contact_point: m.contact_point,
+            catalog,
+            title,
+            description,
+            access_rights,
+            applicable_legislation,
+            license,
+            creator,
+            health_category,
+            keywords,
+            number_of_unique_individuals,
+            conforms_to,
+            type_,
+            legal_basis,
+            is_referenced_by,
+            other_identifier,
+            min_typical_age,
+            max_typical_age,
+            provenance,
+            health_theme,
+            contact_point,
             // Not authored in `package.yaml`: the node computes both during ingest. This test
             // renders a record instead, so a synthetic count is right (any nonNegativeInteger
             // validates) and there are no per-population rows to derive.
