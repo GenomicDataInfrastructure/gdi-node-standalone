@@ -67,6 +67,19 @@ pub(crate) fn answered_status(url: &str, message: &str) -> Option<reqwest::Statu
     reqwest::StatusCode::from_u16(code).ok()
 }
 
+/// `e` and its causes, `: `-joined. reqwest's own text names only the kind ("error sending
+/// request"), the same for a refused connection, an unknown host and a rejected certificate.
+fn with_causes(e: &dyn std::error::Error) -> String {
+    let mut text = e.to_string();
+    let mut source = e.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
+}
+
 /// Fetch + parse the node recipient from a URL.
 ///
 /// # Errors
@@ -83,11 +96,12 @@ pub async fn fetch_node_recipient(url: &str) -> Result<PublicKey, ToolError> {
         .timeout(FETCH_TIMEOUT)
         .build()
         .map_err(|e| ToolError::user(format!("cannot build HTTP client: {e}")))?;
-    let mut resp = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| ToolError::user(format!("cannot fetch node recipient {url}: {e}")))?;
+    let mut resp = client.get(url).send().await.map_err(|e| {
+        ToolError::user(format!(
+            "cannot fetch node recipient {url}: {}",
+            with_causes(&e)
+        ))
+    })?;
     let status = resp.status();
     if !status.is_success() {
         let msg = answered_message(url, status);
@@ -860,13 +874,33 @@ mod tests {
         let base = serve_once(500, b"internal error");
         let url = format!("{base}/.well-known/c4gh-recipient");
         let err = block_on(fetch_node_recipient(&url)).unwrap_err();
-        assert!(
-            err.message.contains("500"),
-            "error must mention HTTP 500; got: {}",
+        // Read back the way the wizard classifies it, so the two cannot drift apart.
+        assert_eq!(
+            answered_status(&url, &err.message),
+            Some(reqwest::StatusCode::INTERNAL_SERVER_ERROR),
+            "{}",
             err.message
         );
         // 500 is a generic server error, not auth — stays exit 1.
         assert_eq!(err.exit_code, crate::EXIT_USER);
+    }
+
+    /// The cause is named, not just "error sending request": a refused connection, an
+    /// unknown host and a rejected certificate need different fixes.
+    #[test]
+    fn fetch_node_recipient_names_why_it_could_not_connect() {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let url = format!("http://127.0.0.1:{port}/.well-known/c4gh-recipient");
+        let err = block_on(fetch_node_recipient(&url)).unwrap_err();
+        assert!(
+            err.message.to_lowercase().contains("refused"),
+            "{}",
+            err.message
+        );
     }
 
     #[test]
