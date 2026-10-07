@@ -49,7 +49,7 @@ class ReleaseBinsTest(unittest.TestCase):
         env = {
             k: v
             for k, v in os.environ.items()
-            if k not in ("NODE", "TOOL", "CARGO_LOG")
+            if k not in ("NODE", "TOOL", "CARGO_LOG", "CARGO_TARGET_DIR")
         }
         env.update(PATH=self.path, CARGO_LOG=str(self.cargo_log), **given)
         script = (
@@ -89,6 +89,13 @@ class ReleaseBinsTest(unittest.TestCase):
         self.assertEqual(self.cargo_calls(), [BUILD_ARGS])
         self.assertEqual(out["NODE"], "/opt/node")
         self.assertEqual(out["TOOL"], f"{self.root}/target/release/gdi-dataset-tool")
+
+    def test_a_target_dir_from_the_environment_is_where_it_looks(self):
+        # cargo builds into CARGO_TARGET_DIR; reading $ROOT/target would run a stale binary.
+        elsewhere = self.root.parent / "elsewhere"
+        out = self.run_release_bins(CARGO_TARGET_DIR=str(elsewhere))
+        self.assertEqual(out["NODE"], f"{elsewhere}/release/gdi-node-standalone")
+        self.assertEqual(out["TOOL"], f"{elsewhere}/release/gdi-dataset-tool")
 
     def test_every_harness_calls_it(self):
         for path in HARNESSES:
