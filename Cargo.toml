@@ -164,8 +164,8 @@ arrow-select = { version = "=60.0.0", default-features = false }
 sha2 = "=0.11.0"
 # crypt4gh codec: the pure-Rust RustCrypto stack, so nothing here needs `unsafe` or C.
 x25519-dalek = { version = "=3.0.0", default-features = false, features = ["static_secrets", "zeroize", "getrandom"] }
-chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc"] }
-blake2 = { version = "=0.11.0", default-features = false }
+chacha20poly1305 = { version = "=0.11.0", default-features = false, features = ["alloc", "zeroize"] }
+blake2 = { version = "=0.11.0", default-features = false, features = ["zeroize"] }
 getrandom = { version = "=0.4.3", default-features = false }
 zeroize = { version = "=1.9.0", default-features = false, features = ["alloc"] }
 tempfile = "=3.27.0"

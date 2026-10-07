@@ -82,8 +82,8 @@ fn derive_shared_key(
     sender_pk: &PublicKey,
     recipient_pk: &PublicKey,
 ) -> Option<Zeroizing<[u8; 32]>> {
-    // `StaticSecret` stores the clamped scalar. Expose its raw bytes to compute the bare DH
-    // point, matching libsodium's `crypto_scalarmult`.
+    // `x25519` clamps the raw secret bytes as libsodium's `crypto_scalarmult` does, so the
+    // bare DH point matches the reference implementation.
     let scalar = Zeroizing::new(local_sk.0.to_bytes());
     let shared_point = Zeroizing::new(x25519(*scalar, *peer_pk.as_bytes()));
 
