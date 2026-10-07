@@ -402,15 +402,19 @@ need() {
 have_nextest() { cargo nextest --version >/dev/null 2>&1; }
 
 # user_config_isolation — sets USER_CONFIG_ISOLATION, an `env` prefix that points the
-# default config dir at an unparsable tool.toml. Anything that reads the developer's own
-# ~/.config/gdi/tool.toml then fails everywhere, not just on machines that have one.
-# Tests that need a config pass a path or set GDI_CONFIG_DIR themselves.
+# default config dir at an unparsable tool.toml and drops exported GDI_TOOL__* overrides.
+# A test that reads the developer's own config then fails on every machine, not only on
+# those that have one. Tests that need a config pass a path or set GDI_CONFIG_DIR themselves.
 user_config_isolation() {
-  local dir="$PWD/target/test-user-config"
+  local dir="$PWD/target/test-user-config" name
   mkdir -p "$dir/gdi"
   printf '%s\n' '# Deliberately unparsable: see user_config_isolation in scripts/ci-local.sh.' \
     'not = [toml' >"$dir/gdi/tool.toml"
-  USER_CONFIG_ISOLATION=(env -u GDI_CONFIG_DIR "XDG_CONFIG_HOME=$dir")
+  USER_CONFIG_ISOLATION=(env -u GDI_CONFIG_DIR)
+  for name in $(compgen -e); do
+    [[ "$name" == GDI_TOOL__* ]] && USER_CONFIG_ISOLATION+=(-u "$name")
+  done
+  USER_CONFIG_ISOLATION+=("XDG_CONFIG_HOME=$dir")
 }
 
 # run_tests [extra cargo args...]
@@ -1940,7 +1944,8 @@ reuse_lint() {
 # `crates/core/tests/fixtures/malformed/`, as docs/testing.md describes.
 #
 # Needs nightly (cargo-fuzz uses `-Z sanitizer`). `FUZZ_SECONDS` overrides the per-target
-# budget for a deeper run.
+# budget for a deeper run. Per-input limits as in the scheduled workflow: libFuzzer's default
+# timeout (1,200 s) would never fire.
 fuzz_short() {
   step "fuzz-short — time-boxed run of every target (${FUZZ_SECONDS:-10}s each)"
   need cargo-fuzz "cargo install cargo-fuzz --locked"
@@ -1952,7 +1957,7 @@ fuzz_short() {
   local t
   for t in "${targets[@]}"; do
     run cargo +nightly fuzz run --fuzz-dir crates/core/fuzz "$t" -- \
-      -max_total_time="$secs" -print_final_stats=1
+      -max_total_time="$secs" -timeout=20 -rss_limit_mb=2048 -print_final_stats=1
   done
 }
 
@@ -1964,7 +1969,8 @@ mutants() {
   # No `"$@"`: the dispatcher loops over a target list, so there is no per-target argument
   # tail any leg could forward — load/soak/chaos/crash-loop/e2e-observability all call their
   # script bare. Pass flags by invoking ./scripts/mutants-audit.sh directly.
-  run ./scripts/mutants-audit.sh
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" ./scripts/mutants-audit.sh
 }
 
 lint_docker()  { dockerfile_check; actionlint; promtool; shellcheck_lint; compose_config; }
@@ -2554,7 +2560,8 @@ coverage() {
   # One instrumented run, two reports. `--no-report` collects the profile data, and the two
   # `report` invocations below re-render it without re-running the suite. Rendering each
   # view from scratch would pay the whole instrumented test cost twice for identical data.
-  run cargo llvm-cov --workspace --features full --locked --no-report -- --test-threads=1
+  user_config_isolation
+  run "${USER_CONFIG_ISOLATION[@]}" cargo llvm-cov --workspace --features full --locked --no-report -- --test-threads=1
   run cargo llvm-cov report --summary-only
 
   # The one part of coverage that is not advisory. A percentage floor is gameable and

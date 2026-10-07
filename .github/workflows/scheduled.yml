@@ -44,6 +44,8 @@ jobs:
   #
   # No `-fork`: in fork mode libFuzzer counts an out-of-memory input or a timeout and keeps
   # going, so the run stays green, and those are the inputs this job exists to find.
+  # `-timeout` is set because libFuzzer's default (1,200 s per input) never fires in a 60 s
+  # run; `-rss_limit_mb` states its default.
   fuzz:
     runs-on: ubuntu-26.04
     # Every target × a 60 s bounded run + `cmin`, plus a from-source cargo-fuzz install and
@@ -96,7 +98,7 @@ jobs:
           echo "fuzzing ${#targets[@]} targets: ${targets[*]}"
           for target in "${targets[@]}"; do
             echo "::group::fuzz $target"
-            cargo +nightly fuzz run "$target" -- -max_total_time=60
+            cargo +nightly fuzz run "$target" -- -max_total_time=60 -timeout=20 -rss_limit_mb=2048
             # Minimize the (possibly grown) corpus in place so the checked-in seed
             # set stays small and non-redundant for the next run.
             cargo +nightly fuzz cmin "$target"
