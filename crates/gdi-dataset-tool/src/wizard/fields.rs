@@ -149,16 +149,6 @@ pub fn resolve_assembly(s: &str) -> Result<String, String> {
     }
 }
 
-/// Resolve + validate a `mailto:` email via the core validator.
-///
-/// # Errors
-/// `Err(message)` when the value is not a valid `mailto:` email.
-pub fn resolve_email(s: &str) -> Result<String, String> {
-    validate_email("hasEmail", s)
-        .map(|()| s.to_owned())
-        .map_err(|e| e.to_string())
-}
-
 /// Resolve a contact e-mail typed with or without `mailto:` to the bare address, checked
 /// as the `mailto:` IRI the package carries.
 ///
@@ -443,12 +433,6 @@ mod tests {
         assert_eq!(resolve_assembly("GRCh38").unwrap(), "GRCh38");
         assert!(resolve_assembly("hg38").is_err());
         assert!(resolve_assembly("GRCH38").is_err()); // case-sensitive, like core
-    }
-
-    #[test]
-    fn email_resolver_requires_mailto() {
-        assert!(resolve_email("mailto:a@b.co").is_ok());
-        assert!(resolve_email("a@b.co").is_err());
     }
 
     #[test]

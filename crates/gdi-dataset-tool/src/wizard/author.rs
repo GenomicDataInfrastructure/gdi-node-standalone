@@ -388,7 +388,8 @@ pub fn replace_markers(yaml: &str) -> Vec<String> {
         .collect()
 }
 
-/// The validator for a `REPLACE:` marker, chosen by the YAML key it sits on.
+/// The resolver for a `REPLACE:` marker, chosen by the YAML key it sits on: it checks an
+/// answer and returns the value to write, with the same rules as the new-package prompts.
 ///
 /// Validating every marker as merely non-empty accepts a bad IRI or a bogus assembly at
 /// its prompt and rejects it in a lump by [`validate_rendered`] after the last question --
@@ -398,18 +399,24 @@ pub fn replace_markers(yaml: &str) -> Vec<String> {
 /// Key-based only: guessing a type from the placeholder text would be a heuristic over
 /// prose the operator may have edited. An unrecognised key keeps the non-empty rule, and
 /// `validate_rendered` still backstops the whole document, so a missing entry here costs a
-/// late error, never a bad package.
-fn validator_for<'a>(key: &'a str, hint: &'a str) -> impl Fn(&str) -> Result<(), String> + 'a {
+/// late error, never a bad package. `name` is the creator's: the template's one `name:`
+/// marker.
+fn resolver_for<'a>(key: &'a str, hint: &'a str) -> impl Fn(&str) -> Result<String, String> + 'a {
     move |s: &str| match key {
         "accessRights"
         | "license"
         | "afSourceReference"
         | "isReferencedBy"
-        | "applicableLegislation" => fields::resolve_iri(key, s).map(|_| ()),
-        "healthCategory" => fields::resolve_health_category(s).map(|_| ()),
-        "reference" => fields::resolve_assembly(s).map(|_| ()),
-        "hasEmail" => fields::resolve_email(s).map(|_| ()),
-        _ => fields::resolve_nonempty(hint, s).map(|_| ()),
+        | "applicableLegislation" => fields::resolve_iri(key, s),
+        "healthCategory" => fields::resolve_health_category(s),
+        "reference" => fields::resolve_assembly(s),
+        "org" => fields::resolve_org(s),
+        "title" => fields::resolve_bounded("title", s, MAX_TITLE_LEN),
+        "description" => fields::resolve_bounded("description", s, MAX_DESCRIPTION_LEN),
+        "name" => fields::resolve_bounded("creator", s, MAX_CREATOR_NAME_LEN),
+        "fn" => fields::resolve_bounded("contact name", s, MAX_CONTACT_FN_LEN),
+        "hasEmail" => fields::resolve_contact_email(s).map(|address| format!("mailto:{address}")),
+        _ => fields::resolve_nonempty(hint, s),
     }
 }
 
@@ -423,7 +430,7 @@ fn validator_for<'a>(key: &'a str, hint: &'a str) -> impl Fn(&str) -> Result<(),
 /// its first `:`: the marker text carries one too, so a bare list scalar would yield the
 /// garbage key `"REPLACE`. That drops `healthCategory` and `applicableLegislation` to the
 /// non-empty fallback, leaving their typed validators (a closed set, an IRI) unrun at the
-/// prompt — the late lump-failure [`validator_for`] exists to prevent.
+/// prompt — the late lump-failure [`resolver_for`] exists to prevent.
 fn marker_key<'a>(line: &'a str, parent: &'a str) -> &'a str {
     let quote = line.find('"').unwrap_or(line.len());
     let head = line.get(..quote).unwrap_or(line);
@@ -492,12 +499,15 @@ pub fn author_fixup(p: &dyn Prompter, path: &Path) -> Result<AuthorResult, ToolE
             continue;
         }
         let key = marker_key(line, &parent_key).to_owned();
-        let validate = validator_for(&key, &hint);
-        let answer = p.input_validated(&format!("Fill in ({hint})"), None, &validate)?;
-        // Quote the answer with `yaml_quote`, not Rust's `{:?}`, which emits `\u{XX}`-style
+        let resolve = resolver_for(&key, &hint);
+        let answer = p.input_validated(&format!("Fill in ({hint})"), None, &|s| {
+            resolve(s).map(|_| ())
+        })?;
+        let value = resolve(&answer).map_err(ToolError::user)?;
+        // Quote the value with `yaml_quote`, not Rust's `{:?}`, which emits `\u{XX}`-style
         // escapes YAML rejects. This matches the greenfield `render_template` path, so a
         // non-printable answer still produces valid YAML.
-        lines.push(format!("{prefix}{}", yaml_quote(&answer)));
+        lines.push(format!("{prefix}{}", yaml_quote(&value)));
     }
     if !any {
         crate::output::progress("no REPLACE: markers found; package.yaml left unchanged");
@@ -609,7 +619,19 @@ fn prompt_contact_point(
     p: &dyn Prompter,
     remembered: Option<&ProfileContactPoint>,
 ) -> Result<(ProfileContactPoint, Option<ProfileContactPoint>), ToolError> {
-    if let Some(cp) = remembered
+    // A hand-edited profile can hold anything, and a bad value would fail only after every
+    // Author question, so it is checked before it is offered.
+    let remembered = match remembered.map(usable_contact_point) {
+        Some(Ok(cp)) => Some(cp),
+        Some(Err(e)) => {
+            crate::output::warn(&format!(
+                "warning: the profile's contact_point is not usable ({e}); asking for one"
+            ));
+            None
+        }
+        None => None,
+    };
+    if let Some(cp) = &remembered
         && p.confirm(
             &format!(
                 "Contact point: {} <{}>. Use it for this dataset?",
@@ -646,6 +668,24 @@ fn prompt_contact_point(
         true,
     )?;
     Ok((contact.clone(), store.then_some(contact)))
+}
+
+/// A remembered contact point as the wizard offers it: the name and URL checked, and the
+/// e-mail checked and stored without `mailto:`, which the template adds.
+///
+/// # Errors
+///
+/// Returns the first field's validation message.
+fn usable_contact_point(cp: &ProfileContactPoint) -> Result<ProfileContactPoint, String> {
+    Ok(ProfileContactPoint {
+        name: fields::resolve_bounded("contact name", &cp.name, MAX_CONTACT_FN_LEN)?,
+        email: fields::resolve_contact_email(&cp.email)?,
+        url: cp
+            .url
+            .as_deref()
+            .map(|url| fields::resolve_url("contact web page", url))
+            .transpose()?,
+    })
 }
 
 /// Ask for publications that describe the dataset (`isReferencedBy`), until a blank answer.
@@ -2002,6 +2042,29 @@ mod tests {
         );
     }
 
+    /// Genomics data sits under the health-products theme, so that row, and only it, is
+    /// ticked when the menu opens.
+    #[test]
+    fn the_health_theme_menu_opens_with_health_products_ticked() {
+        use crate::wizard::prompts::ScriptedPrompter;
+        let p = ScriptedPrompter::new().with_multiselects(vec![vec![]]);
+        prompt_health_themes(&p).unwrap();
+        let (_, ticks) = p.seen_multiselect_defaults().remove(0);
+        let choices = fields::health_theme_choices();
+        let ticked: Vec<&str> = choices
+            .iter()
+            .zip(&ticks)
+            .filter(|&(_, &tick)| tick)
+            .map(|((_, iri), _)| *iri)
+            .collect();
+        assert_eq!(
+            ticked,
+            [
+                "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
+            ]
+        );
+    }
+
     #[test]
     fn keywords_are_deduplicated_and_capped_at_the_prompt() {
         // A repeated keyword is written once.
@@ -2042,19 +2105,34 @@ mod tests {
     fn fixup_validates_a_typed_field_at_its_own_prompt() {
         // A typed marker must be rejected at its own prompt, not in a lump by
         // `validate_rendered` after the last question, which writes nothing and loses every
-        // answer. The fix-up path therefore wires `resolve_iri`, `resolve_assembly` and
-        // `resolve_email` rather than validating every marker as merely non-empty.
-        let iri = validator_for("license", "license IRI");
+        // answer. The fix-up path therefore wires the typed resolvers rather than validating
+        // every marker as merely non-empty.
+        let iri = resolver_for("license", "license IRI");
         assert!(iri("not-an-iri").is_err(), "a license must be an IRI");
         assert!(iri("https://example.org/lic").is_ok());
 
-        let asm = validator_for("reference", "GRCh38");
+        let asm = resolver_for("reference", "GRCh38");
         assert!(asm("hg38").is_err(), "assembly is a closed vocabulary");
         assert!(asm("GRCh38").is_ok());
 
-        let email = validator_for("hasEmail", "mailto:x@example.org");
-        assert!(email("data@example.org").is_err(), "mailto: is required");
+        // The same rules as the new-package prompts: an e-mail with or without `mailto:`,
+        // and the node's caps on names and text.
+        let email = resolver_for("hasEmail", "mailto:x@example.org");
+        assert!(email("data@").is_err(), "the address is checked");
+        assert!(email("data@example.org").is_ok());
         assert!(email("mailto:data@example.org").is_ok());
+        for (key, max) in [
+            ("fn", MAX_CONTACT_FN_LEN),
+            ("name", MAX_CREATOR_NAME_LEN),
+            ("title", MAX_TITLE_LEN),
+            ("description", MAX_DESCRIPTION_LEN),
+        ] {
+            let bounded = resolver_for(key, key);
+            assert!(bounded(&"a".repeat(max + 1)).is_err(), "{key} over its cap");
+            assert!(bounded(&"a".repeat(max)).is_ok(), "{key} at its cap");
+        }
+        let org = resolver_for("org", "institute");
+        assert!(org("UT-ARTU").is_err(), "an org is letters only");
 
         // Untyped keys keep the non-empty rule: the fallback, not the universal rule.
         // A bare LIST scalar inherits the mapping key that opened the list, so the
@@ -2082,17 +2160,17 @@ mod tests {
         assert_eq!(block_key(r#"  title: "REPLACE: t""#), None);
         assert_eq!(block_key("    - GRCh38"), None);
         assert_eq!(block_key("  # a comment:"), None);
-        let closed = validator_for("healthCategory", "an IRI");
+        let closed = resolver_for("healthCategory", "an IRI");
         assert!(
             closed("http://data.gdi.eu/core/p2/HealthCategoryHumanProteomic").is_err(),
             "a healthCategory outside the vendored closed set must fail AT ITS PROMPT"
         );
         assert!(closed("http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic").is_ok());
-        let eli = validator_for("applicableLegislation", "an ELI");
+        let eli = resolver_for("applicableLegislation", "an ELI");
         assert!(eli("EHDS").is_err(), "legislation entries are IRIs");
         assert!(eli("http://data.europa.eu/eli/reg/2025/327/oj").is_ok());
 
-        let free = validator_for("title", "Dataset title");
+        let free = resolver_for("title", "Dataset title");
         assert!(free("   ").is_err());
         assert!(free("A cohort").is_ok());
     }
@@ -2268,6 +2346,43 @@ mod tests {
     }
 
     #[test]
+    fn a_remembered_contact_point_is_offered_without_its_mailto_prefix() {
+        // The profile stores the address without `mailto:`, but a hand-edited one may carry
+        // it; the template adds the prefix once.
+        use crate::wizard::prompts::ScriptedPrompter;
+        let remembered = ProfileContactPoint {
+            name: "Data access team".into(),
+            email: "mailto:data@example.org".into(),
+            url: None,
+        };
+        let p = ScriptedPrompter::new().with_confirms(vec![true]);
+        let (cp, store) = prompt_contact_point(&p, Some(&remembered)).unwrap();
+        assert_eq!(cp.email, "data@example.org");
+        assert_eq!(store, None);
+    }
+
+    #[test]
+    fn an_invalid_remembered_contact_point_is_not_offered() {
+        // An unusable remembered value would fail only after every Author question.
+        use crate::wizard::prompts::ScriptedPrompter;
+        let remembered = ProfileContactPoint {
+            name: "Data access team".into(),
+            email: "not an address".into(),
+            url: None,
+        };
+        // No "use it?" question: the answers go straight to a new contact point.
+        let p = ScriptedPrompter::new()
+            .with_confirms(vec![false])
+            .with_inputs(vec!["Helpdesk", "help@example.org", ""]);
+        let (cp, store) = prompt_contact_point(&p, Some(&remembered)).unwrap();
+        assert_eq!(
+            (cp.name.as_str(), cp.email.as_str()),
+            ("Helpdesk", "help@example.org")
+        );
+        assert_eq!(store, None);
+    }
+
+    #[test]
     fn the_profile_contact_point_is_offered_and_a_typed_one_can_be_remembered() {
         use crate::wizard::prompts::ScriptedPrompter;
         let remembered = ProfileContactPoint {
@@ -2402,7 +2517,7 @@ mod tests {
         let vcf = test_util::covid_vcf_path();
         let answers: Vec<&str> = vec![
             "GOE",                                                   // 1  prefix
-            "UTARTU",                                                // 2  org
+            "utartu",                                                // 2  org
             "gdi-aggregated",                                        // 3  catalog
             "Test allele frequencies",                               // 4  title
             "A test dataset.",                                       // 5  description
@@ -2410,7 +2525,7 @@ mod tests {
             "https://creativecommons.org/licenses/by/4.0/",          // 7  license
             "Test Institute",                                        // 8  creator name
             "Data access team",                                      // 9  contact name
-            "mailto:data@example.org",                               // 10 contact e-mail
+            "data@example.org",                                      // 10 contact e-mail
             "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic", // 11 healthCategory
             "GRCh38",                                                // 12 VCF reference
             vcf.to_str().unwrap(),                                   // 13 VCF path
@@ -2424,6 +2539,12 @@ mod tests {
 
         let fixed = std::fs::read_to_string(&path).unwrap();
         assert!(!fixed.contains("REPLACE:"), "all markers must be filled");
+        // Answers are written as resolved, as the new-package path writes them.
+        assert!(
+            fixed.contains("hasEmail: \"mailto:data@example.org\""),
+            "{fixed}"
+        );
+        assert!(fixed.contains("org: \"UTARTU\""), "{fixed}");
         assert!(
             fixed.contains(&yaml_quote(vcf.to_str().unwrap())),
             "the VCF answer is written resolved, as the source prompt resolved it:\n{fixed}"
