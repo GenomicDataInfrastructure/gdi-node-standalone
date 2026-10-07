@@ -13,13 +13,14 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use gdi_node_standalone_core::convert::MAX_POPULATIONS;
-use gdi_node_standalone_core::model::{Manifest, ManifestMetadata};
+use gdi_node_standalone_core::model::Manifest;
 use gdi_node_standalone_core::parquet_io::{
     AlleleRow, DatasetDecryptor, PosWindow, read_matching_rows,
 };
 use gdi_node_standalone_core::popfield::TOTAL_POPULATION;
 use gdi_node_standalone_core::s3_layout::is_data_file_name;
 use gdi_node_standalone_core::validate_parquet::ParquetCaps;
+use gdi_node_standalone_core::validate_pkg::absent_recommended_fields;
 
 use crate::ToolError;
 use crate::cli::{LintArgs, OutputFormat};
@@ -133,10 +134,6 @@ fn suppression_from(manifest: &Manifest) -> (Option<LintSuppression>, Vec<String
 
 /// Whether a `LocalizedText`/optional string-list metadata field is effectively
 /// present.
-fn has_keywords(meta: &ManifestMetadata) -> bool {
-    meta.keywords.as_ref().is_some_and(|k| !k.is_empty())
-}
-
 /// Streaming fold of allele-frequency rows into the [`LintReport`] counters, so `lint`
 /// can process a dataset one parquet file at a time instead of materialising every row
 /// of every file at once (an unbounded peak on a multi-million-variant dataset).
@@ -188,13 +185,10 @@ impl LintAccumulator {
     /// Finalize into the report, joining the folded counters with the manifest fields.
     fn finalize(self, manifest: &Manifest) -> LintReport {
         let meta = &manifest.metadata;
-        let mut recommended_absent = Vec::new();
-        if !has_keywords(meta) {
-            recommended_absent.push("keywords".to_owned());
-        }
-        if meta.number_of_unique_individuals.is_none() {
-            recommended_absent.push("numberOfUniqueIndividuals".to_owned());
-        }
+        let recommended_absent = absent_recommended_fields(&meta.as_package_metadata())
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
         let total_only =
             self.populations.len() == 1 && self.populations.contains_key(TOTAL_POPULATION);
         let (suppression, ignored_info_fields) = suppression_from(manifest);
@@ -419,6 +413,7 @@ fn lint_dir(args: &LintArgs, dir: &Path) -> Result<(), ToolError> {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
     use super::*;
+    use gdi_node_standalone_core::model::ManifestMetadata;
     use gdi_node_standalone_core::model::{Assembly, DatasetMode, LocalizedText, ManifestConfig};
     use gdi_node_standalone_core::variant::Vt;
 
@@ -628,7 +623,7 @@ mod tests {
             row("FI_F", Vt::Del, 1.0, Some(40), Some(40)), // af≈1 + AC==AN
             row("EE_M", Vt::Snp, 0.02, Some(2), Some(100)), // low-AC (2 < 5)
         ];
-        // keywords present, individuals absent -> one recommended field flagged.
+        // keywords present; individuals and health theme absent -> those two flagged.
         let m = manifest(Some(vec!["covid".to_owned()]), None);
         let r = analyze(&m, &rows);
 
@@ -636,7 +631,10 @@ mod tests {
         assert_eq!(r.rows, 4);
         assert_eq!(
             r.recommended_absent,
-            vec!["numberOfUniqueIndividuals".to_owned()]
+            vec![
+                "numberOfUniqueIndividuals".to_owned(),
+                "healthTheme".to_owned()
+            ]
         );
         assert_eq!(r.populations.len(), 4);
         assert_eq!(r.populations.get("FI_M"), Some(&1));
@@ -685,7 +683,8 @@ mod tests {
             r.recommended_absent,
             vec![
                 "keywords".to_owned(),
-                "numberOfUniqueIndividuals".to_owned()
+                "numberOfUniqueIndividuals".to_owned(),
+                "healthTheme".to_owned()
             ]
         );
         assert_eq!(r.rows, 0);

@@ -1421,7 +1421,8 @@ gdi-dataset-tool lint <PATH> [--format text|json]
 | `--format` | `text` | `text` (human card) or `json` (the same report, for machine consumers). |
 
 The report covers recommended-metadata coverage (`keywords`,
-`numberOfUniqueIndividuals`), per-population and per-variant-type site counts, and an
+`numberOfUniqueIndividuals`, `healthTheme`; the fields `validate` warns about), per-population
+and per-variant-type site counts, and an
 allele-frequency sanity scan: `AF=0`, `AF≈1`, `AC==AN` saturation, and low-AC or
 rare-variant exposure against a threshold. Every line is a per-signal count, not a verdict.
 Reading the numbers against your own thresholds is the provider's call.
