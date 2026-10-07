@@ -79,10 +79,15 @@ fn covid_entry(dataset_id: &str) -> DatasetEntry {
             schema_agency: Some("DataCite".to_owned()),
             name: Some("Example identifier".to_owned()),
         }]),
-        min_typical_age: None,
-        max_typical_age: None,
-        provenance: None,
-        health_theme: None,
+        min_typical_age: Some(18),
+        max_typical_age: Some(90),
+        provenance: Some(LocalizedText::Plain(
+            "Whole-genome sequencing of the cohort, aggregated per population.".to_owned(),
+        )),
+        health_theme: Some(vec![
+            "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
+                .to_owned(),
+        ]),
         contact_point: Some(ContactPoint {
             fn_: Some("Data team".to_owned()),
             has_email: Some("mailto:data@example.org".to_owned()),

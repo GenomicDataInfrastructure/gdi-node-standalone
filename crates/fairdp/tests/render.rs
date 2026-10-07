@@ -66,10 +66,15 @@ fn covid_entry() -> DatasetEntry {
             schema_agency: Some("DataCite".to_owned()),
             name: Some("Example identifier".to_owned()),
         }]),
-        min_typical_age: None,
-        max_typical_age: None,
-        provenance: None,
-        health_theme: None,
+        min_typical_age: Some(18),
+        max_typical_age: Some(90),
+        provenance: Some(LocalizedText::Plain(
+            "Whole-genome sequencing of the cohort, aggregated per population.".to_owned(),
+        )),
+        health_theme: Some(vec![
+            "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"
+                .to_owned(),
+        ]),
         contact_point: Some(ContactPoint {
             fn_: Some("Data team".to_owned()),
             has_email: Some("mailto:data@example.org".to_owned()),
@@ -253,6 +258,57 @@ fn dataset_turtle_contains_key_triples() {
     // The constant COMPLETED status.
     assert!(
         ttl.contains("http://publications.europa.eu/resource/authority/dataset-status/COMPLETED")
+    );
+}
+
+/// The age range, provenance and health theme, each under its own predicate. The golden
+/// alone would let a min/max swap through on a re-snapshot.
+#[test]
+fn dataset_carries_its_ages_provenance_and_health_theme() {
+    let fairdp = fairdp_config();
+    let ctx = FdpContext::new(BASE_URL, BEACON_PATH, &fairdp);
+    let graph = dataset_graph(&covid_entry(), &ctx);
+    let dataset_iri = format!("{BASE_URL}/fairdp/dataset/{DATASET_ID}");
+
+    assert_eq!(
+        literals(&graph, &dataset_iri, &format!("{HEALTH}minTypicalAge")),
+        ["18"]
+    );
+    assert_eq!(
+        literals(&graph, &dataset_iri, &format!("{HEALTH}maxTypicalAge")),
+        ["90"]
+    );
+    assert_eq!(
+        iri_objects(&graph, &dataset_iri, &format!("{HEALTH}healthTheme")),
+        ["https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS"]
+    );
+
+    // A dct:ProvenanceStatement node whose label is the text.
+    let statement = blank_object(
+        &graph,
+        NamedNodeRef::new_unchecked(&dataset_iri),
+        &format!("{DCT}provenance"),
+    );
+    assert_eq!(
+        iri_objects_of(
+            &graph,
+            statement,
+            "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+        ),
+        [format!("{DCT}ProvenanceStatement")]
+    );
+    let label = NamedNodeRef::new_unchecked("http://www.w3.org/2000/01/rdf-schema#label");
+    let labels: Vec<&str> = graph
+        .triples_for_subject(statement)
+        .filter(|t| t.predicate == label)
+        .filter_map(|t| match t.object {
+            TermRef::Literal(l) => Some(l.value()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        labels,
+        ["Whole-genome sequencing of the cohort, aggregated per population."]
     );
 }
 
@@ -858,6 +914,7 @@ const XSD_DATE_TIME: &str = "http://www.w3.org/2001/XMLSchema#dateTime";
 const FDP_O: &str = "https://w3id.org/fdp/fdp-o#";
 const DCT: &str = "http://purl.org/dc/terms/";
 const DCAT: &str = "http://www.w3.org/ns/dcat#";
+const HEALTH: &str = "http://healthdataportal.eu/ns/health#";
 const LDP_CONTAINS: &str = "http://www.w3.org/ns/ldp#contains";
 const DCATAP_LEG: &str = "http://data.europa.eu/r5r/applicableLegislation";
 const HEALTHDCATAP_HDAB: &str = "http://healthdataportal.eu/ns/health#hdab";
