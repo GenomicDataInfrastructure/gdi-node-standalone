@@ -727,9 +727,39 @@ fn page_index_residual_shrunk_chunk_is_rejected_before_it_can_diverge() {
     );
 
     let noindex_err = enforce_page_size_caps(&path, &patch_chunk(md, shrunk, None))
-        .expect_err("a shrunk chunk with no index at all must be rejected");
+        .expect_err("a shrunk chunk with no offset index must be rejected");
     assert!(
-        noindex_err.to_string().contains("no page (offset) index"),
+        noindex_err
+            .to_string()
+            .contains("row group 0 column 0 has no page (offset) index"),
         "the Values representation must fail closed on the absent index: {noindex_err}"
+    );
+}
+
+/// With no page index at all, every chunk would be read in `Values` mode, so the gate refuses
+/// the file as a whole rather than chunk by chunk.
+#[test]
+fn a_file_without_any_page_index_is_rejected() {
+    use gdi_node_standalone_core::parquet_pages::enforce_page_size_caps;
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let path = tmp.path().join("noindex.parquet");
+    write_multi_page(&path, 3, 64, 8);
+    let file = std::fs::File::open(&path).expect("open");
+    let real = ArrowReaderMetadata::load(
+        &file,
+        ArrowReaderOptions::new().with_page_index_policy(PageIndexPolicy::Required),
+    )
+    .expect("load metadata with page index");
+    let without_index = ParquetMetaDataBuilder::new_from_metadata(real.metadata().as_ref().clone())
+        .set_page_index(None)
+        .build();
+
+    let err = enforce_page_size_caps(&path, &without_index)
+        .expect_err("a file with no page index must be rejected");
+    assert!(
+        err.to_string()
+            .contains("parquet has no page (offset) index"),
+        "a file without any page index must fail closed: {err}"
     );
 }

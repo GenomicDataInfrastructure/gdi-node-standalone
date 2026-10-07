@@ -80,6 +80,10 @@ pub enum FaultPoint {
     /// before the purge makes it recoverable — the next boot's `reap_deleting` finishes
     /// the erasure. The [`guard`] key is the dataset id.
     PostStatusPurge,
+    /// Inside the readiness probe's panic boundary, just before it opens a stored file's
+    /// footer. A panic here stands in for a decoder panic that no known file triggers this
+    /// early. The [`guard`] key is the file path.
+    FooterProbe,
 }
 
 #[cfg(not(feature = "fault-injection"))]

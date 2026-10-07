@@ -994,7 +994,13 @@ pub fn probe_dataset_readable(
         // no partially-mutated state is observed. The guard also marks the panic expected,
         // so the process-level hook downgrades its output instead of logging raw panic text.
         crate::panic_guard::catch_decode_panic(
-            || open_reader_builder(file, decryptor, path.as_ref()).map(|_| ()),
+            || {
+                crate::faults::guard(
+                    crate::faults::FaultPoint::FooterProbe,
+                    &path.to_string_lossy(),
+                )?;
+                open_reader_builder(file, decryptor, path.as_ref()).map(|_| ())
+            },
             || {
                 invalid_parquet(format!(
                     "parquet footer probe panicked on {} (malformed file)",
@@ -1461,6 +1467,30 @@ mod tests {
             err,
             CoreError::InvalidParquet { .. },
             "expected InvalidParquet, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn read_matching_rows_isolates_a_decode_panic() {
+        // `negative_chunk_start.parquet` is the COVID corpus file with its first column
+        // chunk's data page moved to offset -1 and no page index. `parquet` asserts on the
+        // offset as it reads the chunk, so the boundary must turn that panic into a clean
+        // `InvalidParquet`.
+        let path = std::path::Path::new("tests/fixtures/malformed/negative_chunk_start.parquet");
+        let err = read_matching_rows(
+            path,
+            &ParquetCaps::default(),
+            PosWindow {
+                lo: 0,
+                hi: i64::MAX,
+            },
+            &|_, _, _, _| true,
+            &DatasetDecryptor::plaintext(),
+        )
+        .expect_err("a decode panic must come back as an error");
+        assert!(
+            format!("{err}").contains("parquet decode panicked"),
+            "expected the panic boundary's error, got {err}"
         );
     }
 
@@ -2582,6 +2612,30 @@ mod probe_tests {
         assert!(
             probe_dataset_readable(dir.path(), &DatasetDecryptor::plaintext()).is_err(),
             "a corrupt non-first data file must fail the probe"
+        );
+    }
+
+    /// No known file panics `parquet` while it only opens the footer, so a fault stands in
+    /// for one. A panic escaping the probe would latch `/health/ready` at 503.
+    #[cfg(feature = "fault-injection")]
+    #[test]
+    #[serial_test::serial(faults)]
+    fn probe_dataset_readable_isolates_a_decode_panic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir
+            .path()
+            .join("allele-freq.chr1.0.br10000000.0123456789abcdef.parquet");
+        write_valid(&path);
+        let _fault = crate::faults::arm_panic(
+            crate::faults::FaultPoint::FooterProbe,
+            &path.to_string_lossy(),
+            1,
+        );
+        let err = probe_dataset_readable(dir.path(), &DatasetDecryptor::plaintext())
+            .expect_err("a decode panic must come back as an error");
+        assert!(
+            format!("{err}").contains("footer probe panicked"),
+            "expected the panic boundary's error, got {err}"
         );
     }
 

@@ -11,23 +11,25 @@
 //! - a field is not in the schema below, or has a different Thrift type;
 //! - a list declares more elements than bytes remain or than [`MAX_LIST_ELEMENTS`], or a
 //!   value runs past its blob;
-//! - a schema element other than the root declares children, or the root declares more
-//!   than the schema holds;
+//! - the schema declares more than [`MAX_SCHEMA_ELEMENTS`] elements, a schema element other
+//!   than the root declares children, or the root declares more than the schema holds;
 //! - the footer is over [`MAX_FOOTER_BYTES`], or a page-index entry is empty, outside the
 //!   data, or adds up to more than [`MAX_PAGE_INDEX_BYTES`].
 //!
 //! The types matter because `parquet` reads a known field by its schema type and ignores the
 //! type on the wire, so bytes we would skip as an `i32` can be a list header to it. When every
 //! wire type matches, both readers meet the same list headers. `parquet` reserves under 128
-//! bytes per list element, so the element cap holds a list to 128 MiB. It builds the schema
-//! tree recursively; our writer's schema is flat, so only the root may have children. Real
-//! metadata is small: the gnomAD chr21 corpus slice has 2.2 KB of footer and 1.5 KB of page
-//! index, and a 1 GiB file from our writer has a few thousand row groups.
+//! bytes per list element, so the element cap holds each list to 128 MiB. It also reserves
+//! column metadata per schema leaf, which is why the schema has a cap of its own. It builds
+//! the schema tree recursively; our writer's schema is flat, so only the root may have
+//! children. Real metadata is small: the gnomAD chr21 corpus slice has 2.2 KB of footer and
+//! 1.5 KB of page index, and a 1 GiB file from our writer has a few thousand row groups.
 //!
-//! The schema is the part of `parquet-format` that `parquet` 60 reads here, minus the
-//! encryption fields and geospatial statistics, which plaintext files from our writer never
-//! carry. Encrypted footers (`PARE`) are not walked: `parquet` reads them only with the node's
-//! key, so only the node's own store gets that far.
+//! The schema is the part of `parquet-format` that `parquet` 60 reads here, minus what
+//! plaintext files from our writer never carry: the encryption fields, geospatial statistics,
+//! the `File` logical type (19) and the third column order (3). A file that carries one is
+//! refused. Encrypted footers (`PARE`) are not walked: `parquet` reads them only with the
+//! node's key, so only the node's own store gets that far.
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
@@ -47,6 +49,10 @@ pub(crate) const MAX_PAGE_INDEX_BYTES: u64 = 64 * 1024 * 1024;
 
 /// The most elements a list may declare. `parquet` reserves them all before reading one.
 pub(crate) const MAX_LIST_ELEMENTS: u64 = 1 << 20;
+
+/// The most elements the schema may declare. Ours has a dozen, and `parquet` reserves column
+/// metadata for every leaf, far more per element than the list cap allows for.
+pub(crate) const MAX_SCHEMA_ELEMENTS: u64 = 64;
 
 /// The file ends with the footer length (a little-endian `u32`) and the magic.
 const TAIL_BYTES: u64 = 8;
@@ -300,7 +306,8 @@ static SCHEMA_ELEMENT: Shape = Shape {
     ],
 };
 
-/// A union: one member field is set. Members without a payload are empty structs.
+/// A union: one member field is set. Members without a payload are empty structs. The walk
+/// also passes none or several, which `parquet` then refuses with an error.
 static LOGICAL_TYPE: Shape = Shape {
     name: "LogicalType",
     fields: &[
@@ -647,6 +654,13 @@ impl<'a> Thrift<'a> {
                 "a list declares {count} elements, over the {MAX_LIST_ELEMENTS}-element cap"
             )));
         }
+        if matches!(elem, Elem::Struct(shape) if std::ptr::eq(shape, &raw const SCHEMA_ELEMENT))
+            && count > MAX_SCHEMA_ELEMENTS
+        {
+            return Err(refused(format!(
+                "the schema declares {count} elements, over the {MAX_SCHEMA_ELEMENTS}-element cap"
+            )));
+        }
         for i in 0..count {
             match elem {
                 Elem::Bool => self.skip(1)?,
@@ -861,6 +875,32 @@ mod tests {
             let msg = refusal(&parquet_file(&[], &schema(children)));
             assert!(msg.contains(expected), "{msg}");
         }
+    }
+
+    #[test]
+    fn a_schema_over_the_element_cap_is_refused() {
+        // `parquet` reserves column metadata for every leaf of the schema, so a flat schema
+        // of a million leaves in 8 MB of footer made it hold over 400 MB before refusing
+        // the file.
+        let schema = |elements: u64| {
+            let empty_elements = vec![0; usize::try_from(elements).unwrap()];
+            [
+                vec![field(2, LIST)],
+                list_header(STRUCT, elements),
+                empty_elements,
+                vec![0],
+            ]
+            .concat()
+        };
+        assert!(check_metadata_bounds(&parquet_file(&[], &schema(MAX_SCHEMA_ELEMENTS))).is_ok());
+        let msg = refusal(&parquet_file(&[], &schema(MAX_SCHEMA_ELEMENTS + 1)));
+        assert!(
+            msg.contains(&format!(
+                "the schema declares {} elements",
+                MAX_SCHEMA_ELEMENTS + 1
+            )),
+            "{msg}"
+        );
     }
 
     #[test]
