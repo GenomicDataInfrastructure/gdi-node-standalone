@@ -8,15 +8,38 @@ use std::collections::BTreeMap;
 
 /// Either a plain string or a BCP-47 language map (e.g. `{en: "...", et: "..."}`).
 ///
-/// Used for the localized `title` and `description` fields.
+/// Used for the localized `title`, `description` and `provenance` fields.
+//
+// Not a doc comment: the published schema allows every value up to the longest field's cap,
+// and the validator applies each field's own.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub enum LocalizedText {
     /// Single untagged value.
-    Plain(String),
+    Plain(
+        #[cfg_attr(
+            feature = "schema",
+            schemars(length(min = 1, max = crate::validate_pkg::MAX_DESCRIPTION_LEN))
+        )]
+        String,
+    ),
     /// Language-tagged values, keyed by BCP-47 tag.
-    Map(BTreeMap<String, String>),
+    Map(
+        #[cfg_attr(
+            feature = "schema",
+            schemars(extend(
+                "minProperties" = 1,
+                "maxProperties" = crate::validate_pkg::MAX_LOCALIZED_ENTRIES,
+                "additionalProperties" = {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": crate::validate_pkg::MAX_DESCRIPTION_LEN
+                }
+            ))
+        )]
+        BTreeMap<String, String>,
+    ),
 }
 
 /// An agent (creator / contributor). Maps to `foaf:Agent`.
@@ -35,9 +58,24 @@ pub struct Agent {
 pub struct ContactPoint {
     /// `vcard:fn` (required).
     #[serde(rename = "fn", skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            required,
+            length(min = 1, max = crate::validate_pkg::MAX_CONTACT_FN_LEN)
+        )
+    )]
     pub fn_: Option<String>,
     /// `vcard:hasEmail`, a `mailto:` IRI (required).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            required,
+            length(max = crate::validate_pkg::MAX_EMAIL_LEN),
+            regex(pattern = crate::validate_pkg::MAILTO_EMAIL_PATTERN)
+        )
+    )]
     pub has_email: Option<String>,
     /// `vcard:hasURL` (optional; recommended sub-field).
     #[serde(rename = "hasURL", skip_serializing_if = "Option::is_none")]

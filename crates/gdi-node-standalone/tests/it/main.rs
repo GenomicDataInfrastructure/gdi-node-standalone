@@ -47,6 +47,7 @@ mod metrics_endpoint;
 mod not_found_shapes;
 mod operating_doc_cli;
 mod operator_flows;
+mod package_schema;
 mod public_cors_fallback;
 mod query_stats_route;
 mod reingest_route;

@@ -405,18 +405,24 @@
       }
     },
     "LocalizedText": {
-      "description": "Either a plain string or a BCP-47 language map (e.g. `{en: \"...\", et: \"...\"}`).\n\nUsed for the localized `title` and `description` fields.",
+      "description": "Either a plain string or a BCP-47 language map (e.g. `{en: \"...\", et: \"...\"}`).\n\nUsed for the localized `title`, `description` and `provenance` fields.",
       "anyOf": [
         {
           "description": "Single untagged value.",
-          "type": "string"
+          "type": "string",
+          "maxLength": 10000,
+          "minLength": 1
         },
         {
           "description": "Language-tagged values, keyed by BCP-47 tag.",
           "type": "object",
           "additionalProperties": {
-            "type": "string"
-          }
+            "type": "string",
+            "maxLength": 10000,
+            "minLength": 1
+          },
+          "maxProperties": 24,
+          "minProperties": 1
         }
       ]
     },
@@ -515,8 +521,15 @@
             "null"
           ],
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "enum": [
+              "http://data.gdi.eu/core/p2/ExternallyGoverned",
+              "http://data.gdi.eu/core/p2/1MGCompliant",
+              "http://data.gdi.eu/core/p2/1MGCohort"
+            ]
+          },
+          "maxItems": 3,
+          "uniqueItems": true
         },
         "contactPoint": {
           "description": "Who to write to about the dataset. Required.",
@@ -524,17 +537,15 @@
           "properties": {
             "fn": {
               "description": "`vcard:fn` (required).",
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string",
+              "maxLength": 255,
+              "minLength": 1
             },
             "hasEmail": {
               "description": "`vcard:hasEmail`, a `mailto:` IRI (required).",
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string",
+              "maxLength": 254,
+              "pattern": "^mailto:[^@<>\"{}|^`\\\\\\x00-\\x20]+@[^.<>\"{}|^`\\\\\\x00-\\x20]+\\.[^<>\"{}|^`\\\\\\x00-\\x20]+$"
             },
             "hasURL": {
               "description": "`vcard:hasURL` (optional; recommended sub-field).",
@@ -543,7 +554,11 @@
                 "null"
               ]
             }
-          }
+          },
+          "required": [
+            "fn",
+            "hasEmail"
+          ]
         },
         "creator": {
           "description": "Creating agents (>= 1).",
@@ -561,14 +576,20 @@
           "anyOf": [
             {
               "description": "Single untagged value.",
-              "type": "string"
+              "type": "string",
+              "maxLength": 10000,
+              "minLength": 1
             },
             {
               "description": "Language-tagged values, keyed by BCP-47 tag.",
               "type": "object",
               "additionalProperties": {
-                "type": "string"
-              }
+                "type": "string",
+                "maxLength": 10000,
+                "minLength": 1
+              },
+              "maxProperties": 24,
+              "minProperties": 1
             }
           ]
         },
@@ -576,8 +597,16 @@
           "description": "GDI health category IRIs (>= 1).",
           "type": "array",
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "enum": [
+              "http://data.gdi.eu/core/p2/HealthCategoryHumanGenetic",
+              "http://data.gdi.eu/core/p2/HealthCategoryHumanEpigenomic",
+              "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
+            ]
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "uniqueItems": true
         },
         "healthTheme": {
           "description": "Health themes: the disease or healthcare areas, as EU health-theme IRIs (recommended).",
@@ -586,8 +615,32 @@
             "null"
           ],
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "enum": [
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/ANTIMICROBIAL_CONTROL",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/BLOOD_INFECTIONS",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/CANCER_DISEASE",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/CLIMATE_HEALTH",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/EMERGENCY_SETTINGS",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/ENTERIC_INFECTIONS",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/ENVIRONMENTAL_HEALTH",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_PRODUCTS",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/HEALTH_SYSTEMS",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/IMMUNIZATION_DISEASES",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/INJURY_PREVENTION",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/LIFECOURSE_HEALTH",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/MENTAL_HEALTH",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/NONCOMMUNICABLE_DISEASES",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/NUTRITION_SECURITY",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/REPRODUCTIVE_HEALTH",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/RESPIRATORY_DISEASES",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/SENSORY_HEALTH",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/TROPICAL_DISEASES",
+              "https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/VECTOR_DISEASES"
+            ]
+          },
+          "maxItems": 20,
+          "uniqueItems": true
         },
         "isReferencedBy": {
           "description": "Publication DOI IRIs.",
@@ -630,6 +683,7 @@
             "null"
           ],
           "format": "uint32",
+          "maximum": 150,
           "minimum": 0
         },
         "minTypicalAge": {
@@ -639,6 +693,7 @@
             "null"
           ],
           "format": "uint32",
+          "maximum": 150,
           "minimum": 0
         },
         "numberOfRecords": {
@@ -701,8 +756,14 @@
             "null"
           ],
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "enum": [
+              "https://publications.europa.eu/resource/authority/dataset-type/SYNTHETIC_DATA"
+            ]
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "uniqueItems": true
         }
       },
       "required": [

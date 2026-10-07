@@ -75,7 +75,7 @@ pub const MAX_PROVENANCE_LEN: usize = MAX_DESCRIPTION_LEN;
 /// `minTypicalAge` / `maxTypicalAge` cap, in years.
 pub const MAX_TYPICAL_AGE: u32 = 150;
 /// Maximum language entries in a localized field.
-const MAX_LOCALIZED_ENTRIES: usize = 24;
+pub const MAX_LOCALIZED_ENTRIES: usize = 24;
 /// `keyword` (each) cap.
 pub const MAX_KEYWORD_LEN: usize = 64;
 /// `keywords` count cap.
@@ -88,6 +88,11 @@ const MAX_CREATORS_COUNT: usize = 64;
 pub const MAX_CONTACT_FN_LEN: usize = 255;
 /// `email` cap (RFC 5321).
 pub const MAX_EMAIL_LEN: usize = 254;
+/// [`is_mailto_email`] and the IRI-safe character rule as one pattern for the published
+/// schemas; the validator runs the code. The node crate's `package_schema` tests check that
+/// both refuse the same values.
+pub const MAILTO_EMAIL_PATTERN: &str =
+    r#"^mailto:[^@<>"{}|^`\\\x00-\x20]+@[^.<>"{}|^`\\\x00-\x20]+\.[^<>"{}|^`\\\x00-\x20]+$"#;
 /// URL cap (`hasURL`, `afSourceReference`, ...).
 const MAX_URL_LEN: usize = 2048;
 /// IRI cap (every IRI metadata field).
@@ -239,6 +244,63 @@ pub const HEALTH_THEMES: &[(&str, &str)] = &[
         "Vector-borne & zoonotic viral diseases",
     ),
 ];
+
+/// The schema form of [`validate_closed_list`]: values from `allowed`, each at most once,
+/// at least `min_items` of them, and `null` too when `nullable`.
+///
+/// An `Option` field using one of the wrappers below needs `#[serde(default)]`: under
+/// `schema_with` that is what keeps it out of the schema's `required` list.
+#[cfg(feature = "schema")]
+fn closed_list_schema(allowed: &[&str], min_items: usize, nullable: bool) -> schemars::Schema {
+    let kind = if nullable {
+        serde_json::json!(["array", "null"])
+    } else {
+        serde_json::json!("array")
+    };
+    let mut schema = schemars::json_schema!({
+        "type": kind,
+        "items": {"type": "string", "enum": allowed},
+        "uniqueItems": true,
+        "maxItems": allowed.len()
+    });
+    if min_items > 0 {
+        schema.insert("minItems".to_owned(), min_items.into());
+    }
+    schema
+}
+
+/// `healthCategory` in the manifest schema: at least one [`HEALTH_CATEGORIES`] IRI.
+#[cfg(feature = "schema")]
+pub(crate) fn health_category_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    closed_list_schema(HEALTH_CATEGORIES, 1, false)
+}
+
+/// `healthCategory` in the overlay schema, where it may be left out.
+#[cfg(feature = "schema")]
+pub(crate) fn optional_health_category_schema(
+    _: &mut schemars::SchemaGenerator,
+) -> schemars::Schema {
+    closed_list_schema(HEALTH_CATEGORIES, 1, true)
+}
+
+/// `healthTheme` in the published schemas: a list of [`HEALTH_THEMES`] IRIs.
+#[cfg(feature = "schema")]
+pub(crate) fn health_theme_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let themes: Vec<&str> = HEALTH_THEMES.iter().map(|&(iri, _)| iri).collect();
+    closed_list_schema(&themes, 0, true)
+}
+
+/// `conformsTo` in the published schemas: a list of [`CONFORMS_TO`] IRIs.
+#[cfg(feature = "schema")]
+pub(crate) fn conforms_to_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    closed_list_schema(CONFORMS_TO, 0, true)
+}
+
+/// `type` in the published schemas: at least one [`DATASET_TYPES`] IRI.
+#[cfg(feature = "schema")]
+pub(crate) fn dataset_type_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    closed_list_schema(DATASET_TYPES, 1, true)
+}
 
 /// `conformsTo` IRIs: the closed set gdi-metadata's `DatasetShape` enumerates
 /// (`sh:in`, 3 values; vendored `Dataset.ttl`).
@@ -457,7 +519,7 @@ fn validate_catalog(
 }
 
 /// Validate the mandatory metadata: title/description, access-rights, legislation,
-/// license, creator, and health-category.
+/// license, creator, health-category and the presence of contactPoint.
 ///
 /// Pushes the absent-EHDS advisory ([`ehds_absent_warning`]) onto `warnings`; every other
 /// finding here is a hard error.
@@ -515,23 +577,36 @@ fn validate_core_metadata(m: &PackageMetadata, warnings: &mut Vec<String>) -> Co
 
 /// Validate the recommended-tier fields, pushing a naming warning when absent.
 fn validate_recommended(m: &PackageMetadata, warnings: &mut Vec<String>) -> CoreResult<()> {
-    match &m.keywords {
-        None => warnings.push("recommended field \"keywords\" is absent".to_owned()),
-        Some(kws) => {
-            check_max_count("keywords", kws.len(), MAX_KEYWORDS_COUNT)?;
-            for kw in kws {
-                check_max_chars("a keyword", kw, MAX_KEYWORD_LEN)?;
-            }
+    for field in absent_recommended_fields(m) {
+        warnings.push(format!("recommended field \"{field}\" is absent"));
+    }
+    if let Some(kws) = &m.keywords {
+        check_max_count("keywords", kws.len(), MAX_KEYWORDS_COUNT)?;
+        for kw in kws {
+            check_max_chars("a keyword", kw, MAX_KEYWORD_LEN)?;
         }
     }
-    if m.number_of_unique_individuals.is_none() {
-        warnings.push("recommended field \"numberOfUniqueIndividuals\" is absent".to_owned());
-    }
-    match &m.health_theme {
-        Some(themes) if !themes.is_empty() => validate_health_themes(themes)?,
-        _ => warnings.push("recommended field \"healthTheme\" is absent".to_owned()),
+    if let Some(themes) = &m.health_theme {
+        validate_health_themes(themes)?;
     }
     Ok(())
+}
+
+/// The recommended fields `m` leaves out, by their wire names; an empty list counts as left
+/// out. `validate` warns about each and `build --strict` fails on them; `lint` lists them.
+#[must_use]
+pub fn absent_recommended_fields(m: &PackageMetadata) -> Vec<&'static str> {
+    let mut absent = Vec::new();
+    if m.keywords.as_ref().is_none_or(Vec::is_empty) {
+        absent.push("keywords");
+    }
+    if m.number_of_unique_individuals.is_none() {
+        absent.push("numberOfUniqueIndividuals");
+    }
+    if m.health_theme.as_ref().is_none_or(Vec::is_empty) {
+        absent.push("healthTheme");
+    }
+    absent
 }
 
 /// Validate `creator`: at least one agent, each with a bounded non-empty name.
@@ -554,23 +629,31 @@ fn validate_health_categories(categories: &[String]) -> CoreResult<()> {
     if categories.is_empty() {
         return Err(invalid("healthCategory must have at least one entry"));
     }
-    for iri in categories {
+    validate_closed_list("healthCategory", categories, |iri| {
         validate_iri("healthCategory", iri)?;
-        validate_health_category(iri)?;
-    }
-    Ok(())
+        validate_health_category(iri)
+    })
 }
 
 /// Validate `healthTheme`: every IRI must be in [`HEALTH_THEMES`].
 fn validate_health_themes(themes: &[String]) -> CoreResult<()> {
-    for iri in themes {
-        if !HEALTH_THEMES.iter().any(|&(theme, _)| theme == iri) {
-            return Err(invalid(&format!(
+    validate_closed_list("healthTheme", themes, |iri| {
+        if HEALTH_THEMES.iter().any(|&(theme, _)| theme == iri) {
+            Ok(())
+        } else {
+            Err(invalid(&format!(
                 "healthTheme value {iri:?} is not allowed"
-            )));
+            )))
         }
-    }
-    Ok(())
+    })
+}
+
+/// Validate `conformsTo`: each IRI from the closed [`CONFORMS_TO`] set.
+fn validate_conforms_to_list(iris: &[String]) -> CoreResult<()> {
+    validate_closed_list("conformsTo", iris, |iri| {
+        validate_iri("conformsTo", iri)?;
+        validate_conforms_to(iri)
+    })
 }
 
 /// Validate the optional metadata fields (validated when present, silent when
@@ -581,10 +664,7 @@ fn validate_health_themes(themes: &[String]) -> CoreResult<()> {
 /// See the module docs for the tier split.
 fn validate_optional_metadata(m: &PackageMetadata, notes: &mut Vec<String>) -> CoreResult<()> {
     if let Some(conforms) = &m.conforms_to {
-        for iri in conforms {
-            validate_iri("conformsTo", iri)?;
-            validate_conforms_to(iri)?;
-        }
+        validate_conforms_to_list(conforms)?;
     }
     if let Some(types) = &m.type_ {
         validate_types(types)?;
@@ -717,6 +797,25 @@ fn validate_iri_list(field: &str, iris: &[String]) -> CoreResult<()> {
     check_max_count(field, iris.len(), MAX_IRI_LIST_COUNT)?;
     for iri in iris {
         validate_iri(field, iri)?;
+    }
+    Ok(())
+}
+
+/// Validate a list drawn from a closed vocabulary: each value by `check`, and none twice.
+///
+/// A repeat publishes nothing new (RDF keeps one triple) but would be stored as given.
+/// Refusing it also caps the list at the vocabulary's size.
+fn validate_closed_list(
+    field: &str,
+    values: &[String],
+    check: impl Fn(&str) -> CoreResult<()>,
+) -> CoreResult<()> {
+    let mut seen = std::collections::HashSet::new();
+    for value in values {
+        check(value)?;
+        if !seen.insert(value.as_str()) {
+            return Err(invalid(&format!("{field} lists {value:?} twice")));
+        }
     }
     Ok(())
 }
@@ -898,16 +997,15 @@ pub fn validate_enum(field: &str, value: &str, allowed: &[&str]) -> CoreResult<(
 /// # Errors
 ///
 /// Returns [`CoreError::InvalidManifest`] for an empty list, or for a value that is not
-/// in the set or not an IRI.
+/// in the set, not an IRI, or listed twice.
 pub fn validate_types(types: &[String]) -> CoreResult<()> {
     if types.is_empty() {
         return Err(invalid("type must list at least one IRI"));
     }
-    for iri in types {
+    validate_closed_list("type", types, |iri| {
         validate_enum("type", iri, DATASET_TYPES)?;
-        validate_iri("type", iri)?;
-    }
-    Ok(())
+        validate_iri("type", iri)
+    })
 }
 
 /// Validate `healthCategory`: one of the closed [`HEALTH_CATEGORIES`] set
@@ -1329,10 +1427,7 @@ pub fn validate_patch(patch: &crate::model::MetadataOverlay) -> CoreResult<()> {
         }
     }
     if let Some(conforms) = conforms_to {
-        for iri in conforms {
-            validate_iri("conformsTo", iri)?;
-            validate_conforms_to(iri)?;
-        }
+        validate_conforms_to_list(conforms)?;
     }
     if let Some(t) = type_ {
         validate_types(t)?;
@@ -1647,6 +1742,31 @@ mod tests {
         p.metadata.health_theme = Some(vec!["https://example.org/GENOMICS".to_owned()]);
         let err = validate_package(&p, Some(&node_catalogs())).unwrap_err();
         assert!(format!("{err}").contains("healthTheme"), "{err}");
+    }
+
+    #[test]
+    fn a_closed_list_refuses_a_value_listed_twice() {
+        let twice = |iri: &str| vec![iri.to_owned(), iri.to_owned()];
+        let mut category = sample_package();
+        category.metadata.health_category = twice(HEALTH_CATEGORIES[0]);
+        let mut theme = sample_package();
+        theme.metadata.health_theme = Some(twice(HEALTH_THEMES[0].0));
+        let mut conforms = sample_package();
+        conforms.metadata.conforms_to = Some(twice(CONFORMS_TO[0]));
+        let mut types = sample_package();
+        types.metadata.type_ = Some(twice(DATASET_TYPES[0]));
+        for (p, field) in [
+            (category, "healthCategory"),
+            (theme, "healthTheme"),
+            (conforms, "conformsTo"),
+            (types, "type"),
+        ] {
+            let err = validate_package(&p, Some(&node_catalogs())).unwrap_err();
+            assert!(
+                format!("{err}").contains(&format!("{field} lists ")),
+                "{err}"
+            );
+        }
     }
 
     #[test]

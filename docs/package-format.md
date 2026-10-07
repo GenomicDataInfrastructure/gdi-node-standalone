@@ -126,13 +126,13 @@ The package's first member. Serialized `camelCase`. Top level:
 | `applicableLegislation` | IRI array (≥ 1) | yes | EU ELI IRIs. Omitting the EHDS ELI (`http://data.europa.eu/eli/reg/2025/327/oj`) is a warning, not a rejection. |
 | `license` | IRI string | yes | Reuse license IRI. |
 | `creator` | `[{name}]` (≥ 1) | yes | Creating agents. |
-| `healthCategory` | IRI array (≥ 1) | yes | GDI health-category IRIs. |
+| `healthCategory` | IRI array (≥ 1) | yes | GDI health-category IRIs, a closed set (`manifest.schema.json` lists it). Any other value is rejected. |
 | `contactPoint` | `{fn, hasEmail, hasURL?}` | yes | Who to write to about the dataset: a name and a `mailto:` e-mail, and optionally a web page. |
 | `keywords` | string array | no | Discovery tags. |
 | `healthTheme` | IRI array | no | Disease or healthcare areas, from the EU health-theme vocabulary (`https://hdeu-dcat.data.health.europa.eu/resource/authority/health-theme/…`, 20 codes). Any other value is rejected; genomics is `HEALTH_PRODUCTS`. Recommended: `build` warns without it. |
 | `numberOfUniqueIndividuals` | uint | no | Distinct sequenced subjects. |
 | `conformsTo` | IRI array | no | GDI standards-compliance IRIs, a closed set: `ExternallyGoverned`, `1MGCompliant` and `1MGCohort` under `http://data.gdi.eu/core/p2/`. Any other value is rejected. |
-| `type` | IRI array | no | Dataset-type IRIs (set only for synthetic data). |
+| `type` | IRI array | no | Dataset-type IRIs (set only for synthetic data), a closed set (`manifest.schema.json` lists it). |
 | `legalBasis` | IRI array | no | DPV legal-basis IRIs. GDI requires one for `NON_PUBLIC` data: without it the tool and the node warn. |
 | `isReferencedBy` | IRI array | no | Publication DOI IRIs. |
 | `otherIdentifier` | `[{notation, schemaAgency?, name?}]` | no | Secondary identifiers. |
@@ -140,6 +140,9 @@ The package's first member. Serialized `camelCase`. Top level:
 | `provenance` | string \| lang-map | no | How the data was produced. |
 | `numberOfRecords` | uint | required at ingest | Distinct `(chr, POS, REF, ALT)` count. The node re-counts and rejects a mismatch. |
 | `populations` | string array | no | The population labels the dataset serves, sorted: the union of each source VCF's emitted set, after the build-time `minAlleleCount` floor. The node re-derives it from the parquet and rejects a mismatch, as for `numberOfRecords`; an absent claim is accepted. Served on the beacon `datasets` entry as `gdiDatasetInfo.populations`. |
+
+The closed lists (`healthCategory`, `healthTheme`, `conformsTo`, `type`) take each value at
+most once; a repeat is rejected.
 
 ### `config`
 

@@ -146,6 +146,10 @@ pub struct ManifestMetadata {
     /// Creating agents (>= 1).
     pub creator: Vec<Agent>,
     /// GDI health category IRIs (>= 1).
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::validate_pkg::health_category_schema")
+    )]
     pub health_category: Vec<String>,
     /// Tags for discovery (recommended).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,10 +158,18 @@ pub struct ManifestMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub number_of_unique_individuals: Option<u64>,
     /// Standards-compliance IRIs.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::validate_pkg::conforms_to_schema")
+    )]
     pub conforms_to: Option<Vec<String>>,
     /// Dataset type IRIs, set only for synthetic datasets.
-    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::validate_pkg::dataset_type_schema")
+    )]
     pub type_: Option<Vec<String>>,
     /// DPV legal basis IRIs (for real personal data).
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -176,15 +188,27 @@ pub struct ManifestMetadata {
     pub contact_point: Option<ContactPoint>,
     /// Typical age of the youngest people in the dataset, in years.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(range(max = crate::validate_pkg::MAX_TYPICAL_AGE))
+    )]
     pub min_typical_age: Option<u32>,
     /// Typical age of the oldest people in the dataset, in years.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(range(max = crate::validate_pkg::MAX_TYPICAL_AGE))
+    )]
     pub max_typical_age: Option<u32>,
     /// How the data was produced (plain string or language map).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provenance: Option<LocalizedText>,
     /// Health themes: the disease or healthcare areas, as EU health-theme IRIs (recommended).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::validate_pkg::health_theme_schema")
+    )]
     pub health_theme: Option<Vec<String>>,
     /// Computed: distinct `(chromosome, POS, REF, ALT)` variants the dataset serves.
     ///
