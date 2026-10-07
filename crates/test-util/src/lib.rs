@@ -525,6 +525,7 @@ pub fn stored_manifest_json(dataset_id: &str) -> String {
     "license": "https://creativecommons.org/licenses/by/4.0/",
     "creator": [{{ "name": "test" }}],
     "healthCategory": ["http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"],
+    "contactPoint": {{ "fn": "test", "hasEmail": "mailto:test@example.org" }},
     "numberOfRecords": 1
   }},
   "config": {{
@@ -678,8 +679,24 @@ mod tests {
     /// `test_util::set_env(` cannot silently drop those sites.
     const ENV_MUTATORS: [&str; 4] = ["set_env(", "remove_env(", "EnvGuard::", "jail.set_env("];
 
-    /// Every spelling that arms a `core::faults` fault point.
-    const FAULT_ARMERS: [&str; 4] = ["arm_once(", "arm_delay(", "arm_enospc(", "faults::arm"];
+    /// The calls that arm a `core::faults` point: every `pub fn arm_*` in its source, so a
+    /// new one is covered without a list to update, and the path-qualified `faults::arm`.
+    fn fault_armers() -> Vec<String> {
+        let src = std::fs::read_to_string(crates_dir().join("core/src/faults.rs"))
+            .expect("core/src/faults.rs is readable");
+        let mut armers: Vec<String> = src
+            .lines()
+            .filter_map(|l| l.trim_start().strip_prefix("pub fn arm_"))
+            .filter_map(|rest| rest.split_once('('))
+            .map(|(name, _)| format!("arm_{name}("))
+            .collect();
+        assert!(
+            armers.len() >= 4,
+            "found only {armers:?} in core/src/faults.rs"
+        );
+        armers.push("faults::arm".to_owned());
+        armers
+    }
 
     /// Binding names that mean "I am saving this to put it back".
     ///
@@ -904,6 +921,7 @@ mod tests {
         let mut files = Vec::new();
         rs_files(&crates_dir(), &mut files);
         assert!(files.len() > 50, "found only {} .rs files", files.len());
+        let fault_armers = fault_armers();
 
         let mut offenders = Vec::new();
         for path in &files {
@@ -943,7 +961,7 @@ mod tests {
                 if ENV_MUTATORS.iter().any(|t| body.contains(t)) {
                     needed.push("env");
                 }
-                if FAULT_ARMERS.iter().any(|t| body.contains(t)) {
+                if fault_armers.iter().any(|t| body.contains(t.as_str())) {
                     needed.push("faults");
                 }
                 for group in needed {

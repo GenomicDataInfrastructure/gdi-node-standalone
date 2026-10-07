@@ -425,6 +425,57 @@ mod tests {
         assert_eq!(change.access_rights_after.as_deref(), Some("PUBLIC"));
     }
 
+    /// Each field is named when it alone changes, or its corrections would go unaudited.
+    #[test]
+    fn overlay_change_names_every_field_that_moves() {
+        use serde_json::json;
+        let iris = json!(["https://example.org/x"]);
+        for (key, value, name) in [
+            ("title", json!("T"), "title"),
+            ("description", json!("D"), "description"),
+            ("accessRights", json!("x"), "access_rights"),
+            (
+                "applicableLegislation",
+                iris.clone(),
+                "applicable_legislation",
+            ),
+            ("license", json!("https://example.org/l"), "license"),
+            ("creator", json!([{"name": "C"}]), "creator"),
+            ("healthCategory", iris.clone(), "health_category"),
+            ("keywords", json!(["k"]), "keywords"),
+            (
+                "numberOfUniqueIndividuals",
+                json!(1),
+                "number_of_unique_individuals",
+            ),
+            ("conformsTo", iris.clone(), "conforms_to"),
+            ("type", iris.clone(), "type"),
+            ("legalBasis", iris.clone(), "legal_basis"),
+            ("isReferencedBy", iris.clone(), "is_referenced_by"),
+            (
+                "otherIdentifier",
+                json!([{"notation": "n"}]),
+                "other_identifier",
+            ),
+            (
+                "contactPoint",
+                json!({"fn": "F", "hasEmail": "mailto:a@example.org"}),
+                "contact_point",
+            ),
+            ("minTypicalAge", json!(1), "min_typical_age"),
+            ("maxTypicalAge", json!(2), "max_typical_age"),
+            ("provenance", json!("P"), "provenance"),
+            ("healthTheme", iris, "health_theme"),
+        ] {
+            let next: MetadataOverlay = serde_json::from_value(json!({ key: value })).unwrap();
+            assert_eq!(
+                overlay_change(None, &next).changed_fields,
+                vec![name],
+                "{key}"
+            );
+        }
+    }
+
     /// A re-apply of the identical patch must not look like a correction, or the
     /// idempotent reconcile would flood the audit trail with no-op "changed" lines.
     #[test]

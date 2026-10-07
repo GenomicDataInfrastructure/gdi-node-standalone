@@ -327,7 +327,7 @@ async fn restart_after_crash_leftovers_rehydrates_published_datasets() {
 #[tokio::test]
 #[serial(faults)]
 async fn crash_after_publish_rename_recovers_on_restart() {
-    const ID: &str = "GDI-EE-UTARTU-20260706120000010";
+    const ID: &str = "GDI-EE-UTARTU-20260706120000110";
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
     let inbox = tmp.path().join("inbox");
@@ -400,7 +400,7 @@ async fn crash_after_publish_rename_recovers_on_restart() {
 #[tokio::test]
 #[serial(faults)]
 async fn crash_after_status_purge_completes_erasure_on_restart() {
-    const ID: &str = "GDI-EE-UTARTU-20260706120000011";
+    const ID: &str = "GDI-EE-UTARTU-20260706120000111";
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
     let inbox = tmp.path().join("inbox");
@@ -670,7 +670,7 @@ name = "Test Beacon"
 #[tokio::test]
 #[serial(faults)]
 async fn scrub_sweep_skips_a_dataset_whose_erasure_is_in_flight() {
-    const ID: &str = "GDI-EE-UTARTU-20260706120000012";
+    const ID: &str = "GDI-EE-UTARTU-20260706120000112";
     let tmp = tempfile::tempdir().unwrap();
     let data_dir = tmp.path().join("data");
     let inbox = tmp.path().join("inbox");
