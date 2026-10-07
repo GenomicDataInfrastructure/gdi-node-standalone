@@ -1476,3 +1476,112 @@ fn a_typed_org_is_remembered_in_the_profile_when_asked_to() {
         "storing the org must not disturb the rest of the profile"
     );
 }
+
+/// Answers for an Author run whose profile already holds the org: no org prompt.
+fn scripted_author_with_profile_org(fixture: &str, contact: &[&'static str]) -> ScriptedPrompter {
+    let mut inputs = vec![
+        fixture.to_owned(),
+        "gdi-aggregated".to_owned(),
+        "AF test (synthetic data)".to_owned(),
+        "Synthetic allele-frequency test dataset.".to_owned(),
+        String::new(), // provenance: skipped
+        "allele-frequency,genomics".to_owned(),
+        "2504".to_owned(),
+        String::new(), // age range: skipped
+        "Test Institute".to_owned(),
+    ];
+    inputs.extend(contact.iter().map(|s| (*s).to_owned()));
+    inputs.extend([String::new(), "0".to_owned()]); // publication: none; minAlleleCount
+    ScriptedPrompter::new()
+        .with_inputs(inputs.iter().map(String::as_str).collect())
+        .with_selects(vec![1, 0, 0, 0, 0])
+        .with_multiselects(vec![
+            vec![2], // health categories: Human genomic
+            vec![7], // health themes: Health products
+            vec![],  // conformsTo: nothing ticked
+            vec![0], // applicable legislation: the EHDS row only
+        ])
+}
+
+fn run_author(p: &ScriptedPrompter, pkg: &std::path::Path, config_path: &std::path::Path) {
+    gdi_dataset_tool::wizard::run(
+        p,
+        &WizardArgs {
+            command: None,
+            from: Stage::Author,
+            to: Stage::Author,
+            output: pkg.to_owned(),
+            recipient: None,
+        },
+        None,
+        Some(config_path),
+    )
+    .expect("authoring must succeed");
+}
+
+/// A typed contact point is stored in the profile when the provider asks for that.
+#[test]
+fn a_typed_contact_point_is_remembered_in_the_profile_when_asked_to() {
+    let fixture_path = test_util::covid_vcf_path();
+    let dir = tempfile::tempdir().unwrap();
+    let config_path = dir.path().join("tool.toml");
+    std::fs::write(
+        &config_path,
+        "country_code = \"EE\"\n\n[profiles.default]\norg = \"UTARTU\"\n",
+    )
+    .unwrap();
+    let p = scripted_author_with_profile_org(
+        fixture_path.to_str().unwrap(),
+        &["Data access team", "mailto:data@example.org", ""],
+    )
+    .with_confirms(vec![
+        false, // Add another VCF?
+        true,  // keywords
+        true,  // cohort
+        true,  // synthetic
+        true,  // Remember this contact point in the profile? yes
+        false, // Add another legislation ELI or IRI?
+        true,  // GoE provenance
+    ]);
+    run_author(&p, &dir.path().join("package.yaml"), &config_path);
+    let cfg = gdi_node_standalone_core::config::ToolConfig::load(Some(&config_path)).unwrap();
+    let stored = cfg.profiles["default"].contact_point.as_ref();
+    assert_eq!(stored.map(|c| c.name.as_str()), Some("Data access team"));
+    assert_eq!(
+        stored.map(|c| c.email.as_str()),
+        Some("data@example.org"),
+        "stored without mailto:, which the template adds"
+    );
+}
+
+/// A remembered contact point is offered, and used without asking for one.
+#[test]
+fn the_profile_contact_point_is_offered_and_used() {
+    let fixture_path = test_util::covid_vcf_path();
+    let dir = tempfile::tempdir().unwrap();
+    let pkg = dir.path().join("package.yaml");
+    let config_path = dir.path().join("tool.toml");
+    std::fs::write(
+        &config_path,
+        "country_code = \"EE\"\n\n[profiles.default]\norg = \"UTARTU\"\n\n\
+         [profiles.default.contact_point]\nname = \"Helpdesk\"\nemail = \"help@example.org\"\n",
+    )
+    .unwrap();
+    let p =
+        scripted_author_with_profile_org(fixture_path.to_str().unwrap(), &[]).with_confirms(vec![
+            false, // Add another VCF?
+            true,  // keywords
+            true,  // cohort
+            true,  // synthetic
+            true,  // Contact point: Helpdesk <help@example.org>. Use it? yes
+            false, // Add another legislation ELI or IRI?
+            true,  // GoE provenance
+        ]);
+    run_author(&p, &pkg, &config_path);
+    let yaml = std::fs::read_to_string(&pkg).unwrap();
+    assert!(yaml.contains("fn: \"Helpdesk\""), "{yaml}");
+    assert!(
+        yaml.contains("hasEmail: \"mailto:help@example.org\""),
+        "{yaml}"
+    );
+}
