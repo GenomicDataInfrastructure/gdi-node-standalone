@@ -206,6 +206,14 @@ mod vcf_stage_tests {
 /// package-format name is a core contract the node reads too, so it is defined once.
 pub use gdi_node_standalone_core::ingest::MANIFEST_FILE as MANIFEST_NAME;
 
+/// The command that limits `path` to its owner, quoted for a POSIX shell.
+pub(crate) fn chmod_hint(path: &std::path::Path) -> String {
+    format!(
+        "chmod 600 '{}'",
+        path.display().to_string().replace('\'', r"'\''")
+    )
+}
+
 /// Run the parsed CLI, returning a [`ToolError`] (with its exit code) on failure.
 ///
 /// # Errors
@@ -262,9 +270,9 @@ pub fn run(cli: Cli) -> Result<(), ToolError> {
     {
         output::warn(&format!(
             "warning: {} holds S3 credentials and is readable beyond its owner (mode {mode:o}); \
-             run `chmod 600 {}`",
+             run `{}`",
             path.display(),
-            path.display()
+            chmod_hint(&path)
         ));
     }
     match cli.command {
@@ -330,5 +338,14 @@ mod tests {
         assert_ne!(EXIT_USER, 2);
         assert_ne!(EXIT_TRANSIENT, 2);
         assert_ne!(EXIT_AUTH, 2);
+    }
+
+    /// The hint is pasted into a shell, so a space or a quote in the path must survive it.
+    #[test]
+    fn the_chmod_hint_quotes_its_path() {
+        assert_eq!(
+            chmod_hint(std::path::Path::new("/home/a b/it's.toml")),
+            r"chmod 600 '/home/a b/it'\''s.toml'"
+        );
     }
 }

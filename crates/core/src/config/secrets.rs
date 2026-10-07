@@ -247,9 +247,9 @@ impl Secrets {
         for name in self.profiles.keys() {
             if config.profiles.get(name).is_some_and(|p| p.s3.is_none()) {
                 return Err(format!(
-                    "{}: credentials for profile '{name}', but [profiles.{name}.s3] in the tool \
-                     config sets nothing (commented-out keys don't count); add its settings or \
-                     remove the credentials",
+                    "{}: credentials for profile '{name}', but the tool config has no \
+                     [profiles.{name}.s3] settings (the block is absent, or holds only \
+                     commented-out keys); add them or remove the credentials",
                     path.display()
                 ));
             }

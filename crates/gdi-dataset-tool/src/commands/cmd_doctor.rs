@@ -284,9 +284,9 @@ fn check_provider_identity(config_path: Option<&Path>) -> Check {
                     "provider-identity",
                     format!(
                         "loaded, but {} is readable beyond its owner (mode {mode:o}); file \
-                         permissions are its only protection; run `chmod 600 {}`",
+                         permissions are its only protection; run `{}`",
                         path.display(),
-                        path.display()
+                        crate::chmod_hint(&path)
                     ),
                 ),
                 None => Check::pass("provider-identity", "loaded; recipient derives"),
