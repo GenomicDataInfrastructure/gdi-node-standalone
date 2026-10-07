@@ -51,6 +51,45 @@ export VAULT_ADDR="http://toxiproxy:28200"
 FILES=(-f docker-compose.yml -f docker-compose.chaos.yml)
 dc() { $COMPOSE -p "$PROJECT" "${FILES[@]}" "$@"; }
 
+# Preflight: refuse to start beside a stack that holds one of our host ports, which
+# `compose up` does not check. The ports come from the rendered config, so a remapped
+# GDI_HOST_PORT_* is what gets checked. It runs before the cleanup trap, and probes as
+# scripts/e2e/run.sh does: one `ss` call, since a `| grep -q` pipeline fails open.
+command -v docker >/dev/null 2>&1 || { echo "FAIL: docker not found on PATH" >&2; exit 2; }
+command -v ss >/dev/null 2>&1 \
+  || { echo "FAIL: ss not found on PATH: install iproute2, needed to check for busy host ports" >&2; exit 2; }
+E2E_PORTS=()
+while IFS= read -r p; do E2E_PORTS+=("$p"); done < <(
+  dc config --format json | python3 -c '
+import json, sys
+for service in json.load(sys.stdin)["services"].values():
+    for port in service.get("ports", []):
+        if port.get("published"):
+            print(port["published"])'
+)
+[ "${#E2E_PORTS[@]}" -gt 0 ] \
+  || { echo "FAIL: the rendered compose config publishes no host port, so the preflight would check nothing" >&2; exit 2; }
+e2e_port_holder() {  # e2e_port_holder <port> -> holding container name(s), or empty
+  docker ps --format '{{.Names}} {{.Ports}}' 2>/dev/null \
+    | awk -v p=":$1->" '$0 ~ p {print $1}' | tr '\n' ' '
+}
+listening="$(ss -ltn)" \
+  || { echo "FAIL: ss -ltn failed, so whether the chaos ports are free is unknown" >&2; exit 2; }
+busy=()
+for p in "${E2E_PORTS[@]}"; do
+  if awk -v p=":${p}" '$4 ~ p"$" {found=1} END {exit !found}' <<<"$listening"; then
+    busy+=("$p")
+  fi
+done
+if [ "${#busy[@]}" -gt 0 ]; then
+  for p in "${busy[@]}"; do
+    holder="$(e2e_port_holder "$p")"
+    echo "    port :$p is already bound${holder:+ (holder: $holder)}"
+  done
+  echo "FAIL: cannot start: host port(s) ${busy[*]} already bound; stop the stack holding them and re-run" >&2
+  exit 1
+fi
+
 # Node logs from the teardown go to a freshly created private file, not a fixed `/tmp`
 # path: a predictable name in a world-writable directory can be pre-created or symlinked
 # by any local user, who then captures the node log or redirects the write. `mktemp`
