@@ -41,7 +41,7 @@ Two rules shape where a test goes:
 | 6 | **Fuzz** | `crates/core/fuzz` | `cargo-fuzz` targets over untrusted-input parsers. |
 | 7 | **Bench** | `benches/` (criterion) | Advisory hot-path microbenchmarks; gate nothing. |
 | 8 | **Guard** | `tests/it/` drift-guards + scheduled jobs | Executable invariants about the repo itself. |
-| — | *(out-of-process)* | `scripts/e2e`, `scripts/load`, `scripts/soak`, `scripts/chaos` | Compose-stack e2e + `oha` load + leak/crash-loop soak + toxiproxy S3/Vault chaos. `e2e`/`chaos` need Docker; `load`/`soak` boot their own node and build the release binaries if absent. |
+| — | *(out-of-process)* | `scripts/e2e`, `scripts/load`, `scripts/soak`, `scripts/chaos` | Compose-stack e2e + `oha` load + leak/crash-loop soak + toxiproxy S3/Vault chaos. `e2e`/`chaos` need Docker; `load`/`soak` boot their own node and rebuild the release binaries on every run, a no-op when they are current. |
 
 ---
 
