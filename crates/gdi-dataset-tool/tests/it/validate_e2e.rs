@@ -255,6 +255,41 @@ fn validate_subprocess_reports_a_malformed_parquet_without_a_raw_panic() {
 
 #[test]
 #[serial(env)]
+fn lint_subprocess_reports_a_decode_panic_without_a_raw_panic() {
+    // `lint` reads rows straight away, with no validation first. `negative_chunk_start`
+    // makes `parquet` panic as it reads the first column chunk; the read path catches it,
+    // and the binary's panic hook keeps the raw panic text off stderr.
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().join("config");
+    let _config_dir = test_util::EnvGuard::set("GDI_CONFIG_DIR", &config_dir);
+    let staging = build_covid(&tmp.path().join("build"));
+    let malformed = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../core/tests/fixtures/malformed/negative_chunk_start.parquet");
+    fs::copy(&malformed, find_data_parquet(&staging)).unwrap();
+
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_gdi-dataset-tool"))
+        .args(["lint", staging.to_str().unwrap()])
+        .env("GDI_CONFIG_DIR", &config_dir)
+        .output()
+        .expect("spawn gdi-dataset-tool");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "a parquet that panics the decoder must fail lint; stderr:\n{stderr}"
+    );
+    assert!(
+        stderr.contains("parquet decode panicked"),
+        "expected the panic boundary's error on stderr, got:\n{stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked at"),
+        "a raw Rust panic message reached stderr; stderr:\n{stderr}"
+    );
+}
+
+#[test]
+#[serial(env)]
 fn validate_package_file_succeeds() {
     let tmp = tempfile::tempdir().unwrap();
     let _config_dir = test_util::EnvGuard::set("GDI_CONFIG_DIR", tmp.path().join("config"));
