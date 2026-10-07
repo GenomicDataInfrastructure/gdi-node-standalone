@@ -5,7 +5,8 @@
 //! distributions, per dataset kind), then `rename_properties`, `replace_values` and
 //! `type_values` over the whole record. Every dataset on this node is `aggregated`, so
 //! datasets and distributions get both their `all` and their `aggregated` block. Last, every
-//! blank node no named node reaches, which a drop (`[]`) can leave, is removed.
+//! statement no path from the record's subject reaches, which a drop (`[]`) can leave, is
+//! removed.
 //!
 //! [`Publish::compile`] resolves every name once. The node's startup preflight runs it, so
 //! an unknown prefix or a malformed IRI stops the node at start instead of failing a
@@ -17,8 +18,7 @@ use std::fmt;
 use gdi_node_standalone_core::config::{AddValue, FairdpPublish, PublishParts};
 use gdi_node_standalone_core::error::CoreError;
 use oxrdf::{
-    BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, NamedOrBlankNodeRef, Term, TermRef,
-    Triple, TripleRef,
+    BlankNode, Graph, Literal, NamedNode, NamedOrBlankNode, Term, TermRef, Triple, TripleRef,
 };
 
 use crate::serialize::PREFIXES;
@@ -280,36 +280,31 @@ impl Publish {
             }
         }
 
-        remove_orphans(graph);
+        remove_orphans(graph, &subject);
     }
 }
 
-/// Removes the statements of every blank node that no named node reaches. A drop leaves
-/// such nodes behind, and they would still be served, just unlinked.
-fn remove_orphans(graph: &mut Graph) {
-    let mut reached = HashSet::new();
-    let mut stack: Vec<NamedOrBlankNode> = graph
-        .iter()
-        .filter_map(|t| match t.subject {
-            NamedOrBlankNodeRef::NamedNode(n) => Some(n.into_owned().into()),
-            NamedOrBlankNodeRef::BlankNode(_) => None,
-        })
-        .collect();
+/// Removes every statement that no path from the record's `subject` reaches. A drop can cut
+/// a node loose, blank or named, and its statements would still be served, just unlinked.
+/// Each node is walked once, so this is linear in the record.
+fn remove_orphans(graph: &mut Graph, subject: &NamedOrBlankNode) {
+    let mut reached = HashSet::from([subject.clone()]);
+    let mut stack = vec![subject.clone()];
     while let Some(node) = stack.pop() {
         for triple in graph.triples_for_subject(&node) {
-            if let TermRef::BlankNode(b) = triple.object
-                && reached.insert(b.into_owned())
-            {
-                stack.push(b.into_owned().into());
+            let object: NamedOrBlankNode = match triple.object {
+                TermRef::NamedNode(n) => n.into_owned().into(),
+                TermRef::BlankNode(b) => b.into_owned().into(),
+                TermRef::Literal(_) => continue,
+            };
+            if reached.insert(object.clone()) {
+                stack.push(object);
             }
         }
     }
     let orphans: Vec<Triple> = graph
         .iter()
-        .filter(|t| match t.subject {
-            NamedOrBlankNodeRef::BlankNode(b) => !reached.contains(&b.into_owned()),
-            NamedOrBlankNodeRef::NamedNode(_) => false,
-        })
+        .filter(|t| !reached.contains(&t.subject.into_owned()))
         .map(TripleRef::into_owned)
         .collect();
     for triple in &orphans {
@@ -454,7 +449,8 @@ impl<'a> Names<'a> {
             .map_err(|_| PublishError(format!("{setting}: `{name}` is not a valid IRI")))
     }
 
-    /// `old = new` or `old = [new, …]`, as in `rename_properties` and `replace_values`.
+    /// `old = [new, …]`, as in `rename_properties` and `replace_values`; `= []` maps to
+    /// nothing.
     fn mapping(
         &self,
         setting: &str,
@@ -747,6 +743,25 @@ mod tests {
     }
 
     #[test]
+    fn a_drop_takes_a_named_node_cut_loose_along() {
+        // A dropped property's value can be an IRI with statements of its own; once nothing
+        // reaches that node, its statements go too.
+        let licence = "https://licences.example/cc-by-4.0";
+        let publish = FairdpPublish {
+            rename_properties: BTreeMap::from([("dct:license".to_owned(), Vec::new())]),
+            ..FairdpPublish::default()
+        };
+        let mut graph = dataset_with(&format!("{DCT}license"), iri(licence));
+        graph.insert(&Triple::new(
+            iri(licence),
+            iri("http://www.w3.org/2000/01/rdf-schema#label"),
+            Literal::new_simple_literal("CC BY 4.0"),
+        ));
+        apply(&publish, &mut graph);
+        assert!(graph.is_empty(), "{}", turtle(&graph));
+    }
+
+    #[test]
     fn values_are_typed_by_their_shape() {
         let publish = dataset_add(&[
             ("healthdcatap:hasStructuredData", AddValue::Bool(true)),
@@ -758,7 +773,7 @@ mod tests {
             ("dct:rightsHolder", text("gdi@example.org")),
             ("dct:issued", text("2026-09-24")),
             ("dct:modified", text("2026-09-24T10:00:00Z")),
-            ("dct:subject", text("unknown:prefix stays text")),
+            ("dct:subject", text("Note: prose with a colon stays text")),
         ]);
         let mut graph = Graph::new();
         apply(&publish, &mut graph);
@@ -773,7 +788,7 @@ mod tests {
             "dct:rightsHolder <mailto:gdi@example.org>",
             "dct:issued \"2026-09-24\"^^xsd:date",
             "dct:modified \"2026-09-24T10:00:00Z\"^^xsd:dateTime",
-            "dct:subject \"unknown:prefix stays text\"",
+            "dct:subject \"Note: prose with a colon stays text\"",
         ] {
             assert!(out.contains(expected), "missing `{expected}` in\n{out}");
         }
