@@ -114,12 +114,15 @@ class ComposeHostPortsOverridableTest(unittest.TestCase):
             "no ports: entries were checked at all, so this test would pass vacuously",
         )
 
-    def test_every_e2e_script_preflights_the_host_ports_it_is_about_to_bind(self):
-        # The compose files parameterise their host ports, but each `scripts/e2e/run*.sh`
-        # is what must refuse to start when one is already held; otherwise a passing e2e
-        # may be talking to a developer's dev stack. The scripts are enumerated rather
-        # than listed, so one added later is covered the day it lands.
-        scripts = sorted((REPO_ROOT / "scripts" / "e2e").glob("run*.sh"))
+    def test_every_stack_script_preflights_the_host_ports_it_is_about_to_bind(self):
+        # Each script that brings a stack up (`scripts/e2e/run*.sh`, the chaos harness) must
+        # refuse to start when one of its ports is held, or a passing run may be talking to
+        # a developer's dev stack. The e2e scripts are globbed, so a new one is covered the
+        # day it lands.
+        scripts = [
+            *sorted((REPO_ROOT / "scripts" / "e2e").glob("run*.sh")),
+            REPO_ROOT / "scripts" / "chaos" / "run.sh",
+        ]
         self.assertTrue(
             scripts, "no scripts/e2e/run*.sh found, so this would pass vacuously"
         )
