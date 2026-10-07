@@ -499,8 +499,8 @@ pub fn recover_writer_keys<R: Read>(
 /// [`CoreError::DecryptFailed`] if the magic/version is wrong, the header is
 /// malformed, or no identity in `identities` can decrypt any header packet,
 /// [`CoreError::InvalidManifest`] if the stream carries a non-data-encryption header packet,
-/// such as an edit list, that rewrap cannot faithfully re-encode, or [`CoreError::Io`] on a
-/// read or write failure.
+/// such as an edit list, that rewrap cannot faithfully re-encode, [`CoreError::Io`] on a
+/// read or write failure, or [`CoreError::InternalError`] if the system random source fails.
 pub fn rewrap_header<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
@@ -525,7 +525,7 @@ pub fn rewrap_header<R: Read, W: Write>(
 /// # Errors
 ///
 /// As [`rewrap_header`]: empty `new_recipients`, an unreadable/undecryptable header, a
-/// non-data-encryption header packet, or a write failure.
+/// non-data-encryption header packet, a write failure, or a failed random source.
 pub fn rewrap_header_as<R: Read, W: Write>(
     reader: &mut R,
     writer: &mut W,
@@ -596,7 +596,10 @@ pub fn rewrap_header_as<R: Read, W: Write>(
     let sender_sk = if let Some(sk) = writer_sk {
         sk
     } else {
-        ephemeral_sk = generate_keypair().0;
+        // Drawn like the session key, so a failed random source is an error, not a panic.
+        let mut seed = Zeroizing::new([0u8; 32]);
+        fill_random(seed.as_mut())?;
+        ephemeral_sk = SecretKey::from_bytes(*seed);
         &ephemeral_sk
     };
     let mut packets: Vec<Vec<u8>> = Vec::with_capacity(session_keys.len() * new_recipients.len());
@@ -661,6 +664,19 @@ mod tests {
         clippy::similar_names,
         reason = "sender/recipient sk/pk are the standard, clearest crypto naming"
     )]
+
+    /// Every key-holding type here wipes itself on drop. RustCrypto makes that an opt-in
+    /// `zeroize` feature, so a bump that loses it fails to compile here rather than leaving
+    /// keys in freed memory. `Blake2b` has no marker of its own, so its state and block
+    /// buffer, which hold the shared point, are named instead.
+    #[test]
+    fn key_holders_wipe_themselves_on_drop() {
+        fn wipes_on_drop<T: zeroize::ZeroizeOnDrop>() {}
+        wipes_on_drop::<x25519_dalek::StaticSecret>();
+        wipes_on_drop::<chacha20poly1305::ChaCha20Poly1305>();
+        wipes_on_drop::<blake2::Blake2bVarCore>();
+        wipes_on_drop::<blake2::digest::block_api::Buffer<blake2::Blake2bVarCore>>();
+    }
 
     #[test]
     fn the_header_trial_decrypt_budget_bounds_packets_times_identities() {
@@ -1170,6 +1186,22 @@ mod tests {
             eph[0].as_bytes(),
             provider_pk.as_bytes(),
             "the plain rewrap must NOT coincidentally stamp the provider key"
+        );
+
+        // And a fresh one on every rewrap, not a constant key.
+        let mut again = Vec::new();
+        rewrap_header(
+            &mut &to_a[..],
+            &mut again,
+            std::slice::from_ref(&sk_a),
+            std::slice::from_ref(&pk_b),
+        )
+        .unwrap();
+        let eph_again = recover_writer_keys(&mut &again[..], std::slice::from_ref(&sk_b)).unwrap();
+        assert_ne!(
+            eph[0].as_bytes(),
+            eph_again[0].as_bytes(),
+            "each plain rewrap mints its own sender"
         );
     }
 

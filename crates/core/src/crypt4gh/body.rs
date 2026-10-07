@@ -102,11 +102,9 @@ pub(crate) fn decrypt_body<R: Read, W: Write>(
         .map(|k| ChaCha20Poly1305::new(k.into()))
         .collect();
 
-    // Reusable scratch for the multi-key retry path. An in-place trial decrypt XORs the
-    // keystream into the buffer before the tag is checked, so a wrong-key attempt scrambles
-    // it; with more than one candidate key the trial therefore runs against this copy and a
-    // failure never consumes the original ciphertext. Allocated once, and empty in the
-    // single-key case, which decrypts in place.
+    // Scratch for the multi-key retry path: each trial decrypts this copy, so a failed
+    // attempt leaves the ciphertext alone without relying on the AEAD checking its tag
+    // first. Allocated once; empty in the single-key case, which decrypts in place.
     //
     // `Zeroizing` because both buffers hold plaintext after decryption, which on the
     // identity-restore path is the node's own secret key material. A plain `Vec` would leave
