@@ -746,14 +746,20 @@ fn terse_fetch_cause(url: &str, message: &str) -> String {
         .replace(&format!(" for url ({url})"), "")
 }
 
-/// The warning for a failed recipient fetch. An error status other than `404` means the
-/// node is up and failed; any other failure can be a node that isn't up yet.
+/// The warning for a failed recipient fetch. No answer, a `404`, or an ingress's
+/// 502/503/504 can be a node that isn't up yet; any other error status means the node is up
+/// and failed.
 fn recipient_fetch_warning(url: &str, message: &str) -> String {
+    use reqwest::StatusCode;
     match recipient::answered_status(url, message) {
-        Some(status) if status != reqwest::StatusCode::NOT_FOUND => {
-            format!("warning: the node answered {status} at {url}")
-        }
-        _ => format!(
+        Some(
+            status @ (StatusCode::NOT_FOUND
+            | StatusCode::BAD_GATEWAY
+            | StatusCode::SERVICE_UNAVAILABLE
+            | StatusCode::GATEWAY_TIMEOUT),
+        ) => format!("warning: the node answered {status} at {url}: expected on a first bring-up"),
+        Some(status) => format!("warning: the node answered {status} at {url}"),
+        None => format!(
             "warning: node not reachable at {url}: expected on a first bring-up ({})",
             terse_fetch_cause(url, message)
         ),
@@ -1293,6 +1299,25 @@ mod tests {
             assert!(
                 recipient_fetch_warning(url, &message).contains("expected on a first bring-up"),
                 "{message}"
+            );
+        }
+    }
+
+    /// An ingress answers 502/503/504 while the node behind it is still starting.
+    #[test]
+    fn a_gateway_error_is_still_a_possible_first_bring_up() {
+        let url = "https://node.example/.well-known/c4gh-recipient";
+        for status in [
+            reqwest::StatusCode::BAD_GATEWAY,
+            reqwest::StatusCode::SERVICE_UNAVAILABLE,
+            reqwest::StatusCode::GATEWAY_TIMEOUT,
+        ] {
+            let warning = recipient_fetch_warning(url, &recipient::answered_message(url, status));
+            assert_eq!(
+                warning,
+                format!(
+                    "warning: the node answered {status} at {url}: expected on a first bring-up"
+                )
             );
         }
     }
