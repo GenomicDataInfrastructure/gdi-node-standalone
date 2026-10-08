@@ -171,7 +171,9 @@ fn wait_outcome(
             payload["status"] = serde_json::Value::String("error".to_owned());
             payload["reason"] = serde_json::Value::String(e.to_string());
             (
-                format!("upload of {id} to {target} rejected by the node: {e}"),
+                // Not "rejected": a timeout is not a rejection, and a rejection's own
+                // message already says so.
+                format!("upload of {id} to {target} not confirmed by the node: {e}"),
                 payload,
             )
         }

@@ -116,10 +116,13 @@ pub fn run_setup(
     // re-entry for rotation, and a prompt that forgets the previous value silently narrows
     // a deliberate choice back to a default.
     let target = resolve_write_target(config_path)?;
-    let existing: Profile = ToolConfig::load_file_only(&target)
-        .ok()
+    let stored = ToolConfig::load_file_only(&target).ok();
+    let existing: Profile = stored
+        .as_ref()
         .and_then(|cfg| cfg.profiles.get(&name).cloned())
         .unwrap_or_default();
+    // The country code is the one recorded answer kept outside the profile.
+    let existing_cc = stored.and_then(|cfg| cfg.country_code);
 
     // Step 2: Node service URL. Blank is a real answer: a provider who prepares packages
     // for hand-off has no node to name. Demanding a URL would make them invent one, after
@@ -319,8 +322,8 @@ pub fn run_setup(
                 .map(|s3| s3.prefix.clone())
                 .unwrap_or_default();
             crate::output::progress(
-                "  must match the node's [[s3.buckets]].prefix exactly; a prefix on one side \
-                 only is a silent desync.",
+                "  must match the node's key prefix for this bucket exactly; ask the node's \
+                 operator. A prefix on one side only is a silent desync.",
             );
             let answer = p.input_validated(
                 "Key prefix in the bucket (blank = the whole bucket)",
@@ -348,7 +351,7 @@ pub fn run_setup(
         let channel = {
             let existing_channel = existing.s3.as_ref().and_then(|s3| s3.channel.clone());
             crate::output::progress(
-                "  the node's [[s3.buckets]].name for this bucket; ask the node operator.",
+                "  the node's name for this bucket's channel; ask the node's operator.",
             );
             let answer = p.input_validated(
                 "Channel name (blank leaves the wrong-bucket guard off)",
@@ -373,7 +376,7 @@ pub fn run_setup(
         // Not prompted: this is a fact about the endpoint just entered, not a preference.
         // An `http://` endpoint is otherwise accepted here and then rejected by an
         // https-only client.
-        let allow_http = endpoint.starts_with("http://");
+        let allow_http = endpoint.to_ascii_lowercase().starts_with("http://");
 
         (
             Some(ProfileS3 {
@@ -392,14 +395,16 @@ pub fn run_setup(
         (None, None)
     };
 
-    // Step 6: Ensure the provider keypair exists (auto-generates if missing).
-    cmd_keys::load_or_generate_provider_secret(config_path)?;
+    // Step 6: Ensure the provider keypair exists (created on a first run).
+    cmd_keys::ensure_provider_secret(config_path)?;
 
     // Step 7: Country code — validated inline (2 uppercase letters) so a bad value is
     // caught here rather than failing late at the build stage.
-    let cc_raw = p.input_validated("Two-letter country code (e.g. EE)", None, &|s| {
-        fields::resolve_country_code(s).map(|_| ())
-    })?;
+    let cc_raw = p.input_validated(
+        "Two-letter country code (e.g. EE)",
+        existing_cc.as_deref(),
+        &|s| fields::resolve_country_code(s).map(|_| ()),
+    )?;
     let cc = fields::resolve_country_code(&cc_raw).unwrap_or(cc_raw);
 
     // Step 7b: the institute abbreviation — the other identity half of every dataset id
@@ -1766,6 +1771,38 @@ mod tests {
             "the wizard must write the answered country code over the stored one"
         );
         assert_eq!(cfg.default_profile.as_deref(), Some("other"));
+    }
+
+    /// A re-run offers the stored country code like every other recorded answer, so Enter
+    /// keeps it instead of failing validation on an empty entry.
+    #[test]
+    #[serial_test::serial(env)]
+    fn a_re_run_offers_the_stored_country_code() {
+        use gdi_node_standalone_core::crypt4gh::{generate_keypair, serialize_public_key};
+        let (_sk, pk) = generate_keypair();
+        let base = stub_node(&serialize_public_key(&pk));
+        let dir = tempfile::tempdir().unwrap();
+        let cfg_path = dir.path().join("config.toml");
+        let stored = ToolConfig {
+            country_code: Some("LV".into()),
+            ..ToolConfig::default()
+        };
+        gdi_node_standalone_core::config::write(&stored, &cfg_path).unwrap();
+
+        let p = ScriptedPrompter::new()
+            .with_inputs(vec!["default", &base, "", "", "UTARTU"])
+            .with_confirms(vec![
+                true,  // trust recipient
+                true,  // sync catalogs
+                false, // S3?
+            ])
+            .with_selects(vec![0]); // header policy: 0 = minimal
+        let _prev = test_util::EnvGuard::set("GDI_CONFIG_DIR", dir.path());
+
+        run_setup(&p, Some(&cfg_path), None, None, true).unwrap();
+
+        let cfg = ToolConfig::load(Some(&cfg_path)).unwrap();
+        assert_eq!(cfg.country_code.as_deref(), Some("LV"));
     }
 
     /// Adding a second profile must never leave the config with no default. A config with

@@ -193,9 +193,10 @@ Format: `(GOE|GDI)-CC-ORG-YYYYMMDDHHMMSSmmm`
 
 Example: `GDI-EE-EXAMPLE-20260409143052837`.
 
-The tool generates the whole ID at `build`/`package` time. The millisecond timestamp
-makes same-org collisions between two builds negligible, and the `upload`/`deploy` guards
-catch the remainder.
+The tool generates the whole ID at `build`/`package` time. Builds that share a config
+directory never reuse a millisecond (the last one is kept in `.last-build-epoch`), so a
+script can start several at once. Elsewhere the clock alone decides, and `upload`/`deploy`
+refuse the rare collision. A pinned `--build-epoch` is used as given.
 
 **Country-code precedence** (lowest → highest):
 
@@ -1476,7 +1477,7 @@ gdi-dataset-tool pack <STAGING_DIR> [--recipient <PATH>] [-o <PATH>] [--force]
 |------|---------|---------|
 | `<STAGING_DIR>` (positional) | (required) | The `build/{datasetId}/` staging directory. |
 | `--recipient <PATH>` | fetched from profile URL, else `node_recipient_file` | Local crypt4gh recipient file for the node (overrides the profile's URL fetch). |
-| `-o`, `--output <PATH>` | `{datasetId}.tar.c4gh` in cwd | Output path. An existing directory means "into here", as `cp` reads it: the package lands at `<dir>/{datasetId}.tar.c4gh`. |
+| `-o`, `--output <PATH>` | `{datasetId}.tar.c4gh` in cwd | Output path. An existing directory means "into here", as `cp` reads it: the package lands at `<dir>/{datasetId}.tar.c4gh`. Any other file name gets a warning, because `upload` and `deploy` read the dataset ID from the name. |
 | `--force` | off | Overwrite an existing output file. |
 | `--format` | `text` | `text` (the human result line) or `json` (a single machine-readable result object). |
 
@@ -1519,7 +1520,7 @@ gdi-dataset-tool package <PATH> [--cc <CC>] [--build-out <DIR>] \
 | `--header-policy <POLICY>` | profile `header_policy`, else `minimal` | As `build --header-policy`. |
 | `-j`, `--jobs <N>` | `0` (one per logical CPU) | Conversion worker-pool size; lower it to cap peak memory and parallelism (a single VCF still uses the whole pool). |
 | `--recipient <PATH>` | fetched from profile URL, else `node_recipient_file` | Node recipient file (overrides the profile's URL fetch). |
-| `-o`, `--output <PATH>` | `{datasetId}.tar.c4gh` in cwd | Output path. An existing directory means "into here", as `cp` reads it: the package lands at `<dir>/{datasetId}.tar.c4gh`. |
+| `-o`, `--output <PATH>` | `{datasetId}.tar.c4gh` in cwd | Output path. An existing directory means "into here", as `cp` reads it: the package lands at `<dir>/{datasetId}.tar.c4gh`. Any other file name gets a warning, because `upload` and `deploy` read the dataset ID from the name. |
 | `--force` | off | Overwrite an existing staging dir **and** output file. |
 | `--keep` | off | Keep the staging directory after a successful pack. It is deleted by default, because it holds plaintext genotype-derived intermediates. |
 | `--refresh-catalogs` | off | Before building, fetch the node's live catalogs for this build only. It does not write to the profile; use `catalogs --sync` to persist them. |
@@ -1946,7 +1947,7 @@ effect. `status <id>` also works wherever a tool profile is configured.
 gdi-dataset-tool publish GDI-EE-EXAMPLE-20260409143052837
 # published GDI-EE-EXAMPLE-20260409143052837: wrote the visible sidecar on inbox /srv/gdi/inbox.
 # The node applies it on its next scan; its management-plane
-# /datasets/GDI-EE-EXAMPLE-20260409143052837/state reports when it has
+# /datasets/GDI-EE-EXAMPLE-20260409143052837/state shows visible once it has
 ```
 
 > `unpublish` on a node's only remaining dataset does not retract it from a GDI User
@@ -2391,10 +2392,15 @@ can select a different key set than the default.
 `download`, `list`, or an S3-channel lifecycle op) ran without a `[profiles.<name>.s3]`
 block in the config. Add one, or use the inbox channel.
 
-**`S3 bucket is not writable (your token may lack write permission)`** — `doctor`'s write
-probe, a PUT of a temporary `.doctor-probe-*` key, was denied. The token is read-only, or
-the bucket policy withholds `s3:PutObject`. `upload` and every lifecycle write need a
-read/write token.
+**`profile s3.endpoint http://... is plaintext http:// but allow_http is false`** — use
+the `https://` endpoint, or, for a local dev backend such as MinIO or Garage, set
+`allow_http = true` in the profile's `[profiles.<name>.s3]` block. `wizard setup` sets it
+for you.
+
+**`S3 bucket is not writable: ...`** — `doctor`'s write probe, a PUT of a temporary
+`.doctor-probe-*` key, failed, and the rest of the message says why. Prefixed with
+`not authorized:`, the token is read-only or the bucket policy withholds `s3:PutObject`;
+`upload` and every lifecycle write need a read/write token.
 
 **`not authorized: <step>: ...`** — an operation was denied, and the message names the
 failing step, such as `uploading <key>` or `listing bucket`. The command exits `4`, so
@@ -2407,6 +2413,12 @@ networked verb when it detects such a twin, so check stderr, or run
 `gdi-dataset-tool profiles`, which prints the same warning alongside what it loaded. Then
 run `gdi-dataset-tool doctor`.
 
+**`...; aborting the multipart upload of <key> failed too ...`** — an `upload` failed
+part-way and could not be cancelled, usually because the connection or the credentials were
+gone. The parts already sent stay in the bucket, billed but unlisted, even after a retry.
+Ask the bucket's operator to abort the upload (`aws s3api list-multipart-uploads`, then
+`abort-multipart-upload`) or to add a lifecycle rule that expires incomplete uploads.
+
 **`dataset <id> is already live on the node` / `dataset <id> is already present in the
 bucket`** — the id is already installed. `upload` and `deploy` refuse to re-present it
 without `--replace`. On S3, `--replace` does not overwrite the immutable package bytes,
@@ -2418,7 +2430,9 @@ can be published or unpublished. Ingest it first, and let it leave `processing`.
 
 **`dataset <id> reads as visible on the node's state oracle` (delete)** — `unpublish` it
 first, or pass `--force`. If you have just run `unpublish`, the oracle lags the sidecar by
-a few seconds; wait and retry.
+a few seconds; wait and retry. When the node's state oracle gives no answer, `delete` checks
+the bucket's `<id>.state.json` instead, and says `reads as visible in the bucket's state
+sidecar`.
 
 **`cannot determine the dataset's channel`** — a lifecycle op could not reach the node, and
 the profile has neither an S3 block nor an `inbox`. Pass `--s3` or `--local`.

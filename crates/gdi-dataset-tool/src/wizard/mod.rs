@@ -427,11 +427,7 @@ pub fn run(
                 summary_publish = Some(
                     "staging dir deployed to the node's inbox; the dataset lands hidden".to_owned(),
                 );
-                summary_next = Some(format!(
-                    "run `gdi-dataset-tool status {id}` to confirm ingest, then \
-                     `gdi-dataset-tool publish {id}` to make it visible",
-                    id = build.dataset_id
-                ));
+                summary_next = Some(next_after_send(&build.dataset_id, wait_for_ingest));
             } else {
                 summary_publish = Some("nothing sent to the node (your choice)".to_owned());
                 summary_next =
@@ -515,11 +511,7 @@ pub fn run(
                              the node polls (allow ~30 s before it even looks)"
                                 .to_owned(),
                         );
-                        summary_next = Some(format!(
-                            "run `gdi-dataset-tool status {id}` to confirm ingest, then \
-                             `gdi-dataset-tool publish {id}` to make it visible",
-                            id = build.dataset_id
-                        ));
+                        summary_next = Some(next_after_send(&build.dataset_id, wait_for_ingest));
                     }
                     Some(PublishRoute::DeployInbox) => {
                         let deploy_args = wizard_deploy_args(package, wait_for_ingest);
@@ -528,11 +520,7 @@ pub fn run(
                         summary_publish = Some(
                             "deployed to the node's inbox; the dataset lands hidden".to_owned(),
                         );
-                        summary_next = Some(format!(
-                            "run `gdi-dataset-tool status {id}` to confirm ingest, then \
-                             `gdi-dataset-tool publish {id}` to make it visible",
-                            id = build.dataset_id
-                        ));
+                        summary_next = Some(next_after_send(&build.dataset_id, wait_for_ingest));
                     }
                     None => {
                         summary_publish = Some("nothing sent to the node (your choice)".to_owned());
@@ -861,6 +849,23 @@ fn route_label(route: PublishRoute, active: Option<&Profile>) -> String {
                 .and_then(|profile| profile.inbox.as_deref())
                 .unwrap_or_default()
         ),
+    }
+}
+
+/// The summary's next step after sending a dataset. Without a `management_url`, `status` may
+/// never get the node's verdict, so the step says when it can and who else knows.
+fn next_after_send(id: &str, management_url: bool) -> String {
+    if management_url {
+        format!(
+            "run `gdi-dataset-tool status {id}` to confirm ingest, then \
+             `gdi-dataset-tool publish {id}` to make it visible"
+        )
+    } else {
+        format!(
+            "confirm the ingest with `gdi-dataset-tool status {id}` if the node reports \
+             status to you, else ask the node's operator; then `gdi-dataset-tool publish \
+             {id}` to make it visible"
+        )
     }
 }
 

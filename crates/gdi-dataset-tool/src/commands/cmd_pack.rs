@@ -43,6 +43,7 @@ pub fn run(
     let started = std::time::Instant::now();
     let dataset_id = dataset_id_from_staging(&args.staging)?;
     let output = resolve_output(args.out.as_deref(), &dataset_id);
+    warn_if_misnamed(&output, &dataset_id);
     crate::output::note(&format!(
         "packing {dataset_id}: {} -> {}",
         args.staging.display(),
@@ -106,6 +107,7 @@ pub fn run_package(
 
     // 2. Pack the freshly built staging dir.
     let output = resolve_output(args.out.as_deref(), &built.dataset_id);
+    warn_if_misnamed(&output, &built.dataset_id);
     crate::output::note(&format!(
         "packing {} -> {}",
         built.dataset_id,
@@ -218,7 +220,7 @@ fn manifest_dataset_id(staging: &Path) -> Result<String, ToolError> {
 /// except an existing directory receives the package inside it as
 /// `{datasetId}.tar.c4gh` — else `{datasetId}.tar.c4gh` in the current working directory.
 fn resolve_output(out_flag: Option<&Path>, dataset_id: &str) -> PathBuf {
-    let file_name = format!("{dataset_id}.tar.c4gh");
+    let file_name = format!("{dataset_id}{}", crate::pkgio::TAR_C4GH_SUFFIX);
     match out_flag {
         // An existing directory means "write the package into here" — the same noun
         // `build -o <dir>` takes, and what the flag's "defaults to the cwd" contract
@@ -231,6 +233,26 @@ fn resolve_output(out_flag: Option<&Path>, dataset_id: &str) -> PathBuf {
         Some(path) => path.to_path_buf(),
         None => PathBuf::from(file_name),
     }
+}
+
+/// Warn when `-o` names the package other than `{dataset_id}.tar.c4gh`.
+fn warn_if_misnamed(output: &Path, dataset_id: &str) {
+    if let Some(warning) = misnamed_package_warning(output, dataset_id) {
+        crate::output::warn(&warning);
+    }
+}
+
+/// The warning for a package named other than `{dataset_id}.tar.c4gh`: any name packs and
+/// unpacks, but `upload` and `deploy` read the dataset id from the name.
+fn misnamed_package_warning(output: &Path, dataset_id: &str) -> Option<String> {
+    let expected = format!("{dataset_id}{}", crate::pkgio::TAR_C4GH_SUFFIX);
+    (output.file_name() != Some(std::ffi::OsStr::new(&expected))).then(|| {
+        format!(
+            "warning: {} is not named {expected}; rename it before `upload` or `deploy`, \
+             which read the dataset id from the file name",
+            output.display()
+        )
+    })
 }
 
 /// Resolve the encryption recipients: the node recipient (mandatory) followed by
@@ -1028,6 +1050,25 @@ mod tests {
         assert_eq!(
             resolve_output(None, ID),
             PathBuf::from(format!("{ID}.tar.c4gh")),
+        );
+    }
+
+    /// A package named other than `{id}.tar.c4gh` is warned about at `pack`, not first
+    /// refused at `upload`.
+    #[test]
+    fn a_package_not_named_for_its_id_is_warned_about() {
+        let dir = tempfile::tempdir().unwrap();
+        let warning = misnamed_package_warning(&dir.path().join("wrong.tar.c4gh"), ID)
+            .expect("a misnamed package is warned about");
+        assert!(
+            warning.starts_with("warning:")
+                && warning.contains(&format!("is not named {ID}.tar.c4gh")),
+            "{warning}"
+        );
+        assert_eq!(
+            misnamed_package_warning(&resolve_output(Some(dir.path()), ID), ID),
+            None,
+            "the name `pack` chooses itself is the right one"
         );
     }
 

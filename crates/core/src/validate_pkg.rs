@@ -979,17 +979,26 @@ pub fn canonical_bcp47(tag: &str) -> Option<String> {
     Some(tag.to_ascii_lowercase())
 }
 
-/// Reject a value not in the allowed set.
+/// Reject a value not in the allowed set, naming what is allowed: the IRI a bare last
+/// segment such as `PUBLIC` stands for, or else the whole set (at most a handful).
 ///
 /// # Errors
 ///
 /// Returns [`CoreError::InvalidManifest`] if `value` is not in `allowed`.
 pub fn validate_enum(field: &str, value: &str, allowed: &[&str]) -> CoreResult<()> {
     if allowed.contains(&value) {
-        Ok(())
-    } else {
-        Err(invalid(&format!("{field} value {value:?} is not allowed")))
+        return Ok(());
     }
+    let hint = allowed
+        .iter()
+        .find(|iri| iri.rsplit(['/', '#']).next() == Some(value))
+        .map_or_else(
+            || format!("allowed: {}", allowed.join(", ")),
+            |iri| format!("write the full IRI {iri}"),
+        );
+    Err(invalid(&format!(
+        "{field} value {value:?} is not allowed; {hint}"
+    )))
 }
 
 /// Validate `type`: at least one IRI, each from the closed [`DATASET_TYPES`] set.
@@ -1092,10 +1101,26 @@ fn reject_disallowed_scheme(field: &str, value: &str, parsed: &url::Url) -> Core
     let scheme = parsed.scheme();
     if !ALLOWED_IRI_SCHEMES.contains(&scheme) {
         return Err(invalid(&format!(
-            "{field} value {value:?} uses a disallowed URI scheme {scheme:?} (allowed: {ALLOWED_IRI_SCHEMES:?})"
+            "{field} value {value:?} uses a disallowed URI scheme {scheme:?} (allowed: {ALLOWED_IRI_SCHEMES:?}){}",
+            full_address_hint(value)
         )));
     }
     Ok(())
+}
+
+/// The hint for a web address without its scheme, such as `node.example.org` (unparseable)
+/// or `localhost:8080` (parsed with the scheme `localhost`). A full URI with another scheme,
+/// such as `mailto:x@example.org`, gets none.
+fn full_address_hint(value: &str) -> &'static str {
+    let schemeless = match value.split_once(':') {
+        None => true,
+        Some((_, rest)) => rest.starts_with(|c: char| c.is_ascii_digit()),
+    };
+    if schemeless && !value.contains("://") {
+        "; write a web address in full, with its scheme (https://…)"
+    } else {
+        ""
+    }
 }
 
 /// Validate an IRI metadata field: parses as an absolute URL with a scheme and a
@@ -1116,8 +1141,12 @@ pub fn validate_iri(field: &str, value: &str) -> CoreResult<()> {
         )));
     }
     reject_iri_unsafe_chars(field, value)?;
-    let parsed = url::Url::parse(value)
-        .map_err(|_| invalid(&format!("{field} value {value:?} is not a valid IRI/URL")))?;
+    let parsed = url::Url::parse(value).map_err(|_| {
+        invalid(&format!(
+            "{field} value {value:?} is not a valid IRI/URL{}",
+            full_address_hint(value)
+        ))
+    })?;
     reject_disallowed_scheme(field, value, &parsed)?;
     // Require a scheme and either a host (http/https/...) or a non-empty
     // opaque path (urn:, ...). A relative or scheme-less string fails
@@ -1209,8 +1238,12 @@ pub fn validate_url(field: &str, value: &str) -> CoreResult<()> {
         )));
     }
     reject_iri_unsafe_chars(field, value)?;
-    let parsed = url::Url::parse(value)
-        .map_err(|_| invalid(&format!("{field} value {value:?} is not a valid URL")))?;
+    let parsed = url::Url::parse(value).map_err(|_| {
+        invalid(&format!(
+            "{field} value {value:?} is not a valid URL{}",
+            full_address_hint(value)
+        ))
+    })?;
     // Same scheme allow-list as `validate_iri`: a `hasURL`/reference value is emitted as
     // an IRI into the public RDF too.
     reject_disallowed_scheme(field, value, &parsed)
@@ -1955,6 +1988,31 @@ mod tests {
         );
     }
 
+    /// A web address written without its scheme is told so, whether it fails to parse or
+    /// parses with its host as the scheme; a full URI with a disallowed scheme is not.
+    #[test]
+    fn a_schemeless_address_is_told_to_start_with_https() {
+        for (field, value) in [
+            ("service_url", "localhost:8080"),
+            ("service_url", "node.example.org"),
+            ("hasURL", "www.example.org/data"),
+        ] {
+            let iri = validate_iri(field, value).unwrap_err().to_string();
+            let url = validate_url(field, value).unwrap_err().to_string();
+            for err in [iri, url] {
+                assert!(err.contains("with its scheme"), "{value:?}: {err}");
+            }
+        }
+        for value in [
+            "file:///etc/passwd",
+            "javascript:alert(1)",
+            "mailto:x@example.org",
+        ] {
+            let err = validate_iri("license", value).unwrap_err().to_string();
+            assert!(!err.contains("with its scheme"), "{value:?}: {err}");
+        }
+    }
+
     #[test]
     fn disallowed_iri_scheme_rejected() {
         // Schemes that `url::Url::parse` accepts but that must never reach the public FDP
@@ -2405,7 +2463,20 @@ mod tests {
             )
             .is_ok()
         );
-        assert!(super::validate_enum("accessRights", "PUBLIC", super::ACCESS_RIGHTS).is_err());
+        let bare = super::validate_enum("accessRights", "PUBLIC", super::ACCESS_RIGHTS)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            bare.contains(&format!("write the full IRI {}", super::ACCESS_RIGHTS[0])),
+            "a bare last segment names its IRI: {bare}"
+        );
+        let unknown = super::validate_enum("accessRights", "OPEN", super::ACCESS_RIGHTS)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            super::ACCESS_RIGHTS.iter().all(|iri| unknown.contains(iri)),
+            "an unknown value lists the allowed set: {unknown}"
+        );
         assert!(
             super::validate_health_category(
                 "http://data.gdi.eu/core/p2/HealthCategoryHumanGenomic"
