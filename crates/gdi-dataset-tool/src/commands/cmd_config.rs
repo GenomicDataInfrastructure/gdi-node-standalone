@@ -55,8 +55,8 @@ service_url = "REPLACE: https://node.example"
 [profiles.default.s3]
 # Non-secret S3 settings only (for credentials, see the top).
 # bucket = "REPLACE: my-bucket"
-# Key prefix inside the bucket; must match the node's [[s3.buckets]].prefix for this
-# channel, or the tool writes where the node does not look.
+# Key prefix inside the bucket; must match the node's key prefix for this channel (ask
+# the node's operator), or the tool writes where the node does not look.
 # prefix = "gdi-node-storage/"
 # The node channel that monitors this bucket (catches wrong-bucket publishes).
 # channel = "REPLACE: primary"

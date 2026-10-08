@@ -170,7 +170,8 @@ fn publish_result(
     // path this message is most often printed from would be a worse pointer than none.
     let text = format!(
         "{verb} {id}: wrote the {target_state} sidecar on {target}. The node applies it on \
-         its next scan; its management-plane /datasets/{id}/state reports when it has"
+         its next scan; its management-plane /datasets/{id}/state shows {target_state} once \
+         it has"
     );
     let payload = serde_json::json!({
         "schemaVersion": 1,

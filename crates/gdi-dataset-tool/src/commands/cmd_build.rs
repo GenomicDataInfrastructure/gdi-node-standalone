@@ -40,7 +40,7 @@ use gdi_node_standalone_core::{
     validate_parquet::{
         ParquetCaps, ParquetScan, check_data_file_block_range, validate_parquet_dir,
     },
-    validate_pkg::validate_package,
+    validate_pkg::{validate_package, validate_package_collect_all},
 };
 
 use crate::{ToolError, cli::BuildArgs};
@@ -104,7 +104,9 @@ fn diagnostic_count(diagnostics: &[(String, Diagnostic)], severity: Severity) ->
         .count()
 }
 
-/// The build timestamp: `--build-epoch` when pinned, otherwise the wall clock.
+/// The build timestamp: `--build-epoch` when pinned, otherwise the wall clock, moved past
+/// any millisecond another build sharing the config directory has already used (see
+/// [`unique_build_epoch`]).
 ///
 /// This is the build's only wall-clock read, so pinning it makes the generated
 /// `datasetId` — and therefore `manifest.json` — a pure function of the inputs.
@@ -112,7 +114,7 @@ fn diagnostic_count(diagnostics: &[(String, Diagnostic)], severity: Severity) ->
 /// # Errors
 ///
 /// Returns a [`ToolError`] when the system clock is before the Unix epoch.
-fn resolve_build_epoch(args: &BuildArgs) -> Result<u64, ToolError> {
+fn resolve_build_epoch(args: &BuildArgs, config_path: Option<&Path>) -> Result<u64, ToolError> {
     match args.build_epoch {
         Some(pinned) => {
             let resolved = validate_pinned_epoch(pinned, now_unix_millis()?)?;
@@ -134,8 +136,66 @@ fn resolve_build_epoch(args: &BuildArgs) -> Result<u64, ToolError> {
             );
             Ok(resolved)
         }
-        None => now_unix_millis(),
+        // A dry run writes nothing durable, so it takes the clock as it is.
+        None if args.dry_run => now_unix_millis(),
+        None => Ok(unique_build_epoch(config_path, now_unix_millis()?)),
     }
+}
+
+/// The file in the config directory that holds the last build epoch minted there.
+const LAST_BUILD_EPOCH_FILE: &str = ".last-build-epoch";
+
+/// `now`, or one past the last millisecond a build sharing this config directory used,
+/// whichever is later.
+///
+/// A dataset id varies only by its millisecond, so builds started together would mint the
+/// same id. They take turns under a lock on [`LAST_BUILD_EPOCH_FILE`]; without a config
+/// directory, or when the lock fails, the clock stands alone.
+fn unique_build_epoch(config_path: Option<&Path>, now: u64) -> u64 {
+    let Some(dir) =
+        gdi_node_standalone_core::config::config_base_dir(config_path).filter(|d| d.is_dir())
+    else {
+        return now;
+    };
+    reserve_build_epoch(&dir, now).unwrap_or_else(|e| {
+        crate::output::warn(&format!(
+            "warning: could not reserve a build epoch in {}: {e}; using the clock alone",
+            dir.display()
+        ));
+        now
+    })
+}
+
+/// How far ahead of the clock a stored build epoch may be and still come from a concurrent
+/// build. Further ahead, it is a clock that was wrong, and following it would date every
+/// later build in the future.
+const CONCURRENT_BUILD_WINDOW_MS: u64 = 60_000;
+
+/// Take the lock on `dir`'s [`LAST_BUILD_EPOCH_FILE`], and record and return the first
+/// millisecond at or after `now` that is later than the one it holds.
+fn reserve_build_epoch(dir: &Path, now: u64) -> std::io::Result<u64> {
+    use std::io::{Seek as _, SeekFrom};
+
+    let mut file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(dir.join(LAST_BUILD_EPOCH_FILE))?;
+    // Held until `file` drops at the end of this function.
+    file.lock()?;
+    let mut last = String::new();
+    file.read_to_string(&mut last)?;
+    let epoch = last
+        .trim()
+        .parse::<u64>()
+        .ok()
+        .filter(|&last| last < now.saturating_add(CONCURRENT_BUILD_WINDOW_MS))
+        .map_or(now, |last| now.max(last.saturating_add(1)));
+    file.set_len(0)?;
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(epoch.to_string().as_bytes())?;
+    Ok(epoch)
 }
 
 /// Clock-skew tolerance for a pinned `--build-epoch`: 24h, absorbing timezone mistakes and
@@ -270,11 +330,35 @@ fn check_converted_output(
 /// The three-tier obligation's advisories are all "you should fix this", so they count.
 /// The report's `notes` describe a valid, deliberate configuration (a declared but inert
 /// `hideLowerCounts`) and never do.
+///
+/// The gate stops at its first error, so a failing package is also checked with
+/// [`validate_package_collect_all`], and its other errors are printed first, so they can all
+/// be fixed in one go.
 fn report_metadata_diagnostics(
     package: &PackageYaml,
     catalogs: Option<&BTreeMap<String, String>>,
 ) -> Result<usize, ToolError> {
-    let report = validate_package(package, catalogs).map_err(|e| ToolError::from(&e))?;
+    let report = validate_package(package, catalogs).map_err(|first| {
+        let first_message = first.to_string();
+        let others: Vec<String> = validate_package_collect_all(package, catalogs)
+            .errors
+            .iter()
+            .map(ToString::to_string)
+            .filter(|message| *message != first_message)
+            .collect();
+        for other in &others {
+            crate::output::always(&format!("error: {other}"));
+        }
+        let mut err = ToolError::from(&first);
+        if !others.is_empty() {
+            err.message = format!(
+                "{} (and {} more metadata error(s) above)",
+                err.message,
+                others.len()
+            );
+        }
+        err
+    })?;
     for warning in &report.warnings {
         crate::output::always(&format!("warning: {warning}"));
     }
@@ -461,7 +545,7 @@ pub fn build_staging_dir(
         .org
         .as_deref()
         .ok_or_else(|| ToolError::user("package metadata.org is required"))?;
-    let epoch_millis = resolve_build_epoch(args)?;
+    let epoch_millis = resolve_build_epoch(args, config_path)?;
     let dataset_id = generate_dataset_id(prefix, &country_code, org, epoch_millis)
         .map_err(|e| ToolError::from(&e))?;
 
@@ -1803,6 +1887,30 @@ config:
         load_package(&yaml, false).expect("a plain load warns but still builds");
     }
 
+    /// A package with errors in several sections reports every section's error from one
+    /// run, not one per run; the gate's own error still decides the failure.
+    #[test]
+    fn a_build_reports_the_metadata_errors_of_every_section() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let yaml = dir.path().join("package.yaml");
+        let text = test_util::sample_package_yaml()
+            .replace(
+                "\"http://publications.europa.eu/resource/authority/access-right/PUBLIC\"",
+                "PUBLIC",
+            )
+            .replace("hasEmail: \"mailto:", "hasEmail: \"REPLACE: ");
+        std::fs::write(&yaml, text).expect("write yaml");
+        let package = load_package(&yaml, false).expect("loads");
+
+        let err = report_metadata_diagnostics(&package, None).expect_err("several errors");
+        assert!(
+            err.message.contains("REPLACE:")
+                && err.message.contains("more metadata error(s) above"),
+            "{}",
+            err.message
+        );
+    }
+
     /// The property an allow-list has and a deny-list cannot: a `##` key nobody has
     /// invented yet does not survive.
     ///
@@ -2413,5 +2521,55 @@ config:
             "control bytes must not reach the terminal: {text:?}"
         );
         assert!(text.contains("FATAL: node key compromised") && text.contains("typo"));
+    }
+
+    /// Builds a script starts together, sharing one config directory, each get their own
+    /// millisecond, so none mints another's dataset id.
+    #[test]
+    fn parallel_builds_sharing_a_config_dir_get_distinct_epochs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().to_path_buf();
+        let threads: Vec<_> = (0..8)
+            .map(|_| {
+                let path = path.clone();
+                std::thread::spawn(move || reserve_build_epoch(&path, 1_000).expect("reserve"))
+            })
+            .collect();
+        let mut epochs: Vec<u64> = threads
+            .into_iter()
+            .map(|t| t.join().expect("join"))
+            .collect();
+        epochs.sort_unstable();
+        assert_eq!(epochs, (1_000..1_008).collect::<Vec<_>>());
+    }
+
+    /// A later clock is used as it is; an earlier one moves past the last epoch minted.
+    #[test]
+    fn a_reserved_epoch_follows_the_clock_and_never_repeats() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        assert_eq!(
+            reserve_build_epoch(dir.path(), 1_000).expect("reserve"),
+            1_000
+        );
+        assert_eq!(
+            reserve_build_epoch(dir.path(), 5_000).expect("reserve"),
+            5_000
+        );
+        assert_eq!(
+            reserve_build_epoch(dir.path(), 4_000).expect("reserve"),
+            5_001
+        );
+        // A stored value from a clock that was far ahead is not followed.
+        let skewed = tempfile::tempdir().expect("tempdir");
+        let ahead = 1_000_000;
+        assert_eq!(
+            reserve_build_epoch(skewed.path(), ahead).expect("reserve"),
+            ahead
+        );
+        let now = ahead - CONCURRENT_BUILD_WINDOW_MS - 1;
+        assert_eq!(
+            reserve_build_epoch(skewed.path(), now).expect("reserve"),
+            now
+        );
     }
 }

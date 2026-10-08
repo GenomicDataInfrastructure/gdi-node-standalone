@@ -415,6 +415,11 @@ async fn explain_unserved(id: &str, oracle: Option<StateOracle<'_>>) -> String {
         Ok(NodeProbe::Unknown) => {
             ": the node has never seen this id. Install it first (`upload` or `deploy`).".to_owned()
         }
+        Ok(NodeProbe::Failed(status)) => format!(
+            ": it must be visible and ingested (the management plane at {} answered {status}, \
+             so the node's own state could not be read).",
+            oracle.base
+        ),
         Ok(NodeProbe::Unreachable) => format!(
             ": it must be visible and ingested (the management plane at {} did not answer, \
              so the node's own state could not be read).",

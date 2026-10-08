@@ -187,21 +187,27 @@ fn ensure_s3_package_exists(
 
 /// Turn a [`DeleteRefusal`] into the user-facing error, or `Ok(())` to proceed.
 ///
-/// The two arms carry different remedies on purpose: a confirmed-visible dataset wants
+/// The arms carry different remedies on purpose: a confirmed-visible dataset wants
 /// `unpublish`, while an unconfirmable one wants an oracle (`--management-url`) — telling an
 /// operator to `unpublish` a dataset whose state nobody can read is advice they cannot act
-/// on.
+/// on. A visible refusal names where it read the state, since only the oracle lags an
+/// `unpublish`.
 ///
 /// # Errors
 ///
 /// Returns a [`ToolError`] whenever `refusal` is `Some`.
 fn refusal_error(id: &str, refusal: Option<&DeleteRefusal>) -> Result<(), ToolError> {
     match refusal {
-        Some(DeleteRefusal::Visible) => Err(ToolError::user(format!(
+        Some(DeleteRefusal::Visible(VisibilitySource::Oracle)) => Err(ToolError::user(format!(
             "dataset {id} reads as visible on the node's state oracle. If you just ran \
              `unpublish`, the node has not reconciled it yet (the oracle lags the sidecar \
              by a few seconds); wait briefly and retry, or pass --force. Otherwise \
              `unpublish` it first."
+        ))),
+        Some(DeleteRefusal::Visible(VisibilitySource::Sidecar)) => Err(ToolError::user(format!(
+            "dataset {id} reads as visible in the bucket's state sidecar ({id}.state.json), \
+             read because the node's state oracle gave no answer. `unpublish` it first, or \
+             pass --force."
         ))),
         Some(DeleteRefusal::Unconfirmable) => Err(ToolError::user(format!(
             "cannot confirm whether dataset {id} is currently visible: no management-plane \
@@ -217,10 +223,19 @@ fn refusal_error(id: &str, refusal: Option<&DeleteRefusal>) -> Result<(), ToolEr
 /// Why a delete was refused, or `None` to proceed.
 #[derive(Debug, PartialEq, Eq)]
 enum DeleteRefusal {
-    /// The dataset is confirmed visible and `--force` was not given.
-    Visible,
+    /// The dataset is confirmed visible, by the named source, and `--force` was not given.
+    Visible(VisibilitySource),
     /// Visibility could not be determined at all — no oracle, no sidecar.
     Unconfirmable,
+}
+
+/// Where a delete read the dataset's visibility.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+enum VisibilitySource {
+    /// The node's management-plane state oracle.
+    Oracle,
+    /// The bucket's `{id}.state.json` sidecar, read when the node is unreachable.
+    Sidecar,
 }
 
 /// Whether a delete must be refused, and why.
@@ -246,10 +261,11 @@ fn delete_refusal(
     if force {
         return None;
     }
-    match node_visible.or(sidecar_visible) {
-        Some(true) => Some(DeleteRefusal::Visible),
-        Some(false) => None,
-        None => Some(DeleteRefusal::Unconfirmable),
+    match (node_visible, sidecar_visible) {
+        (Some(true), _) => Some(DeleteRefusal::Visible(VisibilitySource::Oracle)),
+        (None, Some(true)) => Some(DeleteRefusal::Visible(VisibilitySource::Sidecar)),
+        (Some(false), _) | (None, Some(false)) => None,
+        (None, None) => Some(DeleteRefusal::Unconfirmable),
     }
 }
 
@@ -287,13 +303,13 @@ mod tests {
         // Authoritative node says visible -> refused.
         assert_eq!(
             delete_refusal(Some(true), None, false),
-            Some(DeleteRefusal::Visible)
+            Some(DeleteRefusal::Visible(VisibilitySource::Oracle))
         );
         assert_eq!(delete_refusal(Some(false), None, false), None);
         // Node unreachable: fall back to the S3 bucket sidecar.
         assert_eq!(
             delete_refusal(None, Some(true), false),
-            Some(DeleteRefusal::Visible)
+            Some(DeleteRefusal::Visible(VisibilitySource::Sidecar))
         );
         assert_eq!(delete_refusal(None, Some(false), false), None);
     }

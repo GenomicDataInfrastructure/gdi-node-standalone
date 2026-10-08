@@ -147,6 +147,28 @@ fn s3_visibility(
     }
 }
 
+/// The node's authoritative state for `id`, and whether its management plane said it does
+/// not know the id. Only an explicit management URL can say so: without one the base falls
+/// back to the public plane, which answers 404 for every id.
+fn probe_node_state(
+    active: &Profile,
+    id: &str,
+    probe_node: bool,
+    override_base: Option<&str>,
+) -> Result<(Option<state::NodeState>, bool), ToolError> {
+    if !probe_node {
+        return Ok((None, false));
+    }
+    let probe = state::resolve_node_probe(active, id, override_base)?;
+    let not_seen = matches!(probe, Some(state::NodeProbe::Unknown))
+        && (override_base.is_some() || active.management_url.is_some());
+    let node_state = match probe {
+        Some(state::NodeProbe::Live(state)) => Some(*state),
+        _ => None,
+    };
+    Ok((node_state, not_seen))
+}
+
 /// Report on a single dataset id. In `text` mode prints the report (returning
 /// `None`); in `json` mode builds and returns the [`StatusSummary`] for the caller
 /// to emit (so `--all` can aggregate them into one JSON array).
@@ -163,11 +185,7 @@ fn report_one(
     //    management_url (else service_url). `probe_node` is the up-front reachability
     //    verdict: `--all` sets it false when the state base is down, so this skips a
     //    per-dataset 5s timeout that would only resolve to `None` anyway (the S3 path).
-    let node_state = if probe_node {
-        state::resolve_node_state(active, id, override_base)?
-    } else {
-        None
-    };
+    let (node_state, not_seen) = probe_node_state(active, id, probe_node, override_base)?;
     // The provenance of the `state` value reported below: the authoritative node oracle,
     // or the S3-derived (non-authoritative) fallback.
     let state_source = if node_state.is_some() {
@@ -216,7 +234,15 @@ fn report_one(
     let sync = status::channel_sync(channel, package_present, drifted);
 
     if format == OutputFormat::Text {
-        print_report(id, &node_status, channel, sync, store, etag.as_deref())?;
+        print_report(
+            id,
+            &node_status,
+            not_seen,
+            channel,
+            sync,
+            store,
+            etag.as_deref(),
+        )?;
         if diff {
             print_diff(
                 id,
@@ -272,6 +298,7 @@ fn report_one(
 fn print_report(
     id: &str,
     node_status: &NodeStatus,
+    not_seen: bool,
     channel: Channel,
     sync: Sync,
     store: Option<&Store>,
@@ -282,11 +309,23 @@ fn print_report(
         .map_or_else(String::new, |v| format!("\tvisibility: {}", v.as_str()));
     println!(
         "{id}\tstate: {}\tchannel: {}\tsync: {}{vis_label}",
-        node_status.display_label(),
+        state_label(node_status, not_seen),
         channel_label(channel),
         sync.label()
     );
     Ok(())
+}
+
+/// The text report's `state:` value. `not_seen` means the management plane answered that it
+/// does not know the id, which the generic `unavailable` would blame on an unreachable plane.
+fn state_label(node_status: &NodeStatus, not_seen: bool) -> String {
+    if not_seen && matches!(node_status, NodeStatus::Unavailable) {
+        "unknown to the node (not picked up yet, or it watches another location than this \
+         profile writes to)"
+            .to_owned()
+    } else {
+        node_status.display_label()
+    }
 }
 
 /// Whether the dataset is drifted: the node's served state disagrees with the S3
@@ -838,5 +877,23 @@ mod tests {
         assert!(!is_drifted(&visible, Some(&wb("etag-1")), Some("etag-1")));
         // No writeback / no etag (non-pending) is not drift.
         assert!(!is_drifted(&visible, None, Some("etag-1")));
+    }
+
+    /// A management plane that answered "unknown id" is reported as such, not as the
+    /// generic `unavailable` that blames an unreachable plane; any real state still wins.
+    #[test]
+    fn a_dataset_the_management_plane_does_not_know_is_reported_as_unknown() {
+        let unknown = state_label(&NodeStatus::Unavailable, true);
+        assert!(unknown.starts_with("unknown to the node"), "{unknown}");
+        assert_eq!(
+            state_label(&NodeStatus::Unavailable, false),
+            NodeStatus::Unavailable.display_label(),
+            "without that answer the generic label stands"
+        );
+        let visible = NodeStatus::State {
+            state: "visible".to_owned(),
+            error_message: None,
+        };
+        assert_eq!(state_label(&visible, true), "visible");
     }
 }

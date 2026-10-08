@@ -97,12 +97,10 @@ pub trait Prompter {
 /// current-thread runtime in a background thread: the CLI core is synchronous and blocked
 /// reading a key, so there is no ambient runtime to spawn onto.
 ///
-/// Registering the handler also stops SIGINT killing the process outright, which turns
-/// Ctrl-C into the ordinary abort the wizard already reports: the blocked read returns
-/// `EINTR`, `dialoguer` surfaces it, and the run ends via [`abort`] with "wizard aborted:
-/// …" and exit 1, its own cleanup restoring the cursor. This thread gives that path a
-/// moment to happen and only forces the exit if it does not, so the exit code cannot race
-/// between 1 and 130 for the same keystroke. Showing the cursor first is idempotent.
+/// Registering the handler also stops SIGINT killing the process. At a text, yes/no or
+/// menu prompt the read then fails, and the run ends via [`abort`] ("wizard cancelled
+/// (Ctrl-C)", exit 1). A hidden-input read is restarted instead, so this thread forces exit
+/// 130 after a short grace. Showing the cursor first is idempotent.
 ///
 /// Cursor visibility is a DEC private mode, not a termios flag, which is why the shell's
 /// own `tcsetattr` on regaining the foreground restores echo but not this.
@@ -161,8 +159,16 @@ pub fn require_tty() -> Result<(), ToolError> {
     }
 }
 
-/// Map a dialoguer error (incl. Ctrl-C/Esc) to a clean tool error.
+/// Map a dialoguer error (incl. Ctrl-C) to a clean tool error.
+///
+/// Ctrl-C interrupts a read with the cursor still on the prompt's line, so this ends that
+/// line first, and says what happened rather than quoting the interrupted read.
 fn abort(e: &dialoguer::Error) -> ToolError {
+    let dialoguer::Error::IO(io) = e;
+    if io.kind() == std::io::ErrorKind::Interrupted {
+        let _ = console::Term::stderr().write_line("");
+        return ToolError::user("wizard cancelled (Ctrl-C)");
+    }
     ToolError::user(format!("wizard aborted: {e}"))
 }
 
@@ -787,6 +793,20 @@ impl Prompter for ScriptedPrompter {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "unwrap is permitted in test code")]
     use super::*;
+
+    /// Ctrl-C reads as a cancel, not as the interrupted read it surfaces as; any other
+    /// prompt failure keeps its cause.
+    #[test]
+    fn ctrl_c_is_a_cancel_and_other_failures_keep_their_cause() {
+        let interrupted =
+            dialoguer::Error::IO(std::io::Error::from(std::io::ErrorKind::Interrupted));
+        assert_eq!(abort(&interrupted).message, "wizard cancelled (Ctrl-C)");
+        let broken = dialoguer::Error::IO(std::io::Error::other("terminal gone"));
+        assert_eq!(
+            abort(&broken).message,
+            "wizard aborted: IO error: terminal gone"
+        );
+    }
 
     #[test]
     fn scripted_prompter_returns_answers_in_order() {

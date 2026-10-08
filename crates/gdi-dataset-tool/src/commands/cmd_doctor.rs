@@ -459,9 +459,8 @@ fn check_beacon_url(active: &Profile, responds: bool) -> Check {
         Check::pass(
             "beacon-url",
             format!(
-                "custom [beacon].aggregated_base_path; the default-shaped {url} does not \
-                 answer here. Do not register it; take the exact URL from the node's \
-                 `gdi-node-standalone check-config` output"
+                "{url} does not answer here: if the node is up, its Beacon is at another \
+                 path. Do not register this one; ask the node's operator for the exact URL"
             ),
         )
     }
@@ -537,8 +536,8 @@ fn check_s3_writable(active: &Profile) -> Check {
         Ok(()) => Check::pass(
             "s3-writable",
             format!(
-                "{} accepts a probe PUT/DELETE (this must match the node's [[s3.buckets]].prefix \
-                 for this channel)",
+                "{} accepts a probe PUT/DELETE (this must match the node's key prefix for \
+                 this channel)",
                 s3::target_label(cfg)
             ),
         ),

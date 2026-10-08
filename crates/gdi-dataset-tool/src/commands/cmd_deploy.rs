@@ -323,12 +323,17 @@ pub(crate) fn wait_for_ingest(
     // Set on the poll that saw a pre-existing error and declined to blame this drop for it,
     // so the timeout can say which of the two ambiguous things happened instead of guessing.
     let mut stale_error = false;
+    // Whether every poll so far said the node does not know this id: then the timeout says
+    // the node never saw the package, not "still processing".
+    let mut unknown_every_poll = true;
     crate::output::note(&format!("waiting for the node to ingest {id}..."));
     loop {
         // One detailed probe per poll. The plain `probe_node_state` folds `410 Gone` into
         // the same `None` as "unreachable" and "not seen yet", which would keep `--wait`
         // polling an id the node has permanently refused and then blame a slow ingest.
-        match runtime::block_on(crate::state::probe_node_state_detailed(base, id))? {
+        let probe = runtime::block_on(crate::state::probe_node_state_detailed(base, id))?;
+        unknown_every_poll &= matches!(probe, crate::state::NodeProbe::Unknown);
+        match probe {
             // Tombstoned: terminal, and the node says why.
             crate::state::NodeProbe::Gone(reason) => {
                 return Err(ToolError::user(format!(
@@ -422,6 +427,15 @@ pub(crate) fn wait_for_ingest(
                      yet or the new package failed the same way. Check with `status {id}`, \
                      or raise --wait-timeout.",
                     timeout.as_secs(),
+                )));
+            }
+            if unknown_every_poll {
+                return Err(ToolError::user(format!(
+                    "timed out after {}s: the node still does not know {id}. Either it has \
+                     not picked it up yet (raise --wait-timeout), or it watches another inbox, \
+                     bucket, key prefix or channel than this was written to; check with the \
+                     node's operator.",
+                    timeout.as_secs()
                 )));
             }
             return Err(ToolError::user(format!(
@@ -906,6 +920,54 @@ mod tests {
             err.message.contains("management_addr"),
             "must point at the knob that fixes it: {}",
             err.message
+        );
+    }
+
+    /// A wait the node answers "unknown id" to throughout says the node has not seen the
+    /// package and names the likely mismatch, rather than "it may still be processing".
+    #[test]
+    fn a_wait_the_node_never_answers_for_names_the_mismatch() {
+        use std::io::{Read as _, Write as _};
+
+        // The management plane: `/version` answers, and the state oracle answers `status`.
+        let wait_against = |status: &'static str| {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind stub");
+            let addr = listener.local_addr().expect("stub addr");
+            std::thread::spawn(move || {
+                for stream in listener.incoming() {
+                    let Ok(mut s) = stream else { continue };
+                    let mut buf = [0u8; 1024];
+                    let n = s.read(&mut buf).unwrap_or(0);
+                    let request = String::from_utf8_lossy(&buf[..n]);
+                    let reply = if request.starts_with("GET /version") {
+                        "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}".to_owned()
+                    } else {
+                        format!("HTTP/1.1 {status}\r\ncontent-length: 0\r\n\r\n")
+                    };
+                    let _ = s.write_all(reply.as_bytes());
+                }
+            });
+            wait_for_ingest(
+                &format!("http://{addr}"),
+                "GDI-EE-UTARTU-20260409143052837",
+                std::time::Duration::from_secs(1),
+                None,
+                None,
+                None,
+            )
+            .expect_err("an id the node never reports cannot finish ingesting")
+            .message
+        };
+
+        let unknown = wait_against("404 Not Found");
+        assert!(
+            unknown.contains("does not know") && unknown.contains("key prefix"),
+            "must say the node has not seen it, and why it might not: {unknown}"
+        );
+        let failing = wait_against("503 Service Unavailable");
+        assert!(
+            !failing.contains("does not know"),
+            "a failing oracle says nothing about the id: {failing}"
         );
     }
 

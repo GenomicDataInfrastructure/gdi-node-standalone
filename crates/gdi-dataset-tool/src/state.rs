@@ -156,6 +156,9 @@ pub(crate) enum NodeProbe {
     /// never seen this id" tells the operator to re-install a dataset that is present.
     /// Callers that only need a verdict fold it into the same fallback as `Unknown`.
     Unreachable,
+    /// The oracle answered with another error status, such as `401` or `503`: it is up, but
+    /// says nothing about the id.
+    Failed(u16),
     /// No authoritative view of this id: a `404`, or an unusable body on a `2xx`. Callers
     /// fall back to S3-ownership routing.
     Unknown,
@@ -196,6 +199,10 @@ pub(crate) async fn probe_node_state_detailed(
         } else {
             reason.to_owned()
         }));
+    }
+    let status = resp.status();
+    if !status.is_success() && status != reqwest::StatusCode::NOT_FOUND {
+        return Ok(NodeProbe::Failed(status.as_u16()));
     }
     Ok(match probe_parse(resp, &url).await {
         Some(state) => NodeProbe::Live(Box::new(state)),
@@ -286,6 +293,24 @@ pub(crate) fn resolve_node_state(
 ) -> Result<Option<NodeState>, ToolError> {
     match override_base.or_else(|| active.node_state_base()) {
         Some(base) => runtime::block_on(probe_node_state(base, id)),
+        None => Ok(None),
+    }
+}
+
+/// Like [`resolve_node_state`], without folding the answer: `None` when no oracle base is
+/// configured, otherwise what the probe saw.
+///
+/// # Errors
+///
+/// Returns a [`ToolError`] if the probe runtime cannot be started, or for the reasons
+/// [`probe_node_state_detailed`] gives.
+pub(crate) fn resolve_node_probe(
+    active: &Profile,
+    id: &str,
+    override_base: Option<&str>,
+) -> Result<Option<NodeProbe>, ToolError> {
+    match override_base.or_else(|| active.node_state_base()) {
+        Some(base) => runtime::block_on(probe_node_state_detailed(base, id)).map(Some),
         None => Ok(None),
     }
 }

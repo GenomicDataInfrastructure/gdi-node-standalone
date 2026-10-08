@@ -90,7 +90,7 @@ fn warn_if_datasets_sit_outside_the_prefix(active: &gdi_node_standalone_core::co
         "warning: no datasets {here}, but {total} elsewhere in the bucket ({where_}). \
          A prefix set on one side only, or set differently on each, is a desync in which \
          every signal is a success: uploads land where the node never lists. Check it against \
-         the node's [[s3.buckets]].prefix for this channel"
+         the node's key prefix for this channel with the node's operator"
     ));
 }
 

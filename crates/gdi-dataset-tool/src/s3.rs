@@ -187,6 +187,21 @@ fn conn_params(
         .filter(|b| !b.is_empty())
         .ok_or_else(|| ToolError::user("profile s3.bucket is required for S3 operations"))?;
 
+    // `object_store` refuses a plaintext endpoint without `allow_http`, but its error
+    // (`... builder error`) names neither the scheme nor the setting.
+    if !s3.allow_http
+        && endpoint
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("http://")
+    {
+        return Err(ToolError::user(format!(
+            "profile s3.endpoint {endpoint} is plaintext http:// but allow_http is false. \
+             Use an https:// endpoint, or set allow_http = true in this profile's s3 block \
+             (for a local dev backend such as MinIO or Garage)"
+        )));
+    }
+
     // The prefix must survive `object_store::path::Path` normalization unchanged, as it
     // must on the node; the rule is imported rather than restated. The node rejects a bad
     // prefix at boot. Without this the tool would accept every spelling the node refuses,
@@ -195,10 +210,9 @@ fn conn_params(
     // only one of them normalizes is an upload the node never lists.
     gdi_node_standalone_core::config::validate_key_prefix(&s3.prefix).map_err(|why| {
         ToolError::user(format!(
-            "profile s3.prefix {:?} is invalid: {why}. It must match the node's \
-             [[s3.buckets]].prefix for this channel exactly; the node refuses to boot on \
-             this spelling, and a prefix set on only one side means uploads the node never \
-             lists",
+            "profile s3.prefix {:?} is invalid: {why}. It must match the node's key prefix \
+             for this channel exactly (ask the node's operator); the node rejects this \
+             spelling, and a prefix set on only one side means uploads the node never lists",
             s3.prefix
         ))
     })?;
@@ -404,9 +418,10 @@ const MAX_INFLIGHT_PARTS: usize = 16;
 /// bounded chunks so an arbitrarily large `.tar.c4gh` is never buffered whole in
 /// memory and is not subject to the single-PUT 5 GiB ceiling.
 ///
-/// Every failure path aborts the upload, best effort, before returning: a read error, a
-/// failed part, and a failed `complete`. That is why this drives the `MultipartUpload`
-/// handle itself instead of handing it to `object_store::WriteMultipart`. That writer
+/// Every failure path aborts the upload before returning: a read error, a failed part, and
+/// a failed `complete`; an abort that fails too is added to the error. That is why this
+/// drives the `MultipartUpload` handle itself instead of handing it to
+/// `object_store::WriteMultipart`. That writer
 /// aborts only when `complete()` fails inside `finish()`, has no `Drop` impl, keeps the
 /// upload handle private, and `finish()` consumes it, so a part failing while the writer is
 /// still being fed returns `Err` with the handle gone and nothing left that could abort.
@@ -441,12 +456,24 @@ async fn stream_file_multipart(
             progress.finish();
             Ok(())
         }
-        Err(e) => {
+        Err(mut e) => {
             // Cancel what is still in flight before aborting: a part that lands after the
             // abort would re-create the upload this is trying to erase. `JoinSet::shutdown`
             // aborts each task and awaits it, as `WriteMultipart` does.
             parts.shutdown().await;
-            let _ = upload.abort().await;
+            // `NoSuchUpload` means it is gone already, as when the answer to a `complete`
+            // that succeeded was lost.
+            if let Err(abort) = upload.abort().await
+                && !(matches!(abort, object_store::Error::NotFound { .. })
+                    || abort.to_string().contains("NoSuchUpload"))
+            {
+                e.message = format!(
+                    "{}; aborting the multipart upload of {key} failed too ({}), so its parts \
+                     stay in the bucket until a lifecycle rule expires them or someone aborts it",
+                    e.message,
+                    terse(&abort)
+                );
+            }
             Err(e)
         }
     }
@@ -671,12 +698,7 @@ pub async fn probe_writable(store: &Store) -> Result<(), ToolError> {
     store
         .put(&key, PutPayload::from(b"probe".to_vec()))
         .await
-        .map_err(|e| {
-            classify_object_store_error(
-                "S3 bucket is not writable (your token may lack write permission)",
-                e,
-            )
-        })?;
+        .map_err(|e| classify_object_store_error("S3 bucket is not writable", e))?;
     // Best-effort cleanup; a failed delete does not fail the probe.
     let _ = store.delete(&key).await;
     Ok(())
@@ -931,9 +953,8 @@ fn generic_error_text(e: &object_store::Error) -> Option<String> {
 
 /// Whether an object-store failure is an untyped (`Generic`) 403 / `AccessDenied`.
 fn is_denied_object_store(e: &object_store::Error) -> bool {
-    generic_error_text(e).is_some_and(|msg| {
-        msg.contains("403") || msg.contains("Forbidden") || msg.contains("AccessDenied")
-    })
+    generic_error_text(e)
+        .is_some_and(|msg| msg.contains("Forbidden") || msg.contains("AccessDenied"))
 }
 
 /// Whether an object-store failure means "that key is not there", however the backend
@@ -973,20 +994,26 @@ fn classify_get_error(key: &ObjPath, id: &str, e: object_store::Error) -> ToolEr
 }
 
 /// A short remediation hint for a non-2xx object-store failure, keyed on the HTTP status
-/// embedded in the error text (`object_store` 0.13 exposes no typed status). Empty when no
+/// embedded in the error text (`object_store` exposes no typed status). Empty when no
 /// known status is present: connectivity errors already carry rich messages, so this
 /// targets only genuine non-2xx responses.
+///
+/// A status is matched with its reason phrase (`502 Bad Gateway`), never as bare digits,
+/// which the request URL (a dataset id is a timestamp) and the elapsed time also contain.
 fn status_hint(msg: &str) -> &'static str {
-    if msg.contains("403") || msg.contains("Forbidden") {
+    if msg.contains("Forbidden") {
         ". Check the bucket policy and credentials: `gdi-dataset-tool profiles` shows whether \
          this profile has both keys (in tool-secrets.toml, or GDI_TOOL__PROFILES__<NAME>__... \
          with underscores for hyphens). Then run `gdi-dataset-tool doctor`"
-    } else if msg.contains("404") || msg.contains("NoSuchBucket") {
+    } else if msg.contains("404 Not Found") || msg.contains("NoSuchBucket") {
         ". Check the bucket name and endpoint, then run `gdi-dataset-tool doctor`"
-    } else if msg.contains("400") || msg.contains("Bad Request") {
+    } else if msg.contains("Bad Request") {
         ". Likely a region, path-style or endpoint misconfiguration; run \
          `gdi-dataset-tool doctor`"
-    } else if msg.contains("500") || msg.contains("502") || msg.contains("504") {
+    } else if msg.contains("500 Internal Server Error")
+        || msg.contains("502 Bad Gateway")
+        || msg.contains("504 Gateway Timeout")
+    {
         ". Server-side error; retry, then run `gdi-dataset-tool doctor` if it persists"
     } else {
         ""
@@ -995,20 +1022,23 @@ fn status_hint(msg: &str) -> &'static str {
 
 /// Heuristic: whether an `object_store` failure looks transient (retry may fix).
 ///
-/// `object_store` 0.13 has no dedicated transient variant. A throttled or `5xx` request
+/// `object_store` has no dedicated transient variant. A throttled or `5xx` request
 /// surfaces as [`object_store::Error::Generic`] only after the client's own retry budget is
 /// exhausted, with the HTTP status in the wrapped source, so this keys on that `Display`
 /// text via [`generic_error_text`]. Kept conservative to keep false positives off the
 /// transient (exit-3) path.
+///
+/// `object_store` retries only `5xx`, `429`, `408` and transport errors, so its retry clause
+/// (`after <n> retries, max_retries: …`) alone marks a transient failure. Statuses are
+/// otherwise matched by reason phrase, as in [`status_hint`].
 fn is_transient_object_store(e: &object_store::Error) -> bool {
     generic_error_text(e).is_some_and(|msg| {
-        msg.contains("503")
-            || msg.contains("429")
+        msg.contains(", max_retries: ")
             || msg.contains("Service Unavailable")
             || msg.contains("Too Many Requests")
             || msg.contains("SlowDown")
             || msg.contains("timed out")
-            || msg.contains("timeout")
+            || msg.contains("RequestTimeout")
     })
 }
 
@@ -1906,6 +1936,85 @@ mod tests {
         }));
     }
 
+    /// A plaintext endpoint without `allow_http` is refused before any client is built,
+    /// with a message naming the setting, rather than surfacing `object_store`'s
+    /// `builder error` from whichever verb ran first.
+    #[test]
+    fn a_plaintext_endpoint_needs_allow_http_and_the_refusal_names_it() {
+        for endpoint in ["http://localhost:9000", "HTTP://localhost:9000"] {
+            let s3 = super::ProfileS3 {
+                endpoint: Some(endpoint.to_owned()),
+                bucket: Some("b".to_owned()),
+                ..Default::default()
+            };
+            let Err(err) = super::conn_params(&s3) else {
+                panic!("{endpoint} without allow_http must be refused")
+            };
+            assert!(
+                err.to_string().contains("allow_http = true"),
+                "the refusal must name the setting: {err}"
+            );
+            let s3 = super::ProfileS3 {
+                allow_http: true,
+                ..s3
+            };
+            assert!(super::conn_params(&s3).is_ok(), "allow_http opts in");
+        }
+    }
+
+    /// A failure is classified by what `object_store` reports, never by the digits in the
+    /// request URL, whose key is a dataset id (a timestamp). A request it retried until the
+    /// budget ran out is transient; it never retries a `403`.
+    #[test]
+    fn a_failed_request_is_classified_by_its_status_not_its_url() {
+        let key = "GDI-EE-UTARTU-20260409150040312.tar.c4gh"; // gitleaks:allow - dataset id
+        assert!(
+            key.contains("500") && key.contains("403"),
+            "the fixture id must exercise the hazard"
+        );
+        // The texts `object_store` 0.14 writes, with and without its retry clause.
+        let failure = |retried: bool, cause: &str| object_store::Error::Generic {
+            store: "S3",
+            source: format!(
+                "Error performing PUT http://localhost:9000/b/{key} in 1.5s{} - {cause}",
+                if retried {
+                    ", after 10 retries, max_retries: 10, retry_timeout: 180s "
+                } else {
+                    ""
+                }
+            )
+            .into(),
+        };
+        let exit = |e| classify_object_store_error("uploading k", e).exit_code;
+
+        assert_eq!(
+            exit(failure(true, "HTTP error: error sending request")),
+            crate::EXIT_TRANSIENT
+        );
+        assert_eq!(
+            exit(failure(
+                true,
+                "Server returned non-2xx status code: 502 Bad Gateway: "
+            )),
+            crate::EXIT_TRANSIENT
+        );
+        assert_eq!(
+            exit(failure(
+                false,
+                "Server returned non-2xx status code: 403 Forbidden: no"
+            )),
+            crate::EXIT_AUTH
+        );
+        let no_response =
+            classify_object_store_error("uploading k", failure(false, "HTTP error: builder error"));
+        assert_eq!(no_response.exit_code, crate::EXIT_USER);
+        assert!(
+            !no_response.message.contains("Server-side"),
+            "no response, so no server-side hint: {}",
+            no_response.message
+        );
+    }
+
     #[tokio::test]
     async fn list_classifies_visible_and_hidden_and_ignores_noise() {
         let store = mem_store();
@@ -2018,6 +2127,7 @@ mod tests {
         let s3 = ProfileS3 {
             bucket: Some("b".to_owned()),
             endpoint: Some("http://localhost:9000".to_owned()),
+            allow_http: true,
             access_key_id: Some("k".to_owned()),
             ..ProfileS3::default()
         };
@@ -2145,7 +2255,7 @@ mod tests {
     async fn a_failed_part_upload_aborts_the_multipart_upload() {
         let aborted = Arc::new(AtomicBool::new(false));
         let store = HookStore::new()
-            .fail_every_part(Arc::clone(&aborted))
+            .fail_every_part(Arc::clone(&aborted), false)
             .into_store();
 
         let err = upload_package_bytes(
@@ -2167,6 +2277,39 @@ mod tests {
             aborted.load(Ordering::SeqCst),
             "a failed part must abort the multipart upload; the committed parts are billed \
              and invisible otherwise"
+        );
+    }
+
+    /// An abort that fails too is reported, naming the key: nothing else would ever show the
+    /// parts it leaves behind.
+    #[tokio::test]
+    async fn a_failed_abort_is_reported_with_the_key_it_leaves_behind() {
+        let aborted = Arc::new(AtomicBool::new(false));
+        let store = HookStore::new()
+            .fail_every_part(Arc::clone(&aborted), true)
+            .into_store();
+        let dataset = id(10);
+
+        let err = upload_package_bytes(
+            &store,
+            &PackageStore::new(store.clone()),
+            &dataset,
+            b"a small package".to_vec(),
+            false,
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            aborted.load(Ordering::SeqCst),
+            "the abort must still be attempted"
+        );
+        assert!(
+            err.message.contains(&format!(
+                "aborting the multipart upload of {dataset}{TAR_C4GH_SUFFIX} failed too"
+            )) && err.message.contains("lifecycle rule"),
+            "a failed abort must name the key and how its parts go away: {}",
+            err.message
         );
     }
 
@@ -2212,10 +2355,12 @@ mod tests {
     /// Supply the [`MultipartUpload`] a `put_multipart` hands back.
     type MultipartHook = Box<dyn Fn() -> Box<dyn MultipartUpload> + Send + Sync>;
 
-    /// A [`MultipartUpload`] whose every part fails, recording whether it was aborted.
+    /// A [`MultipartUpload`] whose every part fails, recording whether it was aborted, and
+    /// whose abort fails too when `abort_fails`.
     #[derive(Debug)]
     struct FailingUpload {
         aborted: Arc<AtomicBool>,
+        abort_fails: bool,
     }
 
     #[async_trait]
@@ -2238,6 +2383,12 @@ mod tests {
 
         async fn abort(&mut self) -> object_store::Result<()> {
             self.aborted.store(true, Ordering::SeqCst);
+            if self.abort_fails {
+                return Err(object_store::Error::Generic {
+                    store: "test",
+                    source: "abort refused".into(),
+                });
+            }
             Ok(())
         }
     }
@@ -2285,11 +2436,13 @@ mod tests {
         }
 
         /// Hand back an upload whose every part fails, flagging `aborted` if the caller
-        /// aborts it: the seam for "the network dropped mid-upload".
-        fn fail_every_part(mut self, aborted: Arc<AtomicBool>) -> Self {
+        /// aborts it, and failing that abort when `abort_fails`: the seam for "the network
+        /// dropped mid-upload".
+        fn fail_every_part(mut self, aborted: Arc<AtomicBool>, abort_fails: bool) -> Self {
             self.on_multipart = Some(Box::new(move || {
                 Box::new(FailingUpload {
                     aborted: Arc::clone(&aborted),
+                    abort_fails,
                 })
             }));
             self

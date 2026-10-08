@@ -459,6 +459,31 @@ fn primary(identities: &[PathBuf]) -> Result<&PathBuf, ToolError> {
 pub fn load_or_generate_provider_secret(
     config_path: Option<&Path>,
 ) -> Result<SecretKey, ToolError> {
+    load_or_mint_provider_secret(config_path, |path, fingerprint| {
+        crate::output::warn(&minted_identity_warning(path, fingerprint));
+    })
+}
+
+/// Make sure the primary provider identity exists, creating it (`0o600`) if missing: the
+/// `wizard setup` step. Creating it is expected there, so it is announced as a progress
+/// line, not as the warning `pack` gives when a key it expected is missing.
+///
+/// # Errors
+///
+/// As [`load_or_generate_provider_secret`].
+pub fn ensure_provider_secret(config_path: Option<&Path>) -> Result<(), ToolError> {
+    load_or_mint_provider_secret(config_path, |path, fingerprint| {
+        crate::output::progress(&created_identity_line(path, fingerprint));
+    })
+    .map(drop)
+}
+
+/// Load the primary provider identity, or mint it and pass its path and fingerprint to
+/// `announce`.
+fn load_or_mint_provider_secret(
+    config_path: Option<&Path>,
+    announce: fn(&Path, &str),
+) -> Result<SecretKey, ToolError> {
     let identities = resolve_identities(config_path)?;
     let secret_path = primary(&identities)?;
     if secret_path.exists() {
@@ -471,10 +496,7 @@ pub fn load_or_generate_provider_secret(
     // resets who the node believes authored every package built from here on. It happens
     // whenever the resolved config dir holds no identity, which a `--config` typo or a
     // fresh checkout produces just as easily as a genuine first run.
-    crate::output::warn(&minted_identity_warning(
-        secret_path,
-        &public_key_fingerprint(&sk.public_key()),
-    ));
+    announce(secret_path, &public_key_fingerprint(&sk.public_key()));
     Ok(sk)
 }
 
@@ -485,11 +507,21 @@ pub fn load_or_generate_provider_secret(
 /// accepted under `writer_policy = enforce`.
 fn minted_identity_warning(path: &Path, fingerprint: &str) -> String {
     format!(
-        "warning: no provider identity at {}; generated a new one ({fingerprint}). This key \
-         is the crypt4gh writer provenance of every package built from here on; a node with \
-         [ingest].writer_policy = enforce will reject them until this fingerprint is \
-         allow-listed. If you expected an existing key, check --config / GDI_CONFIG_DIR \
-         before packaging.",
+        "warning: no provider identity at {}; generated a new one ({fingerprint}). Packages \
+         built from now on are written with it, so a node that only accepts listed keys \
+         rejects them until it lists this fingerprint. If you expected an existing key, \
+         check --config / GDI_CONFIG_DIR.",
+        path.display()
+    )
+}
+
+/// The line `wizard setup` prints when it creates the provider identity, worded for any
+/// node.
+fn created_identity_line(path: &Path, fingerprint: &str) -> String {
+    format!(
+        "  created your provider key at {} ({fingerprint}). Every package you build carries \
+         it as its writer; if the node accepts packages only from listed keys, give its \
+         operator this fingerprint.",
         path.display()
     )
 }
@@ -711,7 +743,7 @@ mod tests {
             "the fingerprint is the actionable part; it is what gets allow-listed: {msg}"
         );
         assert!(
-            msg.contains("writer_policy"),
+            msg.contains("listed keys"),
             "say why it matters, not just that a key was made: {msg}"
         );
         assert!(
@@ -734,6 +766,24 @@ mod tests {
             public_key_fingerprint(&second.public_key()),
             "a second call must load the minted key, not mint another; a changed writer \
              fingerprint between two packages of the same run would be undetectable"
+        );
+    }
+
+    /// `wizard setup` creates the key that a re-run and a later `pack` load.
+    #[test]
+    fn setup_creates_the_key_that_pack_then_loads() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let cfg = dir.path().join("config.toml");
+        std::fs::write(&cfg, "").expect("write config");
+
+        ensure_provider_secret(Some(&cfg)).expect("creates on a first run");
+        let created = load_provider_secret_readonly(Some(&cfg)).expect("the key exists");
+        ensure_provider_secret(Some(&cfg)).expect("loads on a re-run");
+        let loaded = load_or_generate_provider_secret(Some(&cfg)).expect("pack loads it");
+        assert_eq!(
+            public_key_fingerprint(&created.public_key()),
+            public_key_fingerprint(&loaded.public_key()),
+            "a re-run of setup must keep the key"
         );
     }
 
