@@ -324,7 +324,8 @@ stack with the realistic sample, start to finish:
 
 `gdi-dataset-tool publish <id>` then makes the dataset visible, and the node serves it at
 `/fairdp/dataset/<id>` and in the Beacon. There is a scripted equivalent for automation:
-`gdi-dataset-tool config init -o tool.toml` writes a commented template, and the minimum is
+`gdi-dataset-tool config init` writes a commented template to `~/.config/gdi/tool.toml`,
+and the minimum is
 
 ```toml
 country_code = "EE"
@@ -341,13 +342,17 @@ gdi-aggregated = "Genome of Europe Aggregated Data"
 
 ```bash
 export GDI_TOOL__PROFILES__DEFAULT__S3__ACCESS_KEY_ID=… GDI_TOOL__PROFILES__DEFAULT__S3__SECRET_ACCESS_KEY=…
-gdi-dataset-tool --config tool.toml keys pin-recipient    # fetches {service_url}/.well-known/c4gh-recipient and pins it; --file node.pub when handed over offline
-gdi-dataset-tool init                                     # scaffolds package.yaml: point it at your VCFs, fill the metadata
-gdi-dataset-tool --config tool.toml package package.yaml  # build + pack: <id>.tar.c4gh, encrypted to the node; mints your provider key on first use
-gdi-dataset-tool --config tool.toml upload <id>.tar.c4gh  # into the bucket, hidden; the node picks it up on its next poll
-gdi-dataset-tool --config tool.toml publish <id>          # flips the sidecar to visible
-gdi-dataset-tool --config tool.toml status <id>           # the node's verdict, once the operator sets the bucket's write_status = true or gives you a management_url
+gdi-dataset-tool keys pin-recipient    # fetches {service_url}/.well-known/c4gh-recipient and pins it; --file node.pub when handed over offline
+gdi-dataset-tool init                  # scaffolds package.yaml: point it at your VCFs, fill the metadata
+gdi-dataset-tool package package.yaml  # build + pack: <id>.tar.c4gh, encrypted to the node; mints your provider key on first use
+gdi-dataset-tool upload <id>.tar.c4gh  # into the bucket, hidden; the node picks it up on its next poll
+gdi-dataset-tool publish <id>          # flips the sidecar to visible
+gdi-dataset-tool status <id>           # the node's verdict, once the operator sets the bucket's write_status = true or gives you a management_url
 ```
+
+Your provider key and the pinned node key live in `~/.config/gdi/keys/` and
+`~/.config/gdi/recipients/`, or next to the file `--config` names, so keep such a config
+out of any directory you share or package from.
 
 Every tool field, including the co-located inbox profile and `keyless = true`:
 [`tool.example.toml`](tool.example.toml).
@@ -465,9 +470,12 @@ keys and no profile. Worth knowing before your first real build:
 
 Health is `GET :9090/health/live` and `/health/ready` (`ready: true, degraded: true` means
 a provider bucket is dark), metrics are Prometheus text at `:9090/metrics`, and a dataset's
-state is `GET :9090/datasets/{id}/state`. Below is the shipped dashboard, captured on the
-dev stack with the realistic sample under a few minutes of query load. The alert names in
-the panel titles are the shipped Prometheus rules:
+state is `GET :9090/datasets/{id}/state`. Route traffic only to a ready node: one that
+started while Vault was unreachable can answer publicly as if it had no datasets until it is
+restarted ([operating.md §1](docs/operating.md#1-health-and-readiness-endpoints)).
+Kubernetes readiness probes do that; `docker run` and Compose do not. Below is the shipped
+dashboard, captured on the dev stack with the realistic sample under a few minutes of query
+load. The alert names in the panel titles are the shipped Prometheus rules:
 
 ![The shipped Grafana dashboard: node readiness, datasets by state, request rate, error ratio and latency, on the dev stack under query load](docs/images/grafana-dashboard.png)
 
