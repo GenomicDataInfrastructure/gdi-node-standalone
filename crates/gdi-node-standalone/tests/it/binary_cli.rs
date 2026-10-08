@@ -119,6 +119,10 @@ fn check_config_rejects_the_shipped_example_and_says_why() {
         "the verdict must be the PLACEHOLDER rejection, not an incidental failure such as a \
          missing file — that is the contract this test exists to pin: {stdout}"
     );
+    assert!(
+        !stderr.contains("placeholder"),
+        "the reason is the verdict's, printed once; stderr only ends the run: {stderr}"
+    );
 }
 
 #[test]

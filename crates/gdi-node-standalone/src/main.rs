@@ -1599,10 +1599,11 @@ fn log_startup_summary(config: &ServiceConfig, config_path: &Path, vault_ok: boo
 ///
 /// The node does not self-register: an operator hands the beacon URL to the Beacon Network
 /// aggregator and the `fairdp` URL to the FDP harvester. The aggregated and sensitive beacon
-/// collapse to one URL when the node mounts them combined, which is the default; the FDP URL
-/// is present only when `[fairdp]` is configured. Each is `base_url` plus the mount path,
-/// and must equal what the operator forwards, because the node mints these same IRIs into
-/// its FDP output and a mismatched URL breaks the harvester's crawl.
+/// share one URL when mounted combined. Mounted split, the default, only the aggregated one
+/// is listed: the sensitive one is a zeros-only placeholder. The FDP URL is present only
+/// when `[fairdp]` is configured. Each is `base_url` plus the mount path, and must equal what the operator
+/// forwards, because the node mints these same IRIs into its FDP output and a mismatched
+/// URL breaks the harvester's crawl.
 fn registration_urls(
     base_url: &str,
     aggregated_path: &str,
@@ -1618,7 +1619,6 @@ fn registration_urls(
         ));
     } else {
         urls.push(("beacon (aggregated)", format!("{base}{aggregated_path}")));
-        urls.push(("beacon (sensitive)", format!("{base}{sensitive_path}")));
     }
     if has_fairdp {
         urls.push(("fairdp", format!("{base}/fairdp")));
@@ -3144,11 +3144,13 @@ fn check_config(cli_config: Option<&Path>) -> Result<()> {
     // the config is not loaded yet. Held until return.
     let _telemetry = logging::init(None, None, "", None, 1.0);
     let path = ServiceConfig::resolve_path(cli_config);
+    // The stdout verdict carries the reason; the error only sets the exit code, so stderr
+    // does not repeat it.
     let config = match ServiceConfig::load(cli_config) {
         Ok(config) => config,
         Err(e) => {
             println!("config check FAILED ({}): {e}", path.display());
-            return Err(anyhow::anyhow!("loading config: {e}"));
+            return Err(anyhow::anyhow!("config check failed"));
         }
     };
     match preflight::run(&config) {
@@ -3159,7 +3161,7 @@ fn check_config(cli_config: Option<&Path>) -> Result<()> {
         }
         Err(e) => {
             println!("config check FAILED ({}): {e}", path.display());
-            Err(anyhow::Error::new(e).context("service config failed startup preflight"))
+            Err(anyhow::anyhow!("config check failed"))
         }
     }
 }
@@ -3419,40 +3421,61 @@ fn print_s3_bucket_summary(config: &gdi_node_standalone_core::config::ServiceCon
         return;
     };
     let vault_supplies = config.vault.as_ref().is_some_and(|v| v.s3_path.is_some());
-    for bucket in &s3.buckets {
-        // Empty overrides: this is the offline view. `credential_source` is the function
-        // the live boot uses, so the two cannot disagree about what "config" or "anonymous"
-        // means.
-        let local =
-            gdi_node_standalone::s3::credential_source(bucket, &std::collections::BTreeMap::new());
-        let note = if vault_supplies {
-            " (vault.s3_path is set: Vault may override this at boot)"
-        } else {
-            ""
-        };
-        // The prefix decides which objects this channel addresses, and it is invisible
-        // everywhere else a pre-deploy check looks, so a prefix set on the node and not on
-        // the writer, or the reverse, reads as "the bucket is empty" with nothing naming the
-        // cause. Printed as `bucket/prefix`, matching `gdi-dataset-tool`'s `target_label`,
-        // so the two sides can be compared by eye.
-        let target = if bucket.prefix.is_empty() {
-            bucket
-                .bucket
-                .clone()
-                .unwrap_or_else(|| "<unset>".to_owned())
-        } else {
-            format!(
-                "{}/{}",
-                bucket.bucket.as_deref().unwrap_or("<unset>"),
-                bucket.prefix.trim_end_matches('/')
-            )
-        };
-        println!(
-            "    channel {name:<19} target={target} endpoint={endpoint} credentials={local}{note}",
-            name = bucket.name,
-            endpoint = bucket.endpoint.as_deref().unwrap_or("<unset>"),
-        );
+    for (index, bucket) in s3.buckets.iter().enumerate() {
+        println!("{}", bucket_summary(index, bucket, vault_supplies));
     }
+}
+
+/// One bucket's `check-config` line, plus a warning when it would run anonymous: right for a
+/// public bucket, but also what unexported credentials look like.
+#[cfg(feature = "s3")]
+fn bucket_summary(
+    index: usize,
+    bucket: &gdi_node_standalone_core::config::S3Bucket,
+    vault_supplies: bool,
+) -> String {
+    // Empty overrides: this is the offline view. `credential_source` is the function
+    // the live boot uses, so the two cannot disagree about what "config" or "anonymous"
+    // means.
+    let local =
+        gdi_node_standalone::s3::credential_source(bucket, &std::collections::BTreeMap::new());
+    let note = if vault_supplies {
+        " (vault.s3_path is set: Vault may override this at boot)"
+    } else {
+        ""
+    };
+    // The prefix decides which objects this channel addresses, and it is invisible
+    // everywhere else a pre-deploy check looks, so a prefix set on the node and not on
+    // the writer, or the reverse, reads as "the bucket is empty" with nothing naming the
+    // cause. Printed as `bucket/prefix`, matching `gdi-dataset-tool`'s `target_label`,
+    // so the two sides can be compared by eye.
+    let target = if bucket.prefix.is_empty() {
+        bucket
+            .bucket
+            .clone()
+            .unwrap_or_else(|| "<unset>".to_owned())
+    } else {
+        format!(
+            "{}/{}",
+            bucket.bucket.as_deref().unwrap_or("<unset>"),
+            bucket.prefix.trim_end_matches('/')
+        )
+    };
+    let warning = if local == "anonymous" && !vault_supplies {
+        format!(
+            "\n      warning: no credentials, so requests go unsigned. Unless the bucket \
+             is public, set GDI_NODE__S3__BUCKETS__{index}__ACCESS_KEY_ID and \
+             GDI_NODE__S3__BUCKETS__{index}__SECRET_ACCESS_KEY"
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "    channel {name:<19} target={target} endpoint={endpoint} \
+         credentials={local}{note}{warning}",
+        name = bucket.name,
+        endpoint = bucket.endpoint.as_deref().unwrap_or("<unset>"),
+    )
 }
 
 /// No-op without the `s3` feature: a lite build cannot carry buckets at all.
@@ -4700,8 +4723,9 @@ fn reload_s3_monitors(
                 // successful reconcile, so say so. `set_channel_health` is otherwise called
                 // only by a monitor, so a channel whose monitor stops would keep its last
                 // `true` forever and read ready while half-blind, the shape
-                // `register_configured_channels` seeds `false` to avoid at boot. A rotation
-                // therefore reads `degraded` for one poll, which is the honest state.
+                // `register_configured_channels` seeds `false` to avoid at boot. The
+                // replacement reconciles on its first tick, so a rotation reads `degraded` for
+                // one marker poll, which is the honest state.
                 state.readiness.set_channel_health(&bucket.name, false);
                 // Reached only for an access or behaviour change — credentials, region,
                 // addressing, poll intervals, `write_status` — so the same objects with a
@@ -4754,6 +4778,10 @@ fn reload_s3_monitors(
                 if let Some(ingesting) = carried_ingesting {
                     monitor.adopt_ingesting(ingesting);
                 }
+                // No startup reconcile preceded this monitor, whether it replaces one or
+                // serves a bucket added live, and its channel reads unhealthy until it
+                // reconciles.
+                monitor.reconcile_on_first_tick();
                 spawn_monitor(&monitor, running);
             }
             Err(e) => {
@@ -5759,9 +5787,35 @@ mod tests {
         );
     }
 
+    /// A bucket with no credentials passes `check-config` with a warning naming the
+    /// variables; one with credentials, or that Vault may supply, does not warn.
+    #[cfg(feature = "s3")]
+    #[test]
+    fn check_config_warns_of_a_bucket_without_credentials() {
+        let anonymous = gdi_node_standalone_core::config::S3Bucket {
+            name: "primary".to_owned(),
+            ..Default::default()
+        };
+        let line = bucket_summary(1, &anonymous, false);
+        assert!(
+            line.contains("credentials=anonymous")
+                && line.contains("warning: no credentials")
+                && line.contains("GDI_NODE__S3__BUCKETS__1__ACCESS_KEY_ID"),
+            "{line}"
+        );
+        assert!(!bucket_summary(1, &anonymous, true).contains("warning"));
+        let keyed = gdi_node_standalone_core::config::S3Bucket {
+            access_key_id: Some("id".to_owned()),
+            secret_access_key: Some("secret".to_owned()),
+            ..anonymous
+        };
+        assert!(!bucket_summary(1, &keyed, false).contains("warning"));
+    }
+
     #[test]
     fn registration_urls_split_beacon_without_fairdp() {
-        // Distinct mounts yield two beacon URLs; no `[fairdp]` yields no FDP URL.
+        // Distinct mounts list only the aggregated beacon: the sensitive one is a
+        // zeros-only placeholder with nothing to register. No `[fairdp]`, no FDP URL.
         let urls = registration_urls(
             "https://n.example.org",
             "/beacon/agg",
@@ -5770,16 +5824,10 @@ mod tests {
         );
         assert_eq!(
             urls,
-            vec![
-                (
-                    "beacon (aggregated)",
-                    "https://n.example.org/beacon/agg".to_owned()
-                ),
-                (
-                    "beacon (sensitive)",
-                    "https://n.example.org/beacon/sens".to_owned()
-                ),
-            ]
+            vec![(
+                "beacon (aggregated)",
+                "https://n.example.org/beacon/agg".to_owned()
+            )]
         );
     }
 

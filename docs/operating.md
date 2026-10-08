@@ -369,6 +369,9 @@ The ready predicate, all of which must hold:
     `key_material` read `unavailable`, `/health/ready` stays `503`, encrypted-package
     ingest is skipped, and `gdi_keyless_degraded` latches to `1`. That does not self-heal,
     because identities load once at startup, so restart the node once Vault is reachable.
+    Meanwhile a node whose datasets are encrypted at rest answers publicly as if it had none
+    (`exists: false`), so route traffic only to a ready node. A Kubernetes readiness probe
+    does that; `docker run` and Compose do not.
     A Vault outage after a healthy boot is different: cached DEKs keep serving and ingest
     retries transiently (§8).
   - **`key_material`**: the node crypt4gh identity or identities loaded, and under
@@ -419,6 +422,11 @@ A degraded bucket therefore leaves `ready: true`, flips `s3` and its `s3_buckets
 to `unavailable`, and raises `degraded: true`. Page on
 `gdi_health_ready{component="s3"} == 0` or the per-bucket `gdi_s3_poll_errors_total`, not
 on `component="overall"`, which stays `1`.
+
+A bucket that stops answering reads `unavailable` at the next full poll
+(`full_poll_interval`, 300 s by default), when its listing fails; each failed listing counts
+in `gdi_s3_poll_errors_total`. Once it answers again it reads `ok` within one marker poll
+(`marker_poll_interval`, 30 s by default), as does a channel a `SIGHUP` reload restarts.
 
 > **A bucket that is dead from boot delays readiness for the whole node.** The startup
 > reconcile waits for every bucket to finish or time out before `initial_reconcile` flips
@@ -1144,6 +1152,7 @@ cause silent drift. The node mints the key and you place it:
 
 ```bash
 # 1. Mint the new key alongside the current one (create-only; never touches the old key).
+#    With datasets published, it prints a note to keep the old key listed (step 2).
 gdi-node-standalone --config node.toml identity init --file keys/node-$(date +%Y%m%d).c4gh
 
 # 2. Edit [keys].identities: put the new file first, and keep the old one after it.
@@ -1225,11 +1234,9 @@ only the header, with no payload re-encryption.
    > ```bash
    > gdi-dataset-tool rekey <id>.tar.c4gh --as ~/.config/gdi/keys/provider.c4gh --force
    > ```
-   > Pass `-v` to see which writer key was used. `rekey` announces the fingerprint and
-   > warns when it mints an ephemeral one, but both go to stderr at verbose level only; at
-   > default verbosity it reports the recipients alone, so a plain re-key looks identical
-   > to an `--as` one. On a `warn` or `off` node the plain form is fine, because the
-   > ephemeral writer is not gated. Full flag reference:
+   > A plain re-key always warns that it used a fresh ephemeral writer key; an `--as` one
+   > does not. `-v` also shows the writer key's fingerprint. On a `warn` or `off` node the
+   > plain form is fine, because the ephemeral writer is not gated. Full flag reference:
    > [`rekey`](gdi-dataset-tool.md#rekey) in the provider tool doc.
 4. Once every package has been re-wrapped, retire the old identity rather than
    hand-editing Vault.
@@ -1429,11 +1436,12 @@ which is this shape: `[[s3.buckets]]` plus `[keys]`, no `[vault]`. See
 
 **Where the secrets live (no Vault to hold them).**
 
-- **S3 credentials.** With no `[vault]`, the inline `[[s3.buckets]]` `access_key_id` and
-  `secret_access_key` are the source; nothing overrides them. Do not commit real keys.
-  Supply them out-of-band, preferring an env var or a mounted file over an inline literal:
-  `GDI_NODE__S3__BUCKETS__0__ACCESS_KEY_ID` and `…__SECRET_ACCESS_KEY`, where env always
-  wins over the file. A process environment is readable via `/proc/<pid>/environ`,
+- **S3 credentials.** With no `[vault]`, each bucket uses the `access_key_id` and
+  `secret_access_key` of its `[[s3.buckets]]` entry, and
+  `GDI_NODE__S3__BUCKETS__<i>__ACCESS_KEY_ID` / `…__SECRET_ACCESS_KEY` override them when
+  set. The standard `AWS_*` variables are not read. Do not commit real keys: supply them
+  through those variables or a `node.toml` mounted from a Secret. A process environment is
+  readable via `/proc/<pid>/environ`,
   `docker inspect` and pod specs; a mounted Secret file is not. On Kubernetes also enable
   etcd Secret encryption-at-rest (§17). If the bucket is public-read, omit both
   credentials and the node reads anonymously, holding no S3 secret at all.

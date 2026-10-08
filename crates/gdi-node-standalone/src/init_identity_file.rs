@@ -83,7 +83,10 @@ pub fn run(
         })?;
         (pem, serialize_public_key(&secret_key.public_key()))
     } else {
-        warn_if_datasets_predate_new_identity(&config.service.data_dir);
+        let kept = kept_identity(config, &target);
+        if let Some(notice) = new_identity_notice(&config.service.data_dir, kept) {
+            eprintln!("{notice}");
+        }
         let (secret_key, public_key) = generate_keypair();
         (
             Zeroizing::new(serialize_secret_key(&secret_key)),
@@ -176,22 +179,55 @@ pub(crate) fn data_dir_has_published_datasets(data_dir: &Path) -> bool {
         .any(|entry| entry.path().join("manifest.json").is_file())
 }
 
-/// Warn on stderr when a fresh identity is minted onto a `data_dir` that already holds
-/// published datasets.
+/// What minting a fresh identity onto `data_dir` should tell the operator, or `None` when
+/// no dataset is published there.
 ///
-/// That is the shape of an ephemeral-secrets loss: an in-memory dev `OpenBao` is wiped by a
-/// restart, the node loses its identity, and the operator mints a new one over surviving
-/// data, leaving the old identity's PME-at-rest parquet unreadable. Minting onto an empty
-/// volume stays silent, and the warning is skipped when `--from` imports a specific key.
-pub(crate) fn warn_if_datasets_predate_new_identity(data_dir: &Path) {
-    if data_dir_has_published_datasets(data_dir) {
-        eprintln!(
+/// Without `kept`, it looks like a lost identity: an in-memory dev `OpenBao` wiped by a
+/// restart, and a new key minted over data the old one encrypted. With `kept`, another
+/// configured key still on disk, it is a file-posture rotation: packages still wrapped to
+/// `kept` need it, so it must stay listed. `--from` imports skip this.
+pub(crate) fn new_identity_notice(data_dir: &Path, kept: Option<&Path>) -> Option<String> {
+    if !data_dir_has_published_datasets(data_dir) {
+        return None;
+    }
+    Some(match kept {
+        Some(kept) => format!(
+            "note: packages wrapped to {} still need it: list the new key first in \
+             [keys].identities and keep {} after it until they are re-keyed.",
+            kept.display(),
+            kept.display()
+        ),
+        None => format!(
             "warning: minting a new node identity, but published datasets already exist \
              under {}. If the previous identity was lost, PME-at-rest data under those \
              datasets stays encrypted to the old key and is unreadable. Proceed only if \
              this is a new node; otherwise restore the previous identity first.",
             data_dir.display()
-        );
+        ),
+    })
+}
+
+/// A configured identity other than `target` that is on disk, so it stays when `target` is
+/// minted: what makes the mint a rotation. A `--force` over an existing `target` is a
+/// replacement, not a rotation.
+fn kept_identity<'a>(config: &'a ServiceConfig, target: &Path) -> Option<&'a Path> {
+    if target.exists() {
+        return None;
+    }
+    config
+        .keys
+        .identities
+        .iter()
+        .map(PathBuf::as_path)
+        .find(|path| path.is_file() && !is_same_file(path, target))
+}
+
+/// Whether `a` and `b` name the same file: compared resolved when both exist, as spelled
+/// otherwise.
+fn is_same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => a == b,
     }
 }
 
@@ -381,6 +417,43 @@ mod tests {
         assert!(
             data_dir_has_published_datasets(data_dir),
             "a <id>/manifest.json means a dataset committed here — must be detected"
+        );
+    }
+
+    /// Minting next to a configured key that stays (a rotation) reminds the operator to
+    /// keep it listed; only a mint with no surviving key warns of a lost identity.
+    #[test]
+    fn a_rotation_mint_reminds_rather_than_warns_of_a_lost_identity() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let data_dir = tmp.path().join("data");
+        std::fs::create_dir_all(data_dir.join("ds-1")).expect("mkdir");
+        std::fs::write(data_dir.join("ds-1").join("manifest.json"), b"{}").expect("write");
+        let current = tmp.path().join("node.c4gh");
+        let config = config_with_identity(&current);
+        run(&config, false, false, None, None).expect("mint the current key");
+
+        let kept = kept_identity(&config, &tmp.path().join("node-new.c4gh"));
+        let rotation = new_identity_notice(&data_dir, kept).expect("datasets exist");
+        assert!(
+            rotation.starts_with("note: packages wrapped to")
+                && rotation.contains(&current.display().to_string()),
+            "{rotation}"
+        );
+        let lost = new_identity_notice(&data_dir, None).expect("datasets exist");
+        assert!(
+            lost.starts_with("warning:") && lost.contains("Proceed only if this is a new node"),
+            "{lost}"
+        );
+        let mut two_keys = config.clone();
+        two_keys
+            .keys
+            .identities
+            .push(tmp.path().join("node-old.c4gh"));
+        std::fs::write(tmp.path().join("node-old.c4gh"), b"key").expect("write");
+        assert_eq!(
+            kept_identity(&two_keys, &current),
+            None,
+            "a --force over an existing key is a replacement, not a rotation"
         );
     }
 
