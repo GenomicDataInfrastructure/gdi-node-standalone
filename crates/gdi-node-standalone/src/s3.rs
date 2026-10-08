@@ -232,6 +232,9 @@ pub struct BucketMonitor {
     /// leaves the id marked forever, so that dataset would never ingest again until a
     /// restart. Returning between polls has no such window.
     retire: Arc<RetireSignal>,
+    /// Reconcile on the first tick rather than at the first full poll: a monitor that a
+    /// reload started has no startup reconcile behind it, and reads unhealthy until one runs.
+    reconcile_first: bool,
 }
 
 /// The retirement flag and its wakeup, shared by a monitor and its supervisor.
@@ -577,6 +580,7 @@ impl BucketMonitor {
             ingesting: Arc::new(Mutex::new(HashSet::new())),
             pending_removals: Arc::new(Mutex::new(HashMap::new())),
             retire: Arc::new(RetireSignal::default()),
+            reconcile_first: false,
         }
     }
 
@@ -640,6 +644,13 @@ impl BucketMonitor {
         self.ingesting = handle;
     }
 
+    /// Make [`Self::run`] reconcile on its first tick, for a monitor a reload starts. That
+    /// reconcile is a timer sweep, which processes no package-absence removals. Call it
+    /// before the monitor is spawned or cloned.
+    pub fn reconcile_on_first_tick(&mut self) {
+        self.reconcile_first = true;
+    }
+
     /// Test-support hook: mark `id` as one this monitor is ingesting, as the download and
     /// enqueue path does, so a test can reproduce the deleted-while-in-flight state without
     /// racing a real ingest. Not part of the public API.
@@ -687,8 +698,8 @@ impl BucketMonitor {
         // Monotonic. This is the safety net that catches a marker bump the node missed, so
         // the wall clock must not disarm it: a backward step from an NTP correction or a
         // manual set would otherwise read as "not due yet" and postpone the sweep until the
-        // clock caught back up.
-        let mut last_full = std::time::Instant::now();
+        // clock caught back up. `None` makes the first tick's sweep due at once.
+        let mut last_full = (!self.reconcile_first).then(std::time::Instant::now);
         // The startup reconcile has already run for readiness unless the channel was
         // suppressed at boot, in which case no startup reconcile ran either. Seed the marker
         // so the first loop iteration does not immediately re-reconcile on an unchanged one.
@@ -700,6 +711,10 @@ impl BucketMonitor {
             self.head_marker().await
         };
         let mut monitor_paused = suppressed_at_boot;
+        // Whether the last marker check got an answer. The first answer after a failure
+        // reconciles at once, so a bucket that comes back reads healthy within one marker
+        // poll rather than one full poll.
+        let mut marker_answered = last_marker.is_known();
 
         loop {
             // Wake on the marker poll interval or an operator `SIGUSR1` reconcile trigger,
@@ -751,14 +766,16 @@ impl BucketMonitor {
                 monitor_paused = false;
             }
 
-            let due_full = last_full.elapsed() >= full_period;
+            let due_full = last_full.is_none_or(|t| t.elapsed() >= full_period);
             let marker = self.head_marker().await;
+            let answered_again = !marker_answered && marker.is_known();
+            marker_answered = marker.is_known();
             // Only a definite change opens the removal gate; an `Unknown` from a transient
             // failure is never a change. A due full poll still reconciles below regardless,
             // so an `Unknown` never suppresses a needed reconcile either.
             let marker_changed = marker.opens_removal_gate(&last_marker);
 
-            if should_reconcile(triggered, marker_changed, due_full) {
+            if should_reconcile(triggered, marker_changed, due_full || answered_again) {
                 if triggered {
                     debug!(
                         channel = self.channel(),
@@ -766,6 +783,11 @@ impl BucketMonitor {
                     );
                 } else if marker_changed {
                     debug!(channel = self.channel(), "marker changed; reconciling");
+                } else if answered_again && !due_full {
+                    debug!(
+                        channel = self.channel(),
+                        "marker answered again after a failure; reconciling"
+                    );
                 } else {
                     debug!(channel = self.channel(), "full-poll interval; reconciling");
                 }
@@ -792,7 +814,7 @@ impl BucketMonitor {
                         last_marker = marker;
                     }
                 }
-                last_full = std::time::Instant::now();
+                last_full = Some(std::time::Instant::now());
             }
         }
     }

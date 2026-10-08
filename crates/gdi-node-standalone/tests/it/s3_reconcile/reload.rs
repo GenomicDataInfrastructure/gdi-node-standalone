@@ -86,3 +86,35 @@ async fn an_unretired_monitor_keeps_running() {
         "a monitor nobody retired must still be polling"
     );
 }
+
+/// A monitor that a reload starts reconciles on its first tick, so its channel, marked
+/// unhealthy by the reload, reads healthy within one marker poll. The full poll here is an
+/// hour, so only the first-tick reconcile can do that within the bound.
+#[tokio::test]
+async fn a_monitor_started_by_a_reload_reconciles_on_its_first_tick() {
+    let bucket = S3Bucket {
+        marker_poll_interval: 1,
+        full_poll_interval: 3_600,
+        ..bucket_cfg("primary", false)
+    };
+    let mut rig = Rig::new(Arc::new(InMemory::new()), bucket);
+    rig.state.readiness.set_channel_health("primary", false);
+    rig.monitor.reconcile_on_first_tick();
+
+    let running = tokio::spawn(rig.monitor.clone().run());
+    poll_until(Duration::from_secs(10), || {
+        rig.state
+            .readiness
+            .channel_health_snapshot()
+            .get("primary")
+            .copied()
+            == Some(true)
+    })
+    .await;
+
+    rig.monitor.retire_signal().retire();
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("a retired monitor returns")
+        .expect("the monitor task must not panic");
+}

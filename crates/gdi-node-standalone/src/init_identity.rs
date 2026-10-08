@@ -167,7 +167,9 @@ pub async fn run(
         })?;
         (pem, serialize_public_key(&secret_key.public_key()))
     } else {
-        crate::init_identity_file::warn_if_datasets_predate_new_identity(data_dir);
+        if let Some(notice) = crate::init_identity_file::new_identity_notice(data_dir, None) {
+            eprintln!("{notice}");
+        }
         let (secret_key, public_key) = generate_keypair();
         (
             Zeroizing::new(serialize_secret_key(&secret_key)),

@@ -108,7 +108,7 @@ services:
       # Gate on the secrets backend's listener so the node does not race it on a cold
       # `up`. If it loses that race (Vault unreachable at startup) it latches
       # keyless-degraded and does not self-heal — see the KeylessDegraded alert and
-      # docs/operating.md §8. `required: false` keeps this valid under whichever single
+      # docs/operating.md §1. `required: false` keeps this valid under whichever single
       # secrets profile is active (the other backend service is absent).
       openbao:
         condition: service_healthy

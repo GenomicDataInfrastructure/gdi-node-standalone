@@ -902,3 +902,58 @@ async fn a_failing_download_backs_off_instead_of_refetching_every_poll() {
         "a backing-off dataset must not be re-downloaded on every subsequent poll"
     );
 }
+
+/// A bucket that answers again after an outage reconciles within one marker poll, so its
+/// channel reads healthy without waiting for the full poll. The marker is unchanged and the
+/// full poll an hour away, so only its answering again can trigger that.
+#[tokio::test]
+async fn a_bucket_that_answers_again_reconciles_within_one_marker_poll() {
+    let dark = Arc::new(AtomicBool::new(false));
+    let get_dark = Arc::clone(&dark);
+    let list_dark = Arc::clone(&dark);
+    let store = HookStore::new("DarkStore")
+        .on_get(move |_| {
+            let fail = get_dark.load(Ordering::SeqCst);
+            Box::pin(async move { fail.then(injected) })
+        })
+        .on_list(move |_| {
+            let fail = list_dark.load(Ordering::SeqCst);
+            Box::pin(async move { fail.then(injected) })
+        })
+        .into_store();
+    let bucket = S3Bucket {
+        marker_poll_interval: 1,
+        full_poll_interval: 3_600,
+        ..bucket_cfg("primary", false)
+    };
+    let rig = Rig::new(store, bucket);
+    rig.monitor.reconcile().await;
+    let health = || {
+        rig.state
+            .readiness
+            .channel_health_snapshot()
+            .get("primary")
+            .copied()
+    };
+    let running = tokio::spawn(rig.monitor.clone().run());
+    tokio::time::sleep(Duration::from_millis(1_500)).await;
+
+    // The outage, as a failed listing would have flagged it.
+    dark.store(true, Ordering::SeqCst);
+    rig.state.readiness.set_channel_health("primary", false);
+    tokio::time::sleep(Duration::from_millis(2_500)).await;
+    assert_eq!(
+        health(),
+        Some(false),
+        "nothing reconciles while the bucket is dark"
+    );
+
+    dark.store(false, Ordering::SeqCst);
+    poll_until(Duration::from_secs(10), || health() == Some(true)).await;
+
+    rig.monitor.retire_signal().retire();
+    tokio::time::timeout(Duration::from_secs(5), running)
+        .await
+        .expect("a retired monitor returns")
+        .expect("the monitor task must not panic");
+}
