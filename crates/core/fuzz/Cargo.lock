@@ -640,7 +640,7 @@ dependencies = [
 
 [[package]]
 name = "gdi-node-standalone-beacon"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 dependencies = [
  "gdi-node-standalone-core",
  "serde",
@@ -651,7 +651,7 @@ dependencies = [
 
 [[package]]
 name = "gdi-node-standalone-core"
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 dependencies = [
  "arrow-array",
  "arrow-buffer",

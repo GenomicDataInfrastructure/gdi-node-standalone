@@ -2758,7 +2758,7 @@ operational invariant covered above under [Where things live](#where-things-live
 
 ## 20. Verifying release artifacts + the container image
 
-> **`v1.0.0-rc.2` is the current release.** Being a candidate, it has no `:latest` image
+> **`v1.0.0-rc.3` is the current release.** Being a candidate, it has no `:latest` image
 > tag, so use the exact tag in the commands below.
 
 Each release publishes, alongside the per-platform binaries: one `SHA256SUMS`, a keyless

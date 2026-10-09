@@ -18,9 +18,9 @@ exclude = ["crates/core/fuzz"]
 [workspace.package]
 # The exact version being shipped, pre-release suffix and all: this is what the binary
 # reports as `CARGO_PKG_VERSION`, and `version-guard` in release.yml compares the tag to it
-# with no stripping. So this tree tags `v1.0.0-rc.2`, and the final release means setting
+# with no stripping. So this tree tags `v1.0.0-rc.3`, and the final release means setting
 # `1.0.0` here and tagging `v1.0.0`.
-version = "1.0.0-rc.2"
+version = "1.0.0-rc.3"
 edition = "2024"
 rust-version = "1.96"
 license = "MIT OR Apache-2.0"
