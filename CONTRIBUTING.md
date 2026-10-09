@@ -545,15 +545,18 @@ checks each pinned SHA against its comment upstream.
 The `pins` leg has no `ci.yml` job: it is a verdict about the world rather than about the
 commit, so it runs weekly in `scheduled.yml` as its own `pins` job (with `PINS_STRICT=1`),
 alongside `vendored-sync`.
-`scripts/vendored.sh pins` asserts that the userportal's deployed CKAN-extension refs, the
-gdi-metadata HealthDCAT-AP lineage, the GA4GH beacon-v2 latest release tag and the pinned
-GitHub Action tags all still resolve to what this tree pins, and `ci-local.sh` itself
-compares the Dockerfile's distroless runtime digest against upstream, through Docker. It
-needs network, and unauthenticated GitHub API calls are rate-limited per IP, so export
-`GITHUB_TOKEN` — sent to `api.github.com` only — to lift the budget. Real drift,
-including a pinned path that 404s, warns in `pins` and fails `pins-strict`, which `release`
-and the weekly job run. A rate-limited or unreachable host only warns, because that is a
-verdict about your connection.
+`scripts/vendored.sh pins` asserts that the userportal's deployed profile code (at the tags
+its own `ckan/Dockerfile` names, so a userportal release that moves a tag without moving the
+profile passes), the GA4GH beacon-v2 latest release tag and the pinned GitHub Action tags
+still resolve to what this tree pins; `vendored.sh drift gdi-metadata` compares the vendored
+shapes against upstream `main`; and `ci-local.sh` itself compares the Dockerfile's distroless
+runtime digest against upstream, through Docker. It needs network, and unauthenticated
+GitHub API calls are rate-limited per IP, so export `GITHUB_TOKEN` — sent to
+`api.github.com` only — to lift the budget. Real drift, including a pinned path that 404s,
+warns in `pins` and fails under `PINS_STRICT=1`, which `pins-strict`, `release` and the weekly
+job set. A rebuilt base image is a note unless `BASE_IMAGE_STRICT=1`, which only `pins-strict`
+and `release` set, since `image-scan` already fails on a fixable CVE in the pinned base. A
+rate-limited or unreachable host only warns, because that is a verdict about your connection.
 
 ### Scheduled / on-demand jobs (`scheduled.yml`)
 
@@ -586,9 +589,9 @@ inside the `release` meta-leg are marked.
   vendored conformance file is byte-identical to its pinned commit. Because that commit is
   an immutable SHA it stays green however far upstream moves, so `scripts/vendored.sh
   drift` answers the other question, comparing the same files against the upstream branch
-  named in each `VENDORED.md`. Exit 3 means upstream moved, which is news rather than a
-  defect, so the job runs it `continue-on-error` and it stays out of `all`. Local: both
-  need network.
+  named in each `VENDORED.md`. Exit 3 means upstream moved, which for Beacon and VRS is
+  news rather than a defect, so the job runs it `continue-on-error`; the `pins` leg runs
+  it for the gdi-metadata set alone, fatally. Local: both need network.
 - **`cross-native`** — macOS and Windows `gdi-dataset-tool` builds. No local leg: it needs
   those operating systems.
 - **`cross-linux-arm`** — aarch64-linux service build-verify (gnu and static musl, full
@@ -609,9 +612,10 @@ inside the `release` meta-leg are marked.
   rather than per-PR because the leg range-downloads those slices first; the corpus is
   cached
   between runs. Local: `ci-local.sh corpus`.
-- **`pins`** — external pin freshness: the userportal deploy refs and gdi-metadata lineage
-  this tree follows, plus the distroless runtime digest in the Dockerfile. Weekly because
-  it is a verdict about the world, not about the commit. Local:
+- **`pins`** — external pin freshness: the userportal's deployed profile code, the vendored
+  gdi-metadata shapes against upstream, the beacon-v2 release and action tags, plus the
+  distroless runtime digest in the Dockerfile (a note there). Weekly because it is a
+  verdict about the world, not about the commit. Local:
   `PINS_STRICT=1 ci-local.sh pins` (the job sets that so drift is fatal there; a working
   tree only warns).
 - **`notify`** — opens or updates one tracking issue on a failed weekly run. No local

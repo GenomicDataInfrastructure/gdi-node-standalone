@@ -116,19 +116,51 @@ class CurlToTest(unittest.TestCase):
         self.assertFalse([a for a in argv if a.startswith("Authorization")])
 
 
-class RateLimitIsReportedTest(unittest.TestCase):
-    def test_both_pin_checks_print_the_remedy_on_a_rate_limit(self):
-        # The leg-level half: the flag curl_to sets must reach a line naming the cause and
-        # GITHUB_TOKEN in both checks. A remedy printed by one and not the other sends the
-        # reader to the wrong function.
-        for fn in ("check_pins", "check_action_pins"):
-            body = _extract(fn)
-            self.assertRegex(
-                body,
-                r'CURL_RATELIMITED[^\n]*\n\s*echo "\s*RATE-LIMITED[^\n]*GITHUB_TOKEN',
-                f"{fn} does not print a RATE-LIMITED line naming GITHUB_TOKEN when "
-                "curl_to reports a spent budget",
+class FetchFailuresAreClassifiedOnceTest(unittest.TestCase):
+    """One classifier decides gone vs rate-limited vs unreachable, and every fetch site uses it.
+
+    Three hand-copied versions of the split let the fourth site omit it, which is how a
+    404 on a vendored shape or on the userportal's Dockerfile read as "network" and passed
+    the strict leg. The classifier is where the flag `curl_to` sets becomes a line naming
+    the cause and, for a spent budget, GITHUB_TOKEN.
+    """
+
+    FETCH_SITES = (
+        "check_pins",
+        "check_action_pins",
+        "check_userportal_profiles",
+        "process_set",
+    )
+
+    def test_the_classifier_names_the_rate_limit_remedy(self):
+        body = _extract("classify_fetch_failure")
+        self.assertRegex(body, r"RATE-LIMITED[^\n]*GITHUB_TOKEN")
+
+    def test_every_fetch_site_uses_the_classifier_and_none_reimplements_it(self):
+        from _helpers import strip_comments
+
+        for fn in self.FETCH_SITES:
+            body = strip_comments(_extract(fn))
+            self.assertIn("classify_fetch_failure", body, f"{fn} does not classify")
+            self.assertNotIn(
+                "CURL_HTTP_CODE == 404", body, f"{fn} re-implements the 404 split"
             )
+
+    def test_the_classifier_tells_gone_from_the_network(self):
+        script = (
+            f"{_extract('classify_fetch_failure')}\n"
+            "CURL_HTTP_CODE=404 CURL_RATELIMITED=0 classify_fetch_failure 22; echo\n"
+            "CURL_HTTP_CODE=403 CURL_RATELIMITED=1 classify_fetch_failure 22; echo\n"
+            "CURL_HTTP_CODE=500 CURL_RATELIMITED=0 classify_fetch_failure 22; echo\n"
+            "CURL_HTTP_CODE=0 CURL_RATELIMITED=0 classify_fetch_failure 7; echo\n"
+        )
+        proc = subprocess.run(
+            ["bash", "-c", script], capture_output=True, text=True, check=False
+        )
+        kinds = [line.split()[0] for line in proc.stdout.splitlines() if line.strip()]
+        self.assertEqual(
+            ["GONE", "RATE-LIMITED", "UNREACHABLE", "UNREACHABLE"], kinds, proc.stdout
+        )
 
 
 if __name__ == "__main__":

@@ -2,9 +2,9 @@
 """Guard: the `pins` leg's base-image digest comparison behaves on equal/unequal input.
 
 `ci-local.sh`'s `pins` leg compares the Dockerfile's pinned distroless digest against the
-one `docker buildx imagetools inspect` resolves now, warning in `all` and failing under
-`PINS_STRICT=1` for a release. Without it a base pin can fall arbitrarily far behind
-upstream between releases with nothing executed noticing.
+one `docker buildx imagetools inspect` resolves now, a note in `all` and in the weekly job
+and a failure under `BASE_IMAGE_STRICT=1` for a release. Without it a base pin can fall
+arbitrarily far behind upstream between releases with nothing executed noticing.
 
 The comparison (`_base_image_digest_check`) is split out from the Docker call around it
 (`_base_image_freshness`) so it can be tested without Docker or a network. This file
@@ -64,6 +64,43 @@ def run_check(pinned: str, upstream: str) -> subprocess.CompletedProcess:
         text=True,
         check=False,
     )
+
+
+class BaseImageFreshnessReturnCodes(unittest.TestCase):
+    """`_base_image_freshness` tells "upstream moved" (1) from "this tree is inconsistent" (2).
+
+    `_base_image_pin_gate` demotes the former to a note unless BASE_IMAGE_STRICT=1 and must
+    keep the latter fatal, so the two need distinct codes. Run with the Docker-touching
+    helpers stubbed: two different pins for the base are reported before the registry is
+    asked, so no `docker` is needed to reach that branch.
+    """
+
+    def test_two_different_pins_for_the_base_return_2_before_asking_the_registry(self):
+        body = extract_function("_base_image_freshness")
+        script = (
+            "set -euo pipefail\n"
+            "C_DIM='' ; C_ERR='' ; C_OFF=''\n"
+            "skip_unless() { return 0; }\n"
+            "assert_nonempty() { :; }\n"
+            "_all_dockerfile_digest_pins() {\n"
+            "  echo 'gcr.io/distroless/cc-debian13:nonroot sha256:" + "a" * 64 + "'\n"
+            "  echo 'gcr.io/distroless/cc-debian13:nonroot sha256:" + "b" * 64 + "'\n"
+            "}\n"
+            "docker() { echo 'registry was asked' >&2; exit 99; }\n"
+            f"{body}\n"
+            "rc=0; _base_image_freshness || rc=$?\n"
+            'echo "rc=$rc"\n'
+        )
+        proc = subprocess.run(
+            ["bash", "-c", script],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertIn("rc=2", proc.stdout, proc.stdout + proc.stderr)
+        self.assertNotIn("registry was asked", proc.stderr)
+        self.assertIn("DIFFERENT digests", proc.stdout)
 
 
 class BaseImageDigestCheck(unittest.TestCase):

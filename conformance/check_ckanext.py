@@ -15,8 +15,9 @@ the harvester repository (``gdi-userportal-ckanext-fairdatapoint``), not in
 ``ckanext-dcat``. It adds tag validation, ``tags_translated`` sanitising and label
 resolution on top of the parent's reads and overrides no predicate, so the parent's
 predicate set below is the deployed one. A harvester bump therefore changes this profile
-without touching the ``ckanext-dcat`` pin, which is why both refs are watched by
-``vendored.sh pins`` (see ``conformance/README.md``).
+without touching the ``ckanext-dcat`` pin, which is why both forks' profile files are
+watched by content, at the tags the userportal deploys, by ``vendored.sh pins`` (see
+``conformance/README.md``).
 
 In practice the rdflib mirror (tier 2) is what runs: the real ``ckanext-dcat``
 ``RDFParser`` needs full CKAN (``ckantoolkit`` imports ``ckan``), which the isolated
@@ -177,21 +178,22 @@ def fallback_direct_parse(g: Graph) -> None:
     installed ``ckanext/dcat/profiles/euro_health_dcat_ap.py`` and ``euro_dcat_ap_3``).
 
     Pins: the deployed profile is ``fairdatapoint_dcat_ap`` from
-    ``gdi-userportal-ckanext-fairdatapoint @ v1.7.2``, a subclass that adds tag sanitising
-    and label resolution and overrides no predicate read, so this hand-mirror tracks its
-    parent in the GDI fork ``gdi-userportal-ckanext-dcat @ v2.5.0`` (what the userportal
-    deploys; ``requirements.txt`` pins the matching upstream base ``ckanext-dcat==2.4.4``
-    for the optional real-parser tier). Both refs are watched by ``vendored.sh pins``,
-    because a harvester bump can change the profile with the ``ckanext-dcat`` pin standing
-    still.
+    ``gdi-userportal-ckanext-fairdatapoint``, a subclass that adds tag sanitising and label
+    resolution and overrides no predicate read, so this hand-mirror tracks its parent in the
+    GDI fork ``gdi-userportal-ckanext-dcat`` (what the userportal deploys;
+    ``requirements.txt`` pins the fork's upstream base ``ckanext-dcat==2.4.4`` for the
+    optional real-parser tier). ``vendored.sh pins`` watches both profile files by hash at
+    the tags the userportal's ``ckan/Dockerfile`` names, because a harvester bump can change
+    the profile with the ``ckanext-dcat`` pin standing still.
 
     The parent ``euro_health_dcat_ap`` profile reads
     ``healthdcatap:{numberOfRecords,healthCategory,hdab}`` (namespace
     ``http://healthdataportal.eu/ns/health#``) and ``dpv:hasLegalBasis``
     (``https://w3id.org/dpv#``), plus the DCAT-AP core ``dct:title``, ``dct:identifier``
     and ``dcat:accessURL`` — the subset asserted below, checked against the fork's
-    ``profiles/euro_health_dcat_ap.py`` at v2.5.0. Re-check this list when bumping, so the
-    best-effort tier cannot drift from the deployed profile.
+    ``profiles/euro_health_dcat_ap.py`` at the hash ``USERPORTAL_PROFILE_PINS`` pins.
+    Re-check this list when that hash drifts, so the best-effort tier cannot drift from the
+    deployed profile.
     """
     catalogs = list(g.subjects(RDF.type, DCAT.Catalog))
     _require(

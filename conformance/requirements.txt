@@ -22,24 +22,23 @@
 #
 # - pyshacl / rdflib: the SHACL engine + RDF graph for check_fdp.py / check_dataset.py.
 # - ckanext-dcat:    the consumer-compat profile parser for check_ckanext.py. The
-#                    userportal deploys the GDI *fork* installed from git —
-#                    `gdi-userportal-ckanext-dcat @ v2.5.0` (+ the harvester
-#                    `gdi-userportal-ckanext-fairdatapoint @ v1.7.2`), per
-#                    gdi-userportal-ckan-docker's `ckan/Dockerfile`. We pin the matching
-#                    upstream base `2.4.4` here, not the git fork: the fork's `RDFParser`
-#                    imports `ckan.plugins`, so the real-parser tier cannot load in this
-#                    CKAN-less venv either way — check_ckanext.py always degrades to its
-#                    best-effort direct rdflib consumer-parse (it says so in its output),
-#                    so a git install would only add per-run network fragility for zero
-#                    functional gain. pyshacl is the must-have gate; ckanext is nice-to-have.
+#                    userportal deploys the GDI *fork* installed from git
+#                    (`gdi-userportal-ckanext-dcat`, with the harvester
+#                    `gdi-userportal-ckanext-fairdatapoint`), at the tags named in
+#                    gdi-userportal-ckan-docker's `ckan/Dockerfile`. We pin the fork's
+#                    upstream base here, not the git fork: the fork's `RDFParser` imports
+#                    `ckan.plugins`, so the real-parser tier cannot load in this CKAN-less
+#                    venv either way — check_ckanext.py always degrades to its best-effort
+#                    direct rdflib consumer-parse (it says so in its output), so a git
+#                    install would only add per-run network fragility for zero functional
+#                    gain. pyshacl is the must-have gate; ckanext is nice-to-have.
 #                    PIN NOTE: check_ckanext.py's fallback hand-mirrors the predicate reads
-#                    of the fork's `euro_health_dcat_ap` profile — VERIFIED against
-#                    gdi-userportal-ckanext-dcat @ v2.5.0 (the mirrored predicates match
-#                    upstream 2.4.4; the fork reads a few more). When bumping, re-verify
-#                    that mirrored list against the fork's `profiles/euro_health_dcat_ap.py`
-#                    (and `euro_dcat_ap_3.py`) so the best-effort check cannot silently
-#                    validate stale predicates. The deployed fork refs are drift-watched by
-#                    `scripts/vendored.sh pins`.
+#                    of the fork's `euro_health_dcat_ap` profile. `scripts/vendored.sh pins`
+#                    watches that file (and the harvester's subclass) by hash at the deployed
+#                    tag, and the fork's `pyproject.toml` version against the pin below. When
+#                    it drifts: re-verify the mirrored list against the fork's
+#                    `profiles/euro_health_dcat_ap.py` (and `euro_dcat_ap_3.py`), re-pin the
+#                    hash, and bump the version below if the base moved.
 pyshacl==0.40.1
 rdflib==7.6.0
 ckanext-dcat==2.4.4

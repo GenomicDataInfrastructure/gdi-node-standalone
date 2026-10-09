@@ -119,8 +119,8 @@ FROM ${BIN_SOURCE} AS binsrc
 # committing it. Re-resolve with
 #   docker buildx imagetools inspect gcr.io/distroless/cc-debian13:nonroot
 # (or the registry manifest API) and bump tag+digest together. `ci-local.sh pins`
-# checks this digest against the current upstream one on every run (WARN in `all`,
-# fail under `PINS_STRICT=1`).
+# checks this digest against the current upstream one on every run (a note in `all` and
+# in the weekly job, fatal under `BASE_IMAGE_STRICT=1`, which `release` sets).
 FROM gcr.io/distroless/cc-debian13:nonroot@sha256:e792ab3d241a468a4fd7519ddbbebe66b49b5f365771716ea688ad40b6c6f1c2
 
 # The service reads its config from GDI_CONFIG (default /etc/gdi-node-standalone/node.toml)

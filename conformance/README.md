@@ -111,7 +111,8 @@ into `target/conformance/union.ttl`. It then runs:
   resolution. It overrides no predicate read, so the parent's predicate set is the
   deployed one. It ships in the harvester extension
   (`gdi-userportal-ckanext-fairdatapoint`), not in `ckanext-dcat`, so a harvester bump can
-  change the profile with the `ckanext-dcat` pin standing still; both refs are watched (see
+  change the profile with the `ckanext-dcat` pin standing still; the profile code of both
+  forks is watched by content, at the tags the userportal deploys (see
   [Version pins](#version-pins)).
 
   The check prefers the real `ckanext-dcat` `RDFParser` on the parent profile, since the
@@ -200,13 +201,15 @@ You can also run a check by hand once a `union.ttl` exists:
   hash-locked `requirements.lock` (regenerate both together with
   `uv pip compile --universal --generate-hashes`); bump them in a reviewed change.
   `ckanext-dcat` is pinned to `2.4.4`, the upstream base of the GDI fork the userportal
-  deploys (`gdi-userportal-ckanext-dcat @ v2.5.0`, with harvester
-  `gdi-userportal-ckanext-fairdatapoint @ v1.7.2`, per gdi-userportal-ckan-docker). The
-  profile the deployment's harvest sources name is `fairdatapoint_dcat_ap`, supplied by the
-  harvester ref as a subclass of the fork's `euro_health_dcat_ap`, so the `ckanext-dcat`
-  pin alone would not see a profile change. That is why both refs are watched below.
-  `check_ckanext.py` runs an rdflib hand-mirror of the inherited `euro_health_dcat_ap`
-  reads, because the real `RDFParser` needs full CKAN and so never loads in this venv.
+  deploys (`gdi-userportal-ckanext-dcat`, with the harvester
+  `gdi-userportal-ckanext-fairdatapoint`, at the tags gdi-userportal-ckan-docker's
+  `ckan/Dockerfile` names). The profile the deployment's harvest sources name is
+  `fairdatapoint_dcat_ap`, supplied by the harvester as a subclass of the fork's
+  `euro_health_dcat_ap`, so the `ckanext-dcat` pin alone would not see a profile change.
+  That is why both profile files are watched below by content at the deployed tag, and the
+  fork's `pyproject.toml` version against this `2.4.4` pin. `check_ckanext.py` runs an
+  rdflib hand-mirror of the inherited `euro_health_dcat_ap` reads, because the real
+  `RDFParser` needs full CKAN and so never loads in this venv.
 - **Guards on all of the above.** Which gate reaches each one differs, and the difference
   matters, so it is stated per guard rather than claimed for the list. The offline
   integrity of these files is fully covered by `scripts/ci-local.sh all`; the two guards
@@ -218,17 +221,20 @@ You can also run a check by hand once a `union.ttl` exists:
     `"required"` array from a Beacon schema makes everything downstream pass more easily.
   - `vendored.sh pins` (network, in the `pins` leg). Under `all`, both an unreachable
     network and real drift warn and pass: drift here means the federation moved, not that
-    this tree broke, so it is reported rather than fatal. `release` and `pins-strict` set
-    `PINS_STRICT=1` and fail closed on drift. Four watches (`EXTERNAL_PINS`): the
-    userportal's two deployed CKAN-extension refs, gdi-metadata's declared HealthDCAT-AP
-    release, and the latest GA4GH beacon-v2 release tag — the only watch on a standard
-    rather than on what the federation deploys. That last one reads the releases API,
+    this tree broke, so it is reported rather than fatal. The weekly job, `release` and
+    `pins-strict` set `PINS_STRICT=1` and fail closed on drift. Two watches:
+    `USERPORTAL_PROFILE_PINS`, the deployed profile files by hash and the dcat fork's
+    upstream base against this `requirements.txt`, resolved at the tags the userportal's
+    own `ckan/Dockerfile` names, so a userportal release that moves a tag but neither fact
+    passes; and `EXTERNAL_PINS`, the latest GA4GH beacon-v2 release tag — the only watch on
+    a standard rather than on what the federation deploys. That one reads the releases API,
     because a release is a tag and tags are in no file the repo contains: beacon-v2's own
     CHANGELOG tops out at `2.0.0` while the repo is tagged `v2.2.0`, so a file-based watch
     would be a dead guard. The same subcommand also runs `check_action_pins`, which is
     about this repo rather than the federation: it re-resolves every
     `uses: owner/repo@<sha> # <tag>` in the workflows and reports a SHA that no longer is
-    that tag.
+    that tag. The `pins` leg also runs `vendored.sh drift gdi-metadata` (below), with the
+    same warn-or-fail split.
   - `pip-audit` (in the `supply_chain` leg) — the advisory scan for the one corner
     `cargo deny` cannot see. It audits the `.lock` files, not the `.txt`: pip-audit resolves
     a requirements file, and the loose `.txt` can resolve a newer version than the lock pins
@@ -245,11 +251,17 @@ You can also run a check by hand once a `union.ttl` exists:
     narrow — `verify` above already proves nothing in the tree was added, deleted or
     edited — leaving only the question of whether upstream still serves those bytes at that
     commit, which is a verdict about someone else's repository.
-  - `vendored.sh drift` (network) — the question `check` cannot answer: has upstream moved?
-    Same files, compared against the upstream branch (`**Branch:**` in each `VENDORED.md`).
-    Exit 3 means upstream moved, which is news rather than a defect, since this tree is
-    pinned. It is not in `ci-local.sh all`: it makes tens of network fetches, and a gate
-    that reddens because someone else committed is one people learn to ignore.
+  - `vendored.sh drift [set]` (network) — the question `check` cannot answer: has upstream
+    moved? Same files, compared against the upstream branch (`**Branch:**` in each
+    `VENDORED.md`). Exit 3 means upstream moved (a file removed upstream counts), 2 that a
+    file could not be fetched, 1 that this tree is broken (a vendored file missing locally,
+    or a `VENDORED.md` that does not parse). For
+    the Beacon and VRS sets that is news, not a defect: the node tracks a release. The
+    gdi-metadata shapes are the contract the conformance gate validates against, so the
+    `pins` leg runs `drift gdi-metadata` for them, a warning in `all` and fatal under
+    `PINS_STRICT=1`. The all-sets form is not in `ci-local.sh all`: it makes tens of
+    network fetches, and a gate that reddens because someone else committed is one people
+    learn to ignore.
   - Both are also scheduled weekly in `.github/workflows/scheduled.yml`, which runs on
     GitHub Actions (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)). Two caveats. In a fork,
     scheduled workflows run only if the fork enables Actions, and GitHub disables a
