@@ -14,13 +14,17 @@
 #
 #   DEMO_NODE_URL / DEMO_MGMT_URL / DEMO_S3_ENDPOINT / DEMO_S3_BUCKET / DEMO_S3_REGION /
 #   DEMO_S3_ACCESS_KEY / DEMO_S3_SECRET_KEY point at another stack (shifted host ports, a
-#   bucket of your own). DEMO_KEEP=1 keeps the scratch dir with the .cast; DEMO_DUMP=1 also
+#   bucket of your own). The URLs are typed into the recording, so a shifted stack shows
+#   shifted ports; to record the defaults on a host whose :8080 is taken, put the stack behind
+#   a container that forwards 127.0.0.1:8080/9090/3900 and set DEMO_NETWORK=container:<name>,
+#   the docker network the wizard joins (default: host). The readiness probe runs in that
+#   network too. DEMO_KEEP=1 keeps the scratch dir with the .cast; DEMO_DUMP=1 also
 #   writes the ANSI-stripped transcript there, which is what to read when a prompt changed and
 #   drive-wizard.py's SCRIPT table needs the new wording.
 #
 # The wizard runs in a throwaway container with a clean home directory, so every path in the
-# recording is a provider's (`/home/provider/...`), not this machine's. `--network host` is
-# what lets it reach the stack's loopback-published ports. The image is pinned by digest like
+# recording is a provider's (`/home/provider/...`), not this machine's. `--network host` (the
+# default) is what lets it reach the stack's loopback-published ports. The image is pinned by digest like
 # every other image in the tree; Debian trixie's glibc is newer than the tool's floor.
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -34,6 +38,7 @@ OUT="${1:-docs/images/wizard.svg}"
 : "${DEMO_S3_REGION:=garage}"
 : "${DEMO_S3_ACCESS_KEY:=GK0123456789abcdef01234567}"
 : "${DEMO_S3_SECRET_KEY:=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}"
+: "${DEMO_NETWORK:=host}"
 TOOL="${DEMO_TOOL:-target/release/gdi-dataset-tool}"
 IMAGE="python:3.13-slim-trixie@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285"
 
@@ -47,8 +52,17 @@ if [ -n "$(find crates/gdi-dataset-tool/src crates/core/src -name '*.rs' -newer 
   echo "record-wizard: $TOOL is older than the tool's sources; rebuild it first (cargo build --release -p gdi-dataset-tool)" >&2
   exit 1
 fi
-curl -fsS "$DEMO_MGMT_URL/health/ready" >/dev/null 2>&1 \
-  || { echo "record-wizard: no ready node at $DEMO_MGMT_URL (start the Compose S3 stack first)" >&2; exit 1; }
+# Probe where the wizard will run: in a namespaced network the URL means nothing on the host.
+node_ready() {
+  if [ "$DEMO_NETWORK" = host ]; then
+    curl -fsS "$DEMO_MGMT_URL/health/ready" >/dev/null 2>&1
+  else
+    docker run --rm --network "$DEMO_NETWORK" "$IMAGE" python3 -c \
+      "import urllib.request; urllib.request.urlopen('$DEMO_MGMT_URL/health/ready', timeout=5)" >/dev/null 2>&1
+  fi
+}
+node_ready \
+  || { echo "record-wizard: no ready node at $DEMO_MGMT_URL in network $DEMO_NETWORK (start the Compose S3 stack first)" >&2; exit 1; }
 
 work="$(mktemp -d)"
 # Named, and removed on exit: when the driver gives up on a prompt it kills the docker client,
@@ -67,7 +81,7 @@ python3 scripts/demo/drive-wizard.py --out "$work/wizard.cast" "${dump[@]}" \
   --node-url "$DEMO_NODE_URL" --management-url "$DEMO_MGMT_URL" \
   --s3-endpoint "$DEMO_S3_ENDPOINT" --s3-bucket "$DEMO_S3_BUCKET" --s3-region "$DEMO_S3_REGION" \
   --s3-access-key "$DEMO_S3_ACCESS_KEY" --s3-secret-key "$DEMO_S3_SECRET_KEY" -- \
-  docker run --rm -it --name "$container" --network host --user "$(id -u):$(id -g)" \
+  docker run --rm -it --name "$container" --network "$DEMO_NETWORK" --user "$(id -u):$(id -g)" \
     -e HOME=/home/provider -e TERM=xterm-256color -w /home/provider/work \
     -v "$work/home:/home/provider" \
     -v "$REPO_ROOT/crates/test-util/tests/fixtures/sample:/home/provider/work/data:ro" \
