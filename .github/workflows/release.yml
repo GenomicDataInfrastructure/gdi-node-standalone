@@ -588,7 +588,12 @@ jobs:
           # byte-identical embedded binary (SHA256SUMS) and the SLSA attestation binding
           # this exact digest (`gh attestation verify`), not image-digest rebuild.
           created="$(git log -1 --format=%cI)"
+          # No BuildKit provenance: on a Docker with the containerd image store (the default
+          # since 29) buildx would otherwise push an OCI index with an extra `unknown/unknown`
+          # manifest describing only the copy of the prebuilt binary. The provenance is the
+          # GitHub attestation below; this keeps the image one `linux/amd64` manifest.
           docker buildx build --push \
+            --provenance=false \
             --build-arg BIN_SOURCE=prebuilt \
             "${tags[@]}" \
             --label "org.opencontainers.image.source=${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
