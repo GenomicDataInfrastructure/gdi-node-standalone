@@ -224,12 +224,13 @@ jobs:
   # conformance/ga4gh-beacon-v2-default-model/, conformance/ga4gh-vrs-1.3/) from the commit
   # pinned in its VENDORED.md and asserts it is still byte-identical — turning the
   # "verbatim at commit X" claim from documentation into an enforced check. `check` also
-  # runs the `pins` assertions: the userportal's deployed ckanext-dcat/ckanext-fairdatapoint
-  # refs and gdi-metadata's declared HealthDCAT-AP release (so a federation move surfaces
-  # here as a ticket, not a silent harvest break). It is off the per-PR `ci` workflow
-  # because it needs network access and gates nothing on a PR. A red run means a vendored file
-  # was locally edited, a pin drifted, or an upstream deploy ref moved — re-vendor with
-  # `scripts/vendored.sh fetch` + bump VENDORED.md, update EXTERNAL_PINS, or revert the edit.
+  # runs the `pins` assertions: the userportal's deployed profile code, at the tags its own
+  # ckan/Dockerfile names, and the beacon-v2 release watch (so a consumer change surfaces
+  # here as a ticket, not a silent harvest break). It is off the per-PR `ci` workflow because
+  # it needs network access and gates nothing on a PR. A red run means a vendored file was
+  # locally edited, or upstream content or a pinned token changed — re-vendor with
+  # `scripts/vendored.sh fetch` + bump VENDORED.md, re-check and re-pin in scripts/vendored.sh,
+  # or revert the edit.
   # (The authored FDP shapes under conformance/shapes/fdp/ are not vendored — see
   # their PROVENANCE.md — so they are not byte-checked here.) GITHUB_TOKEN raises the
   # unauthenticated rate limit for the raw fetches.
@@ -249,7 +250,9 @@ jobs:
       # `continue-on-error`, because upstream moving is news, not a defect in this tree.
       # The policy is to follow the federation in lockstep rather than chase it, so this
       # surfaces the change as exit 3, visible in the run, without failing a job that then
-      # gets muted. The `notify` step below still reports the run.
+      # gets muted. The `notify` step below still reports the run. The gdi-metadata shapes
+      # are the exception: the conformance gate validates against them, so the `pins` job
+      # below runs `drift gdi-metadata` fatally.
       - name: Report whether upstream has moved past our pinned commits
         continue-on-error: true
         env:
@@ -495,13 +498,14 @@ jobs:
           key: gdi-corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
       - run: ./scripts/ci-local.sh corpus
 
-  # External pin freshness: the userportal deploy refs and gdi-metadata lineage this tree
-  # follows, plus the distroless runtime digest in the Dockerfile. Weekly, not per-PR,
-  # because it is a verdict about the world rather than about the commit: it goes red when
-  # the federation moves or the distroless base is rebuilt, neither of which any pull
-  # request caused, and a gate that reddens for reasons the author cannot fix is a gate
-  # people learn to ignore. The leg already downgrades an unreachable upstream to a warning
-  # rather than a failure.
+  # External pin freshness: the userportal's deployed profile code, the vendored gdi-metadata
+  # shapes against upstream, the beacon-v2 release and action tags, plus the distroless
+  # runtime digest in the Dockerfile. Weekly, not per-PR, because it is a verdict about the
+  # world rather than about the commit: it goes red when a consumer contract moves, which no
+  # pull request caused, and a gate that reddens for reasons the author cannot fix is a gate
+  # people learn to ignore. An unreachable upstream is a warning. A rebuilt distroless base
+  # is a note, not a failure: `image-scan` above already fails on a fixable CVE in the pinned
+  # one.
   pins:
     runs-on: ubuntu-26.04
     steps:
@@ -511,6 +515,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           # Fatal here, unlike a developer's working tree: this job exists to be the place
           # drift is noticed, and a warning in a weekly log nobody opens is not that.
+          # BASE_IMAGE_STRICT stays unset, per the job comment above.
           PINS_STRICT: "1"
         run: ./scripts/ci-local.sh pins
 

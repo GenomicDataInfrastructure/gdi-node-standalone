@@ -313,6 +313,15 @@ class ReleaseIsNeverCachedTest(unittest.TestCase):
             "behind the federation actually costs something, so it must fail closed",
         )
 
+    def test_release_makes_base_image_drift_fatal_too(self):
+        # The weekly job takes a moved base image as a note; a release ships on it.
+        self.assertRegex(
+            self.release_body,
+            r"(?m)^\s*(export\s+[^\n]*)?\bBASE_IMAGE_STRICT=1\b",
+            "`release` no longer exports BASE_IMAGE_STRICT=1, so a tag can ship on a base "
+            "image upstream has since rebuilt",
+        )
+
     def test_release_forbids_skipped_legs(self):
         # `all` lets `promtool` skip visibly without Docker. The export is what makes
         # `record_skip` die instead, so a release gate cannot skip the alert-rule tests.
@@ -356,14 +365,23 @@ def function_source(text: str, name: str) -> str:
 
 
 def run_pins(
-    *, base_drift: bool, external_rc: int, strict: bool
+    *,
+    base_drift: bool,
+    external_rc: int,
+    strict: bool,
+    shapes_rc: int = 0,
+    base_strict: bool = False,
+    base_rc: int | None = None,
 ) -> subprocess.CompletedProcess:
-    """Run the real `pins()` with its Docker half and its network half stubbed.
+    """Run the real `pins()` with its Docker half and its network halves stubbed.
 
-    `_base_image_freshness` returns 1 on drift and 0 when clean, as the real one does, and
-    `scripts/vendored.sh` exits 0 when clean, 1 on drift and 2 when unreachable. Each stub
-    announces itself on stdout, so a test can tell a half that ran from one that never
-    did. `pins`, `_base_image_pin_gate`, `step` and `die` are taken from ci-local.sh.
+    `_base_image_freshness` returns 1 on drift and 0 when clean, as the real one does
+    (`base_rc` overrides that, for its other codes), and `scripts/vendored.sh` exits 0 when
+    clean, 1 on drift and 2 when unreachable for `pins`, and `shapes_rc` for
+    `drift gdi-metadata` (0 clean, 1 tree broken, 2 unreachable, 3 upstream moved). Each
+    stub announces
+    itself on stdout, so a test can tell a half that ran from one that never did. `pins`,
+    `_base_image_pin_gate`, `step` and `die` are taken from ci-local.sh.
     """
     text = CI_LOCAL.read_text(encoding="utf-8")
     script = "\n".join(
@@ -376,19 +394,28 @@ def run_pins(
             ),
             (
                 f"_base_image_freshness() {{ echo 'stub: base image freshness ran'; "
-                f"return {1 if base_drift else 0}; }}"
+                f"return {base_rc if base_rc is not None else (1 if base_drift else 0)}; }}"
             ),
             "pins",
         ]
     )
-    env = {k: v for k, v in os.environ.items() if k != "PINS_STRICT"}
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("PINS_STRICT", "BASE_IMAGE_STRICT")
+    }
     if strict:
         env["PINS_STRICT"] = "1"
+    if base_strict:
+        env["BASE_IMAGE_STRICT"] = "1"
     with tempfile.TemporaryDirectory() as tmp:
         stub = pathlib.Path(tmp, "scripts", "vendored.sh")
         stub.parent.mkdir()
         stub.write_text(
-            f'echo "stub: vendored.sh $* ran"\nexit {external_rc}\n', encoding="utf-8"
+            'echo "stub: vendored.sh $* ran"\n'
+            f'case "$1" in drift) exit {shapes_rc} ;; esac\n'
+            f"exit {external_rc}\n",
+            encoding="utf-8",
         )
         return subprocess.run(
             ["bash", "-c", script],
@@ -409,7 +436,7 @@ class PinDriftFatalityTest(unittest.TestCase):
     """
 
     def test_strict_base_drift_does_not_hide_the_external_pins(self):
-        proc = run_pins(base_drift=True, external_rc=0, strict=True)
+        proc = run_pins(base_drift=True, external_rc=0, strict=True, base_strict=True)
         self.assertIn(
             "stub: vendored.sh pins ran",
             proc.stdout,
@@ -419,7 +446,7 @@ class PinDriftFatalityTest(unittest.TestCase):
         self.assertIn("base image digest drift", proc.stderr)
 
     def test_strict_drift_in_both_halves_names_both(self):
-        proc = run_pins(base_drift=True, external_rc=1, strict=True)
+        proc = run_pins(base_drift=True, external_rc=1, strict=True, base_strict=True)
         self.assertEqual(1, proc.returncode, proc.stderr)
         self.assertIn("base image digest drift", proc.stderr)
         self.assertIn("external pin drift", proc.stderr)
@@ -433,7 +460,7 @@ class PinDriftFatalityTest(unittest.TestCase):
     def test_strict_base_drift_survives_unreachable_external_pins(self):
         # Unreachable is not fatal on its own, so its arm must not end the leg with a
         # success that swallows the base-image verdict held above it.
-        proc = run_pins(base_drift=True, external_rc=2, strict=True)
+        proc = run_pins(base_drift=True, external_rc=2, strict=True, base_strict=True)
         self.assertIn("could not be fetched", proc.stdout)
         self.assertEqual(1, proc.returncode, proc.stderr)
         self.assertIn("base image digest drift", proc.stderr)
@@ -454,8 +481,93 @@ class PinDriftFatalityTest(unittest.TestCase):
         # fatal verdict here would skip every leg after `pins` because an upstream moved.
         proc = run_pins(base_drift=True, external_rc=1, strict=False)
         self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertIn("WARNING: base image digest DRIFT", proc.stdout)
+        self.assertIn("a fresher", proc.stdout)
         self.assertIn("WARNING: external pin DRIFT", proc.stdout)
+
+
+class BaseImageStrictnessTest(unittest.TestCase):
+    """A moved base image is a note under PINS_STRICT alone, fatal under BASE_IMAGE_STRICT.
+
+    The weekly job sets only PINS_STRICT=1; `release` and `pins-strict` add the other.
+    Two Dockerfiles pinning the base at different digests is a defect in this tree, not
+    upstream news, and stays fatal in every mode.
+    """
+
+    def test_a_moved_base_under_pins_strict_alone_is_a_note(self):
+        proc = run_pins(base_drift=True, external_rc=0, strict=True)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("a fresher", proc.stdout)
+        self.assertIn("BASE_IMAGE_STRICT", proc.stdout)
+        self.assertNotIn("base image digest drift", proc.stderr)
+
+    def test_a_moved_base_is_fatal_under_base_image_strict(self):
+        proc = run_pins(base_drift=True, external_rc=0, strict=False, base_strict=True)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("base image digest drift", proc.stderr)
+        self.assertIn("stub: vendored.sh pins ran", proc.stdout)
+
+    def test_inconsistent_dockerfile_pins_are_fatal_in_every_mode(self):
+        for strict, base_strict in ((False, False), (True, False), (False, True)):
+            proc = run_pins(
+                base_drift=True,
+                external_rc=0,
+                strict=strict,
+                base_strict=base_strict,
+                base_rc=2,
+            )
+            self.assertEqual(1, proc.returncode, (strict, base_strict, proc.stdout))
+            self.assertIn("different digests", proc.stderr.lower())
+
+
+class PinsStrictTargetTest(unittest.TestCase):
+    def test_pins_strict_makes_both_halves_fatal(self):
+        text = CI_LOCAL.read_text(encoding="utf-8")
+        self.assertRegex(
+            text,
+            r"(?m)^\s*pins-strict\)\s+(?=.*\bPINS_STRICT=1\b)(?=.*\bBASE_IMAGE_STRICT=1\b).*\bpins\b",
+            "the `pins-strict` target must set PINS_STRICT=1 and BASE_IMAGE_STRICT=1, since "
+            "it is documented as the check `release` runs",
+        )
+
+
+class ShapeDriftFatalityTest(unittest.TestCase):
+    """The gdi-metadata shapes half of `pins()`: `vendored.sh drift gdi-metadata`.
+
+    Fatal under PINS_STRICT like external pin drift, a warning otherwise. Exit 2 is no
+    network. Exit 1 is the set filter matching nothing, a defect in the leg's own call,
+    fatal in every mode.
+    """
+
+    def test_strict_shape_drift_is_fatal_and_named(self):
+        proc = run_pins(base_drift=False, external_rc=0, strict=True, shapes_rc=3)
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("gdi-metadata shapes", proc.stderr)
+
+    def test_shape_drift_is_only_a_warning_without_strict_mode(self):
+        proc = run_pins(base_drift=False, external_rc=0, strict=False, shapes_rc=3)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("WARNING: gdi-metadata shapes", proc.stdout)
+
+    def test_unreachable_shapes_are_not_fatal_under_strict_mode(self):
+        proc = run_pins(base_drift=False, external_rc=0, strict=True, shapes_rc=2)
+        self.assertEqual(0, proc.returncode, proc.stderr)
+        self.assertIn("SKIPPED", proc.stdout)
+
+    def test_a_set_filter_that_matches_nothing_is_fatal_in_every_mode(self):
+        for strict in (True, False):
+            proc = run_pins(base_drift=False, external_rc=0, strict=strict, shapes_rc=1)
+            self.assertEqual(1, proc.returncode, (strict, proc.stdout, proc.stderr))
+
+    def test_an_unexpected_drift_exit_still_names_the_other_findings(self):
+        # The leg promises one failure naming every half; a solo `die` here would eat the
+        # base-image and external verdicts collected above it.
+        proc = run_pins(
+            base_drift=True, external_rc=1, strict=True, base_strict=True, shapes_rc=1
+        )
+        self.assertEqual(1, proc.returncode, proc.stderr)
+        self.assertIn("base image digest drift", proc.stderr)
+        self.assertIn("external pin drift", proc.stderr)
+        self.assertIn("drift gdi-metadata exited 1", proc.stderr)
 
 
 class AnchoringTest(unittest.TestCase):

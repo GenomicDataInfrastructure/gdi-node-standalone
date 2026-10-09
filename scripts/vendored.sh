@@ -45,22 +45,25 @@
 #                  commit in that set's VENDORED.md and the matching build constant
 #                  (api_version / gdi_metadata_version) by hand, per VENDORED.md, then
 #                  re-run `check`.
-#   drift          Report whether upstream has moved. `check` cannot answer that, because
-#                  it fetches each set at its immutable pinned commit and so stays green
-#                  however far upstream advances. This compares the same files against
-#                  the upstream branch (VENDORED.md `**Branch:**`). Exit 3 = upstream
-#                  moved, which is news, not a defect. Network; not in `ci-local.sh all`.
-#   pins           Assert each EXTERNAL_PINS entry below (the userportal's deployed
-#                  CKAN-extension refs and gdi-metadata's declared HealthDCAT-AP release)
-#                  still contains its expected token. `check` runs this too, so it needs
-#                  no separate invocation there.
+#   drift [SET]    Report whether upstream has moved: the same files compared against the
+#                  upstream branch (VENDORED.md `**Branch:**`), which `check` cannot see
+#                  because it fetches each set at its pinned commit. Every set, or SET
+#                  alone (substring match, as `fetch`). Exit 3 = upstream moved (a file
+#                  removed upstream counts), 2 = could not fetch, 1 = this tree is broken
+#                  or SET matches nothing. News for Beacon and VRS, which the
+#                  node tracks by release; a finding for the gdi-metadata shapes, which is
+#                  why `ci-local.sh pins` runs `drift gdi-metadata`. Network.
+#   pins           Assert the upstream content this repo depends on is still what it was
+#                  pinned against: USERPORTAL_PROFILE_PINS (at the tags the userportal's
+#                  ckan/Dockerfile names), EXTERNAL_PINS, and the workflows' action pins.
+#                  `check` runs this too.
 #
 # Scope: `check` and `fetch` verify the fidelity of the files this repo does vendor. They
 # do not detect that upstream has added a file worth having, because each set vendors a
 # curated subset (beacon omits `examples*/`, for one), so picking up new files stays a
 # re-vendor decision rather than drift. `pins` covers the opposite case: upstream files
-# this repo does not vendor but silently depends on (harvest/profile version, metadata
-# lineage), asserting a substring rather than byte-equality. `pins` makes one
+# this repo does not vendor but depends on, by hash where the content matters (the deployed
+# profile code) and by substring where a token does (a release tag). `pins` makes one
 # `api.github.com` call for the beacon-v2 release watch and one per distinct Action pin,
 # against an unauthenticated budget of 60/h per IP. Set GITHUB_TOKEN to raise it;
 # the token is sent to api.github.com only (see curl_to). A rate-limited 403 is reported
@@ -80,27 +83,41 @@ SETS=(
   "conformance/ga4gh-vrs-1.3"
 )
 
-# External upstream references this repo does not vendor byte-for-byte, but which the
-# node's conformance and harvest story silently depends on and must not drift unnoticed:
-#   * the userportal's deployed CKAN-extension pins: the DCAT profile parser
-#     (`ckanext-dcat`) that the check_ckanext.py hand-mirror tracks, and the FDP harvester
-#     (`ckanext-fairdatapoint`) that crawls this node's FDP;
-#   * the gdi-metadata model's declared HealthDCAT-AP release ("lineage"). The node follows
-#     gdi-metadata and the userportal profile; its built-in [fairdp.publish] also adds what
-#     later HealthDCAT-AP releases ask for, where GDI's model has room for it. This fires
-#     when gdi-metadata moves off Release 5, the signal to re-vendor the shapes.
-# Each entry asserts the remote file still contains an expected substring (a version tag
-# or the declared release) rather than byte-diffing it: the upstream files change often
-# for reasons that do not concern this repo, and only the pinned token matters.
+# What the userportal's harvest reads from this node is decided by two files this repo does
+# not vendor: the `fairdatapoint_dcat_ap` profile in the GDI fork of ckanext-fairdatapoint
+# and its parent `euro_health_dcat_ap` in the GDI fork of ckanext-dcat, which
+# `conformance/check_ckanext.py` hand-mirrors. The mirror holds while that code is what it
+# was mirrored from; the conformance venv's `ckanext-dcat` pin holds while the dcat fork's
+# upstream base is that version. Both are checked at whatever tag the userportal deploys,
+# read from its own `ckan/Dockerfile`, so a userportal release that moves a tag without
+# moving either passes.
+USERPORTAL_DOCKERFILE="GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile"
+# Format: "<fork owner/repo>|<path in the fork>|<expectation>|<label>", expectation one of
+#   sha256=<hex>        the file at the deployed tag hashes to this. On DRIFT, re-check the
+#                       hand-mirror against the new file, then re-pin.
+#   requirement=<name>  the fork's pyproject.toml version equals what
+#                       conformance/requirements.txt pins for <name>, so the base version
+#                       is stated once. On DRIFT, bump requirements.txt (+ the lock).
+# Only the leaf profile files are watched. The DCAT-AP core reads (`dct:title`,
+# `dct:identifier`, `dcat:accessURL`) come from parent classes and do not move.
+USERPORTAL_PROFILE_PINS=(
+  "GenomicDataInfrastructure/gdi-userportal-ckanext-dcat|pyproject.toml|requirement=ckanext-dcat|ckanext-dcat fork upstream base (what conformance/requirements.txt installs)"
+  "GenomicDataInfrastructure/gdi-userportal-ckanext-dcat|ckanext/dcat/profiles/euro_health_dcat_ap.py|sha256=58fd5cc862ea3be984b7eb110f0e2a4104950b729c77e10216d3befd1dd762b0|euro_health_dcat_ap profile (parent of the deployed profile; check_ckanext.py mirrors its reads)"
+  "GenomicDataInfrastructure/gdi-userportal-ckanext-fairdatapoint|ckanext/fairdatapoint/profiles.py|sha256=453b2bd4eebd28737269ac338e5c88465c3a57905d8ea6065d20b0b57c67eb93|fairdatapoint_dcat_ap profile (the deployed subclass; overrides no read)"
+)
+
+# External upstream tokens this repo does not vendor but depends on. Each entry asserts the
+# remote document still contains a substring: the document changes for reasons that do not
+# concern this repo, and only the token matters.
 # Format: "<owner>/<repo>/<git-ref>|<path>|<expected-substring>|<label>"
-#   ...or "<full https URL>||<expected-substring>|<label>" for the release watches below.
+#   ...or "<full https URL>||<expected-substring>|<label>" for a release watch.
 #
-# Release watches. Everything above tracks what the federation deploys; these track what
-# the standard publishes. `check` fetches each set at its pinned commit, an immutable SHA,
-# so it verifies that the local copy is faithful to the pin, never that upstream has stood
-# still, and without a watch a new Beacon release passes unnoticed. A release is a tag, and
-# tags are in no file the repo contains, so the watch reads the API: beacon-v2's own
-# CHANGELOG tops out at `2.0.0` while the repo is tagged v2.2.0.
+# Release watch. The content pins above track what the federation deploys; this tracks
+# what the standard publishes. `check` fetches each set at its pinned commit, an immutable
+# SHA, so it verifies that the local copy is faithful to the pin, never that upstream has
+# stood still, and without a watch a new Beacon release passes unnoticed. A release is a
+# tag, and tags are in no file the repo contains, so the watch reads the API: beacon-v2's
+# own CHANGELOG tops out at `2.0.0` while the repo is tagged v2.2.0.
 #
 # The needle includes the JSON key, not just the bare version: `v2.2.0` alone also appears
 # in a release's prose body, so a v2.3.0 announcement mentioning "since v2.2.0" would keep
@@ -108,9 +125,6 @@ SETS=(
 # a possible false alarm (visible, one-line fix) for a false green (invisible), the right
 # way round for a guard.
 EXTERNAL_PINS=(
-  "GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile|gdi-userportal-ckanext-dcat.git@v2.5.0|userportal ckanext-dcat pin"
-  "GenomicDataInfrastructure/gdi-userportal-ckan-docker/main|ckan/Dockerfile|gdi-userportal-ckanext-fairdatapoint.git@v1.7.2|userportal ckanext-fairdatapoint (FDP harvester) pin"
-  "GenomicDataInfrastructure/gdi-metadata/main|README.md|HealthDCAT-AP Release 5|gdi-metadata HealthDCAT-AP lineage"
   "https://api.github.com/repos/ga4gh-beacon/beacon-v2/releases/latest||\"tag_name\": \"v2.2.0\"|GA4GH beacon-v2 latest RELEASE (bump with the vendored tag + [beacon].api_version)"
 )
 
@@ -176,6 +190,27 @@ curl_to() { # <url> <out>  -> 0 on HTTP 200; sets CURL_HTTP_CODE and CURL_RATELI
   return $rc
 }
 
+# Why a `curl_to` call failed, as one word a caller counts on plus the reason it prints:
+#   GONE          HTTP 404/410: the thing is not there. A verdict about the pin.
+#   RATE-LIMITED  the unauthenticated api.github.com budget is spent. About the connection.
+#   UNREACHABLE   any other refusal, or no server at all. About the connection.
+# Written once so no fetch site can omit the split. curl exit 22 is `--fail`'s HTTP >= 400,
+# so the host was reached; everything else (6 could not resolve, 7 could not connect, 28
+# timeout, 35 TLS) is this machine's network. Within 22, only 404 and 410 say the pin is
+# wrong: 401 and 403 are credentials, 429 is throttling, 5xx is the host having a bad day.
+classify_fetch_failure() { # <curl-rc> -> "KIND reason" on stdout
+  local crc="$1" code="${CURL_HTTP_CODE:-0}"
+  if [[ $crc -eq 22 && ( $code == 404 || $code == 410 ) ]]; then
+    printf 'GONE HTTP %s: not there upstream, renamed or removed?' "$code"
+  elif [[ $crc -eq 22 && "${CURL_RATELIMITED:-0}" == 1 ]]; then
+    printf 'RATE-LIMITED GitHub API x-ratelimit-remaining: 0, 60/h unauthenticated per IP; export GITHUB_TOKEN'
+  elif [[ $crc -eq 22 ]]; then
+    printf 'UNREACHABLE HTTP %s: an auth or server error, which says nothing about the pin' "$code"
+  else
+    printf 'UNREACHABLE curl exit %s: no network, or the host is down' "$crc"
+  fi
+}
+
 # The deleted/added-file assertion, written once and used by `check` (post-fetch, network)
 # and by `count` (local, network-free): compare a set's actual vendored-file count against
 # the `**Files:**` count declared in its VENDORED.md. Returns 0 on match, and also when no
@@ -200,6 +235,12 @@ upstream_branch() { # <local_dir>
 # Verify or refresh one set. mode = check | fetch.
 process_set() { # <mode> <local_dir> <ref-or-empty>
   local mode="$1" dir="$2" ref_override="${3:-}"
+  # For `drift`, which needs more than the folded return code below: how many files moved,
+  # how many could not be fetched, and whether the set is whole. Set first, so an early
+  # return leaves a true "nothing counted" rather than the previous set's numbers.
+  PROCESS_SET_DRIFTED=0
+  PROCESS_SET_FETCH_FAILED=0
+  PROCESS_SET_COUNT_OK=1
   local md="$dir/VENDORED.md"
   [[ -f "$md" ]] || { echo "ERROR: $md not found" >&2; return 1; }
 
@@ -216,14 +257,21 @@ process_set() { # <mode> <local_dir> <ref-or-empty>
   ref="${ref_override:-$commit}"
 
   echo "## ${dir}  <-  ${repo} @ ${ref}  (path: ${path})"
-  local n_ok=0 n_diff=0 n_fail=0 rel url tmp
+  local n_ok=0 n_diff=0 n_fail=0 rel url tmp crc kind reason
   while IFS= read -r rel; do
     [[ -n "$rel" ]] || continue
     url="${RAW}/${repo}/${ref}/${path}/${rel}"
     tmp="$(mktemp)"
-    if ! curl_to "$url" "$tmp"; then
-      echo "  FETCH-FAIL  ${rel}"
-      n_fail=$((n_fail + 1)); rm -f "$tmp"; continue
+    crc=0; curl_to "$url" "$tmp" || crc=$?
+    if [[ $crc -ne 0 ]]; then
+      read -r kind reason <<<"$(classify_fetch_failure "$crc")"
+      if [[ $kind == GONE && "$mode" == check ]]; then
+        # Upstream no longer has the file: the strongest form of drift, not the network.
+        echo "  GONE        ${rel}  (${reason})"; n_diff=$((n_diff + 1))
+      else
+        echo "  FETCH-FAIL  ${rel}  (${reason})"; n_fail=$((n_fail + 1))
+      fi
+      rm -f "$tmp"; continue
     fi
     if diff -q "$dir/$rel" "$tmp" >/dev/null 2>&1; then
       n_ok=$((n_ok + 1))
@@ -242,6 +290,9 @@ process_set() { # <mode> <local_dir> <ref-or-empty>
   local n_total=$((n_ok + n_diff + n_fail)) count_ok=1
   check_file_count "$dir" "$n_total" "$files_expected" || count_ok=0
 
+  PROCESS_SET_DRIFTED=$n_diff
+  PROCESS_SET_FETCH_FAILED=$n_fail
+  PROCESS_SET_COUNT_OK=$count_ok
   if [[ "$mode" == check ]]; then
     echo "  -> ${n_ok} identical, ${n_diff} drifted, ${n_fail} fetch-failure(s); ${n_total}/${files_expected:-?} files"
     [[ $n_diff -eq 0 && $n_fail -eq 0 && $count_ok -eq 1 ]]
@@ -253,8 +304,8 @@ process_set() { # <mode> <local_dir> <ref-or-empty>
 
 # Assert each EXTERNAL_PINS entry's remote file still contains its expected token.
 check_pins() {
-  echo "## external pins  (userportal deploy refs + gdi-metadata lineage)"
-  local n_ok=0 n_drift=0 n_fetchfail=0 entry ref path needle label url where tmp crc
+  echo "## external pins  (release watches)"
+  local n_ok=0 n_drift=0 n_fetchfail=0 entry ref path needle label url tmp crc kind reason
   for entry in "${EXTERNAL_PINS[@]}"; do
     IFS='|' read -r ref path needle label <<<"$entry"
     # A pin is normally `<owner>/<repo>/<ref>` plus a path under raw.githubusercontent. An
@@ -266,38 +317,19 @@ check_pins() {
     else
       url="${RAW}/${ref}/${path}"
     fi
-    where="${path:-$url}"
     tmp="$(mktemp)"
     crc=0; curl_to "$url" "$tmp" || crc=$?
     if [[ $crc -ne 0 ]]; then
-      # Separate "the server said no" from "there was no server". curl exit 22 is
-      # `--fail`'s HTTP >= 400, so the host was reached; everything else (6 could not
-      # resolve, 7 could not connect, 28 timeout, 35 TLS) is this machine's network and
-      # says nothing about the pin.
-      #
-      # Within exit 22, only 404 and 410 say the pin is wrong: 401 and 403 are
-      # credentials, 429 is rate limiting, and 5xx is the host having a bad day. Counting
-      # those as drift would fail the gate for a reason unrelated to the pin.
-      if [[ $crc -eq 22 && ( $CURL_HTTP_CODE == 404 || $CURL_HTTP_CODE == 410 ) ]]; then
-        echo "  GONE        ${label}  (HTTP ${CURL_HTTP_CODE} fetching ${where}; renamed or removed upstream?)"
-        n_drift=$((n_drift + 1))
-      elif [[ $crc -eq 22 && "${CURL_RATELIMITED:-0}" == 1 ]]; then
-        echo "  RATE-LIMITED ${label}  (GitHub API x-ratelimit-remaining: 0; 60/h unauthenticated per IP; export GITHUB_TOKEN; ${url})"
-        n_fetchfail=$((n_fetchfail + 1))
-      elif [[ $crc -eq 22 ]]; then
-        echo "  UNREACHABLE ${label}  (HTTP ${CURL_HTTP_CODE}; an auth or server error, which says nothing about the pin; ${url})"
-        n_fetchfail=$((n_fetchfail + 1))
-      else
-        echo "  UNREACHABLE ${label}  (curl exit ${crc}; ${url})"
-        n_fetchfail=$((n_fetchfail + 1))
-      fi
+      read -r kind reason <<<"$(classify_fetch_failure "$crc")"
+      printf '  %-11s %s  (%s; %s)\n' "$kind" "$label" "$reason" "$url"
+      if [[ $kind == GONE ]]; then n_drift=$((n_drift + 1)); else n_fetchfail=$((n_fetchfail + 1)); fi
       rm -f "$tmp"; continue
     fi
     if grep -qF -- "$needle" "$tmp"; then
       echo "  OK          ${label}  ('${needle}')"
       n_ok=$((n_ok + 1))
     else
-      echo "  DRIFT       ${label}  (expected '${needle}' in ${where})"
+      echo "  DRIFT       ${label}  (expected '${needle}' in ${path:-$url})"
       n_drift=$((n_drift + 1))
     fi
     rm -f "$tmp"
@@ -310,6 +342,85 @@ check_pins() {
   #   0 = every pin as expected
   #   1 = at least one real DRIFT (authoritative: every pin was actually fetched)
   #   2 = no drift seen, but at least one pin could not be fetched (verdict unknown)
+  if [[ $n_drift -gt 0 ]]; then return 1; fi
+  if [[ $n_fetchfail -gt 0 ]]; then return 2; fi
+  return 0
+}
+
+# Resolve the tag the userportal deploys for each fork from its Dockerfile, then compare
+# the content each USERPORTAL_PROFILE_PINS entry depends on at that tag. Same exit codes
+# as check_pins: 0 clean, 1 drift (authoritative), 2 unreachable (verdict unknown).
+check_userportal_profiles() {
+  echo "## userportal profile pins  (deployed profile code, at the tags ckan/Dockerfile names)"
+  local n_ok=0 n_drift=0 n_fetchfail=0
+  local df_ref df_path df_url df_tmp crc
+  IFS='|' read -r df_ref df_path <<<"$USERPORTAL_DOCKERFILE"
+  df_url="${RAW}/${df_ref}/${df_path}"
+  df_tmp="$(mktemp)"
+  crc=0; curl_to "$df_url" "$df_tmp" || crc=$?
+  if [[ $crc -ne 0 ]]; then
+    # Without the Dockerfile no tag can be resolved, so nothing below is verified. Gone is
+    # the deployment changing shape, a finding; anything else is the connection.
+    local kind reason
+    read -r kind reason <<<"$(classify_fetch_failure "$crc")"
+    printf '  %-11s %s  (%s; %s)\n' "$kind" "userportal ${df_path}" "$reason" "$df_url"
+    echo "  -> nothing verified: the deployed tags could not be read"
+    rm -f "$df_tmp"
+    [[ $kind == GONE ]] && return 1
+    return 2
+  fi
+  local entry repo path expectation label tag url tmp actual expected name kind reason
+  for entry in "${USERPORTAL_PROFILE_PINS[@]}"; do
+    IFS='|' read -r repo path expectation label <<<"$entry"
+    # The Dockerfile installs a fork as `-e git+https://github.com/<repo>.git@<tag>#egg=…`
+    # or as the quoted `'<name> @ git+https://github.com/<repo>.git@<tag>'`.
+    tag="$(grep -oE "github\.com/${repo}\.git@[^#'\"[:space:]]+" "$df_tmp" | head -n1 | sed 's/.*@//' || true)"
+    if [[ -z "$tag" ]]; then
+      echo "  GONE        ${label}  (${repo} is no longer installed from git in ${df_path})"
+      n_drift=$((n_drift + 1)); continue
+    fi
+    url="${RAW}/${repo}/${tag}/${path}"
+    tmp="$(mktemp)"
+    crc=0; curl_to "$url" "$tmp" || crc=$?
+    if [[ $crc -ne 0 ]]; then
+      read -r kind reason <<<"$(classify_fetch_failure "$crc")"
+      printf '  %-11s %s  (%s; %s)\n' "$kind" "$label" "$reason" "$url"
+      if [[ $kind == GONE ]]; then n_drift=$((n_drift + 1)); else n_fetchfail=$((n_fetchfail + 1)); fi
+      rm -f "$tmp"; continue
+    fi
+    case "$expectation" in
+      sha256=*)
+        expected="${expectation#sha256=}"
+        actual="$(sha256sum "$tmp" | cut -d' ' -f1)"
+        if [[ "$actual" == "$expected" ]]; then
+          echo "  OK          ${label}  (${repo}@${tag})"
+          n_ok=$((n_ok + 1))
+        else
+          echo "  DRIFT       ${label}  (${repo}@${tag}: sha256 ${actual:0:12}… != pinned ${expected:0:12}…)"
+          n_drift=$((n_drift + 1))
+        fi
+        ;;
+      requirement=*)
+        name="${expectation#requirement=}"
+        expected="$(grep -m1 -oE "^${name}==[0-9][0-9A-Za-z.]*" conformance/requirements.txt | sed 's/.*==//' || true)"
+        actual="$(sed -nE 's/^version *= *"([^"]+)".*/\1/p' "$tmp" | head -n1)"
+        if [[ -n "$expected" && "$actual" == "$expected" ]]; then
+          echo "  OK          ${label}  (${repo}@${tag}: ${actual})"
+          n_ok=$((n_ok + 1))
+        else
+          echo "  DRIFT       ${label}  (${repo}@${tag}: pyproject.toml version '${actual:-<none>}' != '${expected:-<not pinned>}' for ${name} in conformance/requirements.txt)"
+          n_drift=$((n_drift + 1))
+        fi
+        ;;
+      *)
+        echo "ERROR: unknown expectation '${expectation}' in USERPORTAL_PROFILE_PINS entry '${label}'" >&2
+        rm -f "$tmp" "$df_tmp"; return 1
+        ;;
+    esac
+    rm -f "$tmp"
+  done
+  rm -f "$df_tmp"
+  echo "  -> ${n_ok} pinned as expected, ${n_drift} drifted, ${n_fetchfail} unreachable"
   if [[ $n_drift -gt 0 ]]; then return 1; fi
   if [[ $n_fetchfail -gt 0 ]]; then return 2; fi
   return 0
@@ -338,7 +449,7 @@ check_pins() {
 # would report permanent false drift.
 check_action_pins() {
   echo "## github action pins  (uses: owner/repo@sha # tag)"
-  local n_ok=0 n_drift=0 n_fetchfail=0 n_branch=0
+  local n_ok=0 n_drift=0 n_fetchfail=0 n_branch=0 kind reason
   local line spec repo sha tag url tmp crc got
   # `sort -u`: the same action is pinned at many sites; verify each distinct pin once.
   while read -r line; do
@@ -353,33 +464,20 @@ check_action_pins() {
       if [[ $crc -eq 0 ]]; then
         echo "  OK(branch)  ${repo}@${sha:0:12} (# ${tag}: branch alias, existence only)"
         n_branch=$((n_branch + 1))
-      elif [[ $crc -eq 22 && ( $CURL_HTTP_CODE == 404 || $CURL_HTTP_CODE == 410 ) ]]; then
-        echo "  GONE        ${repo}@${sha:0:12} (# ${tag}): commit does not exist upstream"
-        n_drift=$((n_drift + 1))
-      elif [[ "${CURL_RATELIMITED:-0}" == 1 ]]; then
-        echo "  RATE-LIMITED ${repo} (# ${tag}): GitHub API x-ratelimit-remaining: 0; export GITHUB_TOKEN"
-        n_fetchfail=$((n_fetchfail + 1))
       else
-        echo "  UNREACHABLE ${repo} (# ${tag}) (HTTP ${CURL_HTTP_CODE:-?}, curl ${crc})"
-        n_fetchfail=$((n_fetchfail + 1))
+        read -r kind reason <<<"$(classify_fetch_failure "$crc")"
+        printf '  %-11s %s@%s (# %s)  (%s)\n' "$kind" "$repo" "${sha:0:12}" "$tag" "$reason"
+        if [[ $kind == GONE ]]; then n_drift=$((n_drift + 1)); else n_fetchfail=$((n_fetchfail + 1)); fi
       fi
       continue
     fi
     url="https://api.github.com/repos/${repo}/commits/${tag}"
     tmp="$(mktemp)"; crc=0; curl_to "$url" "$tmp" || crc=$?
     if [[ $crc -ne 0 ]]; then
-      # Same split as check_pins: 404 and 410 are a verdict about the pin, meaning the
-      # tag the comment names is not there. Auth, rate-limit and 5xx say nothing about it.
-      if [[ $crc -eq 22 && ( $CURL_HTTP_CODE == 404 || $CURL_HTTP_CODE == 410 ) ]]; then
-        echo "  GONE        ${repo} (# ${tag}): no such tag upstream, renamed or deleted?"
-        n_drift=$((n_drift + 1))
-      elif [[ "${CURL_RATELIMITED:-0}" == 1 ]]; then
-        echo "  RATE-LIMITED ${repo} (# ${tag}): GitHub API x-ratelimit-remaining: 0; export GITHUB_TOKEN"
-        n_fetchfail=$((n_fetchfail + 1))
-      else
-        echo "  UNREACHABLE ${repo} (# ${tag}) (HTTP ${CURL_HTTP_CODE:-?}, curl ${crc})"
-        n_fetchfail=$((n_fetchfail + 1))
-      fi
+      # GONE here means the tag the comment names is not upstream.
+      read -r kind reason <<<"$(classify_fetch_failure "$crc")"
+      printf '  %-11s %s (# %s)  (%s)\n' "$kind" "$repo" "$tag" "$reason"
+      if [[ $kind == GONE ]]; then n_drift=$((n_drift + 1)); else n_fetchfail=$((n_fetchfail + 1)); fi
       rm -f "$tmp"; continue
     fi
     # First 40-hex `"sha"` in the response is the commit's own.
@@ -504,6 +602,7 @@ case "$cmd" in
     # (exit 2) is a warning, so that a developer who is offline still gets a usable gate.
     # Here it is a failure, because `check` is the network job whose purpose is to reach
     # upstream: if it could not, it verified nothing. Both codes fold into rc=1.
+    check_userportal_profiles || rc=1
     check_pins || rc=1
     # Byte-equality with upstream proves the files are right; this proves the manifest
     # still describes them, catching a re-vendor that updated the payload but not
@@ -511,11 +610,12 @@ case "$cmd" in
     verify_sums || rc=1
     check_shared_commit || rc=1
     if [[ $rc -ne 0 ]]; then
-      echo "Vendored drift detected: a vendored file or external pin no longer matches its" >&2
-      echo "pinned upstream. If the change is intended, re-vendor with 'fetch' and bump" >&2
-      echo "VENDORED.md, or update EXTERNAL_PINS and follow the federation. Else revert it." >&2
+      echo "Vendored drift detected: a vendored file, the userportal's deployed profile code or an" >&2
+      echo "external pin no longer matches what this tree pins. If the change is intended," >&2
+      echo "re-vendor with 'fetch' and bump VENDORED.md, or re-check and re-pin the drifted entry" >&2
+      echo "in scripts/vendored.sh (see the remedy '$0 pins' prints). Else revert the edit." >&2
     else
-      echo "OK: vendored files byte-identical to their pinned commit; external pins unchanged."
+      echo "OK: vendored files byte-identical to their pinned commit; userportal profile content and external pins unchanged."
     fi
     exit $rc
     ;;
@@ -537,22 +637,53 @@ case "$cmd" in
     # each set at its immutable pinned commit. This fetches the same files at the upstream
     # branch instead, so a changed shape or schema shows up as DRIFT.
     #
-    # Not part of `ci-local.sh all`: it is ~45 raw.githubusercontent GETs, and its answer
-    # is news rather than a defect, since upstream moving is not a bug in this tree. Run
-    # it on a cadence, or by hand when deciding whether to re-vendor. Exit 3 = upstream
-    # has moved, which callers can treat as informational.
+    # The all-sets form is not part of `ci-local.sh all`: it is ~45 raw.githubusercontent
+    # GETs, and for Beacon and VRS its answer is news rather than a defect, since upstream
+    # moving is not a bug in this tree. Run it on a cadence, or by hand when deciding
+    # whether to re-vendor. `ci-local.sh pins`, which is in `all`, runs the gdi-metadata set
+    # alone. Exit 3 = upstream has moved, 2 = could not fetch, 1 = this tree is broken.
     #
-    # Scope, same as `check`: this sees files that changed (drift) or were removed
-    # upstream (fetch-fail or 404). A file upstream has added is invisible, because the
+    # Scope, same as `check`: this sees files that changed (DRIFT) or were removed upstream
+    # (GONE, counted as drift). A file upstream has added is invisible, because the
     # comparison enumerates the local payload, so picking up new files stays a re-vendor
     # decision.
-    rc=0
+    #
+    # With a SET argument only the matching set(s) are compared; the `pins` leg uses that
+    # for the gdi-metadata shapes. A SET matching nothing is exit 1, a defect in the call,
+    # not an "unreachable" to be waved through as a warning.
+    target="${2:-}"
+    matched=0 drifted=0 failed=0 broken=0
     for s in "${SETS[@]}"; do
-      process_set check "$s" "$(upstream_branch "$s")" || rc=1
+      [[ -z "$target" || "$s" == *"$target"* ]] || continue
+      matched=1
+      prc=0; process_set check "$s" "$(upstream_branch "$s")" || prc=$?
+      drifted=$((drifted + PROCESS_SET_DRIFTED))
+      failed=$((failed + PROCESS_SET_FETCH_FAILED))
+      # A file missing locally, or a VENDORED.md that did not parse (a failure with nothing
+      # counted), is this tree being broken, not upstream moving.
+      if [[ $PROCESS_SET_COUNT_OK -eq 0 || ( $prc -ne 0 && $PROCESS_SET_DRIFTED -eq 0 && $PROCESS_SET_FETCH_FAILED -eq 0 ) ]]; then
+        broken=1
+      fi
     done
-    if [[ $rc -eq 0 ]]; then
+    if [[ $matched -eq 0 ]]; then
+      echo "no vendored set matches '$target' (expected gdi-metadata, beacon, default-model or vrs)" >&2
+      exit 1
+    fi
+    if [[ $broken -eq 1 ]]; then
+      echo
+      echo "A vendored set is broken in this tree (a file missing, or its VENDORED.md unparseable)," >&2
+      echo "see above. Not a verdict about upstream: fix the tree, then run '$0 verify'." >&2
+      exit 1
+    fi
+    if [[ $drifted -eq 0 && $failed -eq 0 ]]; then
       echo "OK: every vendored file is still identical to its upstream branch head."
       exit 0
+    fi
+    if [[ $drifted -eq 0 ]]; then
+      echo
+      echo "Could not fetch ${failed} file(s) and saw no drift in the rest: a verdict about the" >&2
+      echo "network, not about upstream. Re-run when connected." >&2
+      exit 2
     fi
     echo
     echo "Upstream has moved: the vendored files differ from their upstream branch head." >&2
@@ -573,19 +704,20 @@ case "$cmd" in
     exit 0
     ;;
   pins)
-    # `set -e` would abort on a non-zero, so capture each code explicitly. The two checks
-    # answer independent questions, one about what the federation deploys and one about
-    # what an action SHA means, so both always run rather than one short-circuiting the
-    # other, and each keeps its own verdict for the remedy message below.
+    # `set -e` would abort on a non-zero, so capture each code explicitly. The three checks
+    # answer independent questions (the deployed profile code, the external tokens, what an
+    # action SHA means), so all run rather than one short-circuiting the rest, and each
+    # keeps its own verdict for the remedy message below.
+    prc=0; check_userportal_profiles || prc=$?
     erc=0; check_pins || erc=$?
     arc=0; check_action_pins || arc=$?
     # Worst code wins: DRIFT (1) outranks UNREACHABLE (2), because 1 is an authoritative
     # finding about a pin and 2 only means this machine could not reach the network.
     rc=0
-    if [[ $erc -eq 2 || $arc -eq 2 ]]; then rc=2; fi
-    if [[ $erc -eq 1 || $arc -eq 1 ]]; then rc=1; fi
+    if [[ $prc -eq 2 || $erc -eq 2 || $arc -eq 2 ]]; then rc=2; fi
+    if [[ $prc -eq 1 || $erc -eq 1 || $arc -eq 1 ]]; then rc=1; fi
     if [[ $rc -eq 0 ]]; then
-      echo "OK: external upstream pins unchanged; action pins match their tags."
+      echo "OK: userportal profile content, external pins and action pins all match."
       exit 0
     fi
     if [[ $rc -eq 2 ]]; then
@@ -606,11 +738,16 @@ case "$cmd" in
       echo "or upstream moved the tag, in which case the SHA is still the reviewed code:" >&2
       echo "update the comment and say so. See the DRIFT lines above for both values." >&2
     fi
+    if [[ $prc -eq 1 ]]; then
+      echo "Userportal profile drift: at the tag the userportal now deploys, the profile code" >&2
+      echo "check_ckanext.py mirrors or the dcat fork's upstream base changed. Re-check the" >&2
+      echo "mirror (and conformance/requirements.txt if the base moved), then re-pin in" >&2
+      echo "USERPORTAL_PROFILE_PINS. A GONE line means the deployment changed shape: look first." >&2
+    fi
     if [[ $erc -eq 1 ]]; then
-      echo "External pin drift: the userportal deploy refs, or gdi-metadata's declared" >&2
-      echo "HealthDCAT-AP release, changed. If the federation moved, follow in lockstep:" >&2
-      echo "re-vendor the gdi-metadata shapes and bump the pin in EXTERNAL_PINS and in" >&2
-      echo "conformance/requirements.txt. Do not get ahead of it." >&2
+      echo "External pin drift: a token in EXTERNAL_PINS no longer appears upstream. If the" >&2
+      echo "federation or the standard moved, follow in lockstep: re-vendor what the entry" >&2
+      echo "watches and bump the pin here. Do not get ahead of it." >&2
     fi
     exit 1
     ;;
@@ -644,7 +781,7 @@ case "$cmd" in
     exit $rc
     ;;
   *)
-    echo "usage: $0 {check | drift | verify | sums | fetch <set> [ref] | pins}" >&2
+    echo "usage: $0 {check | drift [set] | verify | sums | fetch <set> [ref] | pins}" >&2
     exit 2
     ;;
 esac
