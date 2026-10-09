@@ -23,7 +23,7 @@ metadata a harvester needs. It does nothing else, which is why it stays small: o
 no database, no message bus. It runs on a laptop, and
 [Quickstart 1](#quickstart-1--see-it-work) has it answering a query in minutes.
 
-**Pre-release.** `v1.0.0-rc.2` is out. Binaries, a container image and checksums are on the
+**Pre-release.** `v1.0.0-rc.3` is out. Binaries, a container image and checksums are on the
 [Releases page](https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases).
 It is a candidate, so the image has no `:latest` tag.
 [CHANGELOG.md](CHANGELOG.md) records what `1.0.0` will commit to.
@@ -144,7 +144,7 @@ binary is Linux only and is the full build; the tool also ships for macOS and Wi
 ([platforms](docs/deployment.md#binaries-and-platforms)).
 
 ```bash
-V=v1.0.0-rc.2
+V=v1.0.0-rc.3
 U=https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases/download/$V
 R=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalone/$V/crates/gdi-dataset-tool/tests/fixtures
 mkdir -p ~/gdi-demo && cd ~/gdi-demo
@@ -163,7 +163,7 @@ not, so compile that one there. Each release also has a provenance attestation i
 attestation store; the commands to check it are in
 [operating.md §20](docs/operating.md#20-verifying-release-artifacts--the-container-image).
 There is an image too, `linux/amd64` only:
-`docker pull ghcr.io/genomicdatainfrastructure/gdi-node-standalone:v1.0.0-rc.2`.
+`docker pull ghcr.io/genomicdatainfrastructure/gdi-node-standalone:v1.0.0-rc.3`.
 
 **Build** to work on the code, or for the tool where there is no download (Intel Macs,
 aarch64 Linux). The service runs on Linux only
@@ -240,7 +240,7 @@ For a Beacon that answers like a real export (1 637 sites, twelve populations, c
 build the realistic sample instead and repeat the `deploy` and `publish` lines with its id:
 
 ```bash
-V=v1.0.0-rc.2
+V=v1.0.0-rc.3
 S=https://raw.githubusercontent.com/GenomicDataInfrastructure/gdi-node-standalone/$V/crates/test-util/tests/fixtures/sample
 curl --fail-early -fsSLO "$S/gdi-sample.package.yaml" -O "$S/gdi-sample.GRCh38.vcf.gz"
 gdi-dataset-tool build gdi-sample.package.yaml --cc EE -o build-sample   # checkout: crates/test-util/tests/fixtures/sample/

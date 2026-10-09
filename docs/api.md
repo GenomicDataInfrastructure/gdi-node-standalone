@@ -547,7 +547,7 @@ programmatic consumer should check the status code before parsing the body as JS
 
 ```json
 {
-  "service_version": "1.0.0-rc.2",
+  "service_version": "1.0.0-rc.3",
   "gdi_metadata_version": "<pinned gdi-metadata model version>",
   "git_sha": "<git commit, 12 hex chars; 'unknown' if no repository was reachable>",
   "build_epoch": "<Unix seconds; 'unknown' if no repository was reachable>"
