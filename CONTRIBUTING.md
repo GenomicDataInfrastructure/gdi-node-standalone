@@ -535,7 +535,7 @@ checks each pinned SHA against its comment upstream.
 | **`sbom`** | `cargo cyclonedx --all --format json` over the whole `Cargo.lock`, producing a CycloneDX SBOM artifact. |
 | **`cross-compile`** | Five x86_64-Linux legs via `cross`, on the `release-verify` profile: the `gdi-dataset-tool` CLI for gnu and static musl, the service for gnu and static musl at `--features full`, and a musl `--features s3` build-verify. The aarch64 and macOS/Windows legs run weekly. |
 | **`e2e-smoke`** | `./scripts/e2e/run.sh`: build the service image, bring up the minimal Compose stack, pack a fixture, poll `/datasets/{id}/state` to `visible`, then assert a Beacon query, an FDP crawl, and publish/unpublish. |
-| **`conformance`** | pySHACL and ckanext-dcat over the crawled-and-unioned FDP graph, plus the dual-encoding agreement test. Python only, isolated from the Rust build and never shipped. |
+| **`conformance`** | pySHACL and the harvest-profile read check (`check_ckanext.py`) over the crawled-and-unioned FDP graph, plus the dual-encoding agreement test. Python only, isolated from the Rust build and never shipped. |
 | **`crypt4gh-interop`** | Rust↔Python crypt4gh round-trip (encrypt→decrypt, reverse, key parse) against the pinned `crypt4gh==1.8.6`. Isolated and never shipped. |
 | **`secrets`** | `gitleaks` over the working tree against the repo's own `.gitleaks.toml`, so the same exemptions govern CI and a developer machine. gitleaks is fetched from its release and checksum-verified, because it is not in install-action's tool list. |
 | **`fuzz-smoke`** | Compile-gates every `cargo-fuzz` target against the current library API, on the pinned stable toolchain — it does not fuzz. Also runs the pin- and licence-drift comparisons between the isolated fuzz manifest and the root workspace, which nothing else checks. |
@@ -545,13 +545,11 @@ checks each pinned SHA against its comment upstream.
 The `pins` leg has no `ci.yml` job: it is a verdict about the world rather than about the
 commit, so it runs weekly in `scheduled.yml` as its own `pins` job (with `PINS_STRICT=1`),
 alongside `vendored-sync`.
-`scripts/vendored.sh pins` asserts that the userportal's deployed profile code (at the tags
-its own `ckan/Dockerfile` names, so a userportal release that moves a tag without moving the
-profile passes), the GA4GH beacon-v2 latest release tag and the pinned GitHub Action tags
-still resolve to what this tree pins; `vendored.sh drift gdi-metadata` compares the vendored
-shapes against upstream `main`; and `ci-local.sh` itself compares the Dockerfile's distroless
-runtime digest against upstream, through Docker. It needs network, and unauthenticated
-GitHub API calls are rate-limited per IP, so export `GITHUB_TOKEN` — sent to
+`scripts/vendored.sh pins` asserts that the GA4GH beacon-v2 latest release tag and the pinned
+GitHub Action tags still resolve to what this tree pins; `vendored.sh drift gdi-metadata`
+compares the vendored shapes against upstream `main`; and `ci-local.sh` itself compares the
+Dockerfile's distroless runtime digest against upstream, through Docker. It needs network, and
+unauthenticated GitHub API calls are rate-limited per IP, so export `GITHUB_TOKEN` — sent to
 `api.github.com` only — to lift the budget. Real drift, including a pinned path that 404s,
 warns in `pins` and fails under `PINS_STRICT=1`, which `pins-strict`, `release` and the weekly
 job set. A rebuilt base image is a note unless `BASE_IMAGE_STRICT=1`, which only `pins-strict`
@@ -612,12 +610,11 @@ inside the `release` meta-leg are marked.
   rather than per-PR because the leg range-downloads those slices first; the corpus is
   cached
   between runs. Local: `ci-local.sh corpus`.
-- **`pins`** — external pin freshness: the userportal's deployed profile code, the vendored
-  gdi-metadata shapes against upstream, the beacon-v2 release and action tags, plus the
-  distroless runtime digest in the Dockerfile (a note there). Weekly because it is a
-  verdict about the world, not about the commit. Local:
-  `PINS_STRICT=1 ci-local.sh pins` (the job sets that so drift is fatal there; a working
-  tree only warns).
+- **`pins`** — external pin freshness: the vendored gdi-metadata shapes against upstream,
+  the beacon-v2 release and action tags, plus the distroless runtime digest in the
+  Dockerfile (a note there). Weekly because it is a verdict about the world, not about the
+  commit. Local: `PINS_STRICT=1 ci-local.sh pins` (the job sets that so drift is fatal
+  there; a working tree only warns).
 - **`notify`** — opens or updates one tracking issue on a failed weekly run. No local
   equivalent.
 - **`e2e-smoke-full`** (`e2e-full.yml`) — the full Garage + OpenBao + PME crypt4gh

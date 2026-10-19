@@ -128,10 +128,11 @@ Standards conformance is guarded on two sides:
   asserts the exact ignored-test count per target. `beacon_schema_conformance.rs` is kept
   separate by convention; it carries no `#[ignore]`d tests and runs in the ordinary
   `cargo test`/nextest sweep.
-- **Python** (in `conformance/`, isolated from the Rust build, never shipped): pySHACL +
-  `ckanext-dcat` over the crawled FDP graph (`check_fdp.py`, `check_fdp_negative.py`,
-  `check_ckanext.py`, `check_dataset.py`), and a Rust↔Python `crypt4gh` interop round-trip
-  (`crates/core/tests/crypt4gh_interop.rs` against pinned `crypt4gh==1.8.6`).
+- **Python** (in `conformance/`, isolated from the Rust build, never shipped): pySHACL and
+  a harvest-profile read check over the crawled FDP graph (`check_fdp.py`,
+  `check_fdp_negative.py`, `check_ckanext.py`, `check_dataset.py`), and a Rust↔Python
+  `crypt4gh` interop round-trip (`crates/core/tests/crypt4gh_interop.rs` against pinned
+  `crypt4gh==1.8.6`).
 
 The Python-dependent Rust tests are `#[ignore]` by default (they need a venv discovered
 via `GDI_FDP_PYTHON`/`GDI_FDP_VENV` / `C4GH_VENV`), so a plain `cargo test` needs no

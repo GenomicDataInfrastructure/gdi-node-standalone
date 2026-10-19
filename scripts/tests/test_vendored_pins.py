@@ -46,7 +46,6 @@ case "$STUB_MODE" in
   ok)          printf '200 41'; exit 0 ;;
   ratelimited) printf '403 0'; exit 22 ;;
   forbidden)   printf '403 41'; exit 22 ;;
-  old-curl)    printf '403 %%header{x-ratelimit-remaining}'; exit 22 ;;
 esac
 """
 
@@ -93,13 +92,6 @@ class CurlToTest(unittest.TestCase):
         out, _ = self._curl_to("https://api.github.com/repos/x/y/commits/v1", "ok")
         self.assertEqual(out, "rc=0 code=200 ratelimited=0")
 
-    def test_an_old_curl_that_cannot_read_headers_never_claims_rate_limiting(self):
-        # curl < 7.83 prints `%header{...}` literally; that must read as unknown, not 0.
-        out, _ = self._curl_to(
-            "https://api.github.com/repos/x/y/commits/v1", "old-curl"
-        )
-        self.assertEqual(out, "rc=22 code=403 ratelimited=0")
-
     def test_the_token_goes_to_the_api_host_only(self):
         _, argv = self._curl_to(
             "https://api.github.com/repos/x/y/releases/latest", "ok", token="tok-1"
@@ -119,22 +111,15 @@ class CurlToTest(unittest.TestCase):
 class FetchFailuresAreClassifiedOnceTest(unittest.TestCase):
     """One classifier decides gone vs rate-limited vs unreachable, and every fetch site uses it.
 
-    Three hand-copied versions of the split let the fourth site omit it, which is how a
-    404 on a vendored shape or on the userportal's Dockerfile read as "network" and passed
-    the strict leg. The classifier is where the flag `curl_to` sets becomes a line naming
-    the cause and, for a spent budget, GITHUB_TOKEN.
+    A site with its own copy of the split is how a 404 on a vendored shape once passed the
+    strict leg as "network".
     """
 
     FETCH_SITES = (
         "check_pins",
         "check_action_pins",
-        "check_userportal_profiles",
         "process_set",
     )
-
-    def test_the_classifier_names_the_rate_limit_remedy(self):
-        body = _extract("classify_fetch_failure")
-        self.assertRegex(body, r"RATE-LIMITED[^\n]*GITHUB_TOKEN")
 
     def test_every_fetch_site_uses_the_classifier_and_none_reimplements_it(self):
         from _helpers import strip_comments

@@ -127,7 +127,7 @@ jobs:
       # `ring`). All defined in scripts/ci-local.sh.
       - run: ./scripts/ci-local.sh profiles
 
-  # FDP conformance — Python (pySHACL + ckanext-dcat), isolated from the Rust
+  # FDP conformance — Python (pySHACL + harvest-profile reads), isolated from the Rust
   # build above and never shipped in the binaries. Builds the crawl producer,
   # which ingests the fixture
   # corpus, crawls the live FDP harvester-style, unions the Turtle, and runs
@@ -210,7 +210,7 @@ jobs:
           "$RUNNER_TEMP/audit-venv/bin/pip-audit" --strict --no-deps -r conformance/requirements.lock
       - name: Build the crawl producer + agreement test
         run: cargo test -p gdi-node-standalone --locked --no-run --test conformance_crawl --test conformance_agreement
-      - name: pySHACL + ckanext-dcat conformance over the crawled-and-unioned FDP graph
+      - name: pySHACL + harvest-profile conformance over the crawled-and-unioned FDP graph
         env:
           GDI_FDP_PYTHON: ${{ runner.temp }}/fdp-venv/bin/python
         run: |

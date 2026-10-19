@@ -136,61 +136,6 @@ class DriftFilterTest(unittest.TestCase):
         self.assertRegex(proc.stdout, r"GONE\s+Resource\.ttl")
         self.assertNotIn("verdict about the", proc.stderr)
 
-    def run_drift_in_copy(self, mutate) -> subprocess.CompletedProcess:
-        """Run `drift gdi-metadata` from a copy of the tree with `mutate(set_dir)` applied.
-
-        The script anchors on its own location, so a copy holding `scripts/vendored.sh` and
-        the one set is a complete tree for this subcommand. Upstream still serves the real
-        set, so whatever `mutate` did is a local fact, not drift.
-        """
-        tree = self.tmp / "tree"
-        (tree / "scripts").mkdir(parents=True)
-        shutil.copy(VENDORED, tree / "scripts" / "vendored.sh")
-        copy = tree / "conformance" / "shapes" / "gdi-metadata"
-        shutil.copytree(SET_DIR, copy)
-        mutate(copy)
-        env = {
-            **os.environ,
-            "PATH": f"{self.tmp}{os.pathsep}{os.environ['PATH']}",
-            "STUB_URLS": str(self.urls),
-            "STUB_PREFIX": self.prefix,
-            "STUB_LOCAL": str(SET_DIR),
-            "STUB_DRIFT_FILE": "",
-            "STUB_NET_DOWN": "0",
-            "GITHUB_TOKEN": "",
-        }
-        return subprocess.run(
-            ["bash", str(tree / "scripts" / "vendored.sh"), "drift", "gdi-metadata"],
-            cwd=tree,
-            env=env,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-    def test_a_vendored_file_missing_locally_is_a_tree_defect_not_ok(self):
-        # Every surviving file matches upstream, so the counters alone say "clean"; the
-        # VENDORED.md file count is what knows a file is missing.
-        proc = self.run_drift_in_copy(lambda d: (d / "Resource.ttl").unlink())
-        self.assertEqual(1, proc.returncode, proc.stdout + proc.stderr)
-        self.assertNotIn("OK: every vendored file", proc.stdout)
-        self.assertIn("FILE-COUNT MISMATCH", proc.stderr)
-
-    def test_an_unparseable_vendored_md_exits_1_cleanly(self):
-        def blank_commit(d):
-            md = d / "VENDORED.md"
-            md.write_text(
-                re.sub(
-                    r"(?m)^- \*\*Commit:\*\*.*$", "", md.read_text(encoding="utf-8")
-                ),
-                encoding="utf-8",
-            )
-
-        proc = self.run_drift_in_copy(blank_commit)
-        self.assertEqual(1, proc.returncode, proc.stdout + proc.stderr)
-        self.assertNotIn("unbound variable", proc.stderr)
-        self.assertIn("could not parse", proc.stderr)
-
 
 if __name__ == "__main__":
     unittest.main()

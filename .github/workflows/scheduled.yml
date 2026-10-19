@@ -223,24 +223,19 @@ jobs:
   # (conformance/shapes/gdi-metadata/, conformance/ga4gh-beacon-v2/,
   # conformance/ga4gh-beacon-v2-default-model/, conformance/ga4gh-vrs-1.3/) from the commit
   # pinned in its VENDORED.md and asserts it is still byte-identical — turning the
-  # "verbatim at commit X" claim from documentation into an enforced check. `check` also
-  # runs the `pins` assertions: the userportal's deployed profile code, at the tags its own
-  # ckan/Dockerfile names, and the beacon-v2 release watch (so a consumer change surfaces
-  # here as a ticket, not a silent harvest break). It is off the per-PR `ci` workflow because
-  # it needs network access and gates nothing on a PR. A red run means a vendored file was
-  # locally edited, or upstream content or a pinned token changed — re-vendor with
-  # `scripts/vendored.sh fetch` + bump VENDORED.md, re-check and re-pin in scripts/vendored.sh,
-  # or revert the edit.
+  # "verbatim at commit X" claim from documentation into an enforced check. External pins
+  # run only in the `pins` job below. It is off the per-PR `ci` workflow because it needs
+  # network access and gates nothing on a PR. Red means a vendored file was edited locally
+  # (re-vendor with `scripts/vendored.sh fetch` and bump VENDORED.md, or revert the edit) or
+  # upstream could not be reached.
   # (The authored FDP shapes under conformance/shapes/fdp/ are not vendored — see
-  # their PROVENANCE.md — so they are not byte-checked here.) GITHUB_TOKEN raises the
-  # unauthenticated rate limit for the raw fetches.
+  # their PROVENANCE.md — so they are not byte-checked here.) Both steps fetch from
+  # raw.githubusercontent, which needs no token.
   vendored-sync:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Verify vendored files + external upstream pins match their pins
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
+      - name: Verify vendored files match their pinned commits
         run: ./scripts/vendored.sh check
       # ...and the question `check` structurally cannot answer. It fetches each set at its
       # pinned commit — an immutable SHA — so it stays green no matter how far upstream
@@ -255,8 +250,6 @@ jobs:
       # below runs `drift gdi-metadata` fatally.
       - name: Report whether upstream has moved past our pinned commits
         continue-on-error: true
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
         run: ./scripts/vendored.sh drift
 
   # macOS + Windows cross-compile of the gdi-dataset-tool CLI — moved off the per-PR
@@ -498,14 +491,13 @@ jobs:
           key: gdi-corpus-${{ hashFiles('scripts/fetch-corpus.sh') }}
       - run: ./scripts/ci-local.sh corpus
 
-  # External pin freshness: the userportal's deployed profile code, the vendored gdi-metadata
-  # shapes against upstream, the beacon-v2 release and action tags, plus the distroless
-  # runtime digest in the Dockerfile. Weekly, not per-PR, because it is a verdict about the
-  # world rather than about the commit: it goes red when a consumer contract moves, which no
-  # pull request caused, and a gate that reddens for reasons the author cannot fix is a gate
-  # people learn to ignore. An unreachable upstream is a warning. A rebuilt distroless base
-  # is a note, not a failure: `image-scan` above already fails on a fixable CVE in the pinned
-  # one.
+  # External pin freshness: the vendored gdi-metadata shapes against upstream, the beacon-v2
+  # release and action tags, plus the distroless runtime digest in the Dockerfile. Weekly,
+  # not per-PR, because it is a verdict about the world rather than about the commit: it
+  # goes red when a consumer contract moves, which no pull request caused, and a gate that
+  # reddens for reasons the author cannot fix is a gate people learn to ignore. An
+  # unreachable upstream is a warning. A rebuilt distroless base is a note, not a failure:
+  # `image-scan` above already fails on a fixable CVE in the pinned one.
   pins:
     runs-on: ubuntu-26.04
     steps:

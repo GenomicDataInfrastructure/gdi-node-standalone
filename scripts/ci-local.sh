@@ -136,10 +136,10 @@
 #   pip-audit        advisory scan of the conformance and crypt4gh Python lockfiles
 #   sbom             cargo-cyclonedx SBOM generation
 #   pins             (network) the upstream content this tree depends on still is what it
-#                    was pinned against: the userportal's deployed profile code, the
-#                    vendored gdi-metadata shapes, the beacon-v2 release, the GitHub action
-#                    pins (`uses: owner/repo@sha # tag`) and the Dockerfile base-image
-#                    digest (needs Docker; skips visibly without it). Drift and an
+#                    was pinned against: the vendored gdi-metadata shapes against upstream,
+#                    the beacon-v2 release, the GitHub action pins
+#                    (`uses: owner/repo@sha # tag`) and the Dockerfile base-image digest
+#                    (needs Docker; skips visibly without it). Drift and an
 #                    unreachable host are both warnings here: neither is a defect in this
 #                    tree.
 #   pins-strict      the same check with drift fatal, which is what `release` runs
@@ -245,8 +245,8 @@
 #   GATE_LOCK        the slot's lock file (default:
 #                    /tmp/gdi-node-standalone-gate-<uid>.lock). One file per machine,
 #                    shared by every checkout, because what they contend for is the CPU.
-#   PINS_STRICT      set to 1 to make pin drift (userportal profile content, gdi-metadata
-#                    shapes, external and action pins) fatal instead of a warning. Set by
+#   PINS_STRICT      set to 1 to make pin drift (gdi-metadata shapes, external and action
+#                    pins) fatal instead of a warning. Set by
 #                    the weekly `pins` job, `pins-strict` and `release`.
 #   BASE_IMAGE_STRICT set to 1 to make a rebuilt base image fatal too; otherwise it is a
 #                    note. Set by `pins-strict` and `release`, not by the weekly job.
@@ -634,7 +634,7 @@ machete() {
 }
 
 # The Python half of the advisory scan. `cargo deny` covers every Rust crate and cannot see
-# Python, so the conformance and crypt4gh closures (pyshacl, rdflib, lxml, and the
+# Python, so the conformance and crypt4gh closures (pyshacl, rdflib, and the
 # cryptography/PyNaCl stack behind crypt4gh) would otherwise have no advisory gate. The
 # hash-locked lockfiles make that closure reproducible; they do not make it audited, and a
 # pinned-and-hashed vulnerable version is exactly as vulnerable.
@@ -1304,7 +1304,7 @@ _base_image_digest_check() {  # _base_image_digest_check <pinned> <upstream>
 # `sed -n '…/p'` prints every matching line. `head -n1` makes "first line wins" the
 # contract rather than an accident of today's output. Kept separate from
 # `_base_image_freshness` below so it is unit-testable without Docker: feed it canned
-# multi-`Digest:` text on stdin.
+# inspect output on stdin.
 _first_upstream_digest() {
   sed -n 's/^Digest: *\(sha256:[0-9a-f]*\).*/\1/p' | head -n1
 }
@@ -1375,20 +1375,19 @@ _base_image_pin_gate() {
 # without wifi into a red gate. `vendored.sh pins` returns 1 for real drift and 2 for
 # unreachable, and only the former is fatal here. An unreachable check is reported loudly
 # and skipped: it is a verdict about the network, not about the pins. Drift is a verdict
-# about the federation rather than about this tree, so it does not fail `all` either.
+# about upstream rather than about this tree, so it does not fail `all` either.
 #
 # Everything this leg watches lives in repositories this project does not control: the
-# userportal's deployed profile code, the gdi-metadata shapes, the beacon-v2 release tag,
-# the action tags. Any of them can move because someone else committed, and `all_legs()`
-# is a bare loop under `set -e`, so a fatal verdict here would take every later leg with
-# it. Upstream moving is not a defect in this tree, and a gate that reddens for it is a
-# gate people learn to ignore.
+# gdi-metadata shapes, the beacon-v2 release tag, the action tags. Any of them can move
+# because someone else committed, and `all_legs()` is a bare loop under `set -e`, so a fatal
+# verdict here would take every later leg with it. Upstream moving is not a defect in this
+# tree, and a gate that reddens for it is a gate people learn to ignore.
 #
 # The signal is relocated rather than weakened: drift is reported on every run, and is
 # fatal where being behind costs something: the weekly `pins` job and `pins-strict`
 # (PINS_STRICT=1), and `release` before any artifact ships.
 pins() {
-  step "pins — userportal profile content, gdi-metadata shapes, release + action pins (network); base image digest (Docker)"
+  step "pins — gdi-metadata shapes, release + action pins (network); base image digest (Docker)"
   # Every half reports before any verdict is acted on. Strict-mode drift is collected
   # and fails the leg once, at the end, naming every half that drifted.
   local fatal=() rc=0 brc=0
@@ -1404,9 +1403,9 @@ pins() {
     2) printf '%sWARNING: external pins could not be fetched (offline / upstream down) — SKIPPED, not verified. Re-run scripts/ci-local.sh pins when connected.%s\n' "$C_ERR" "$C_OFF" ;;
     *)
       if [[ "${PINS_STRICT:-0}" == "1" ]]; then
-        fatal+=("external pin drift — see above. Follow the federation in lockstep (re-check what the drifted line names, then re-pin it in scripts/vendored.sh); do not get ahead of it.")
+        fatal+=("external pin drift — see above. Follow upstream in lockstep (re-check what the drifted line names, then re-pin it in scripts/vendored.sh); do not get ahead of it.")
       else
-        printf '%sWARNING: external pin DRIFT — see above. The federation moved; this tree did not break.\n' "$C_ERR"
+        printf '%sWARNING: external pin DRIFT — see above. Upstream moved; this tree did not break.\n' "$C_ERR"
         printf '  Follow it in lockstep (re-check what the drifted line names, then re-pin it in\n'
         printf '  scripts/vendored.sh); do not get ahead of it. Not fatal here — `release` and\n'
         printf '  `pins-strict` fail closed on this.%s\n' "$C_OFF"
@@ -2043,10 +2042,8 @@ release() {
 }
 
 # The full vendored-integrity check: re-fetches every vendored file from its pinned
-# upstream commit, asserts byte-identity, then checks the userportal profile content and the
-# external pins. `vendored_files`,
-# in `all`, only counts what is on disk; this is what proves the content still matches what
-# was reviewed.
+# upstream commit and asserts byte-identity. `vendored_files`, in `all`, only counts what is
+# on disk; this is what proves the content still matches what was reviewed.
 #
 # It needs the network, so it stays out of `all` and runs in `release`, before any artifact
 # ships.
@@ -2235,7 +2232,7 @@ ensure_venv() {  # ensure_venv <name> <requirements-file>
   step "venv — creating $dir from $lock (hash-locked; one-time; needs network)"
   # Build this venv on the pinned interpreter, unlike the stdlib-only guard legs, which are
   # version-agnostic and run on ambient `python3`. The difference is what goes into it:
-  # pySHACL, rdflib, lxml and cryptography are third-party, their wheels are built per
+  # pySHACL, rdflib and cryptography are third-party, cryptography's wheels are built per
   # interpreter, and these venvs produce the conformance and crypt4gh verdicts. The workflow
   # jobs build them under `actions/setup-python` at .python-version, so a local venv on some
   # other interpreter renders its verdict on a different closure.

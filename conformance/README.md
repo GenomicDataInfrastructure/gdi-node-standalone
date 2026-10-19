@@ -104,23 +104,18 @@ into `target/conformance/union.ttl`. It then runs:
     localized paths, and both are exercised: the enriched corpus dataset is bilingual in
     both, while the minimal one stays plain so the `LocalizedText::Plain` render path is
     covered too.
-- **`check_ckanext.py <union.ttl>`** — consumer compatibility, the nice-to-have check.
+- **`check_ckanext.py <union.ttl>`** — consumer compatibility.
   The profile the userportal deploys is `fairdatapoint_dcat_ap`
   (`ckanext.fairdatapoint.profiles.FAIRDataPointDCATAPProfile`), which subclasses
   `euro_health_dcat_ap` to add tag validation, `tags_translated` sanitising and label
   resolution. It overrides no predicate read, so the parent's predicate set is the
   deployed one. It ships in the harvester extension
-  (`gdi-userportal-ckanext-fairdatapoint`), not in `ckanext-dcat`, so a harvester bump can
-  change the profile with the `ckanext-dcat` pin standing still; the profile code of both
-  forks is watched by content, at the tags the userportal deploys (see
-  [Version pins](#version-pins)).
+  (`gdi-userportal-ckanext-fairdatapoint`), not in `ckanext-dcat`.
 
-  The check prefers the real `ckanext-dcat` `RDFParser` on the parent profile, since the
-  subclass's package is not installed in this venv and only the parent's reads are under
-  test. The standalone venv has no full CKAN, so it degrades to a direct rdflib parse
-  mirroring those exact predicate reads and prints a `[best-effort]` note. In practice that
-  fallback is the live tier: `ckanext-dcat==2.4.4` installs, but importing its `RDFParser`
-  raises `ModuleNotFoundError: No module named 'ckan'`, since the venv has no CKAN.
+  The real `RDFParser` needs a full CKAN install, so the check mirrors its predicate reads
+  in plain rdflib. Its docstring names the fork versions the list was last checked
+  against. CI does not watch the forks, so recheck the list if a harvest of this node
+  loses a field.
 
   Every field is required on every dataset, not merely somewhere in the graph. An
   existential check would let one healthy dataset vouch for all of them, which matters here
@@ -197,19 +192,9 @@ You can also run a check by hand once a `union.ttl` exists:
   the gdi-metadata model tag the node's static mapping table encodes. The vendored shapes
   under `shapes/gdi-metadata/` are that model; see `shapes/gdi-metadata/VENDORED.md` for
   the exact upstream commit they were copied from.
-- **pyshacl / rdflib / ckanext-dcat** — pinned in `requirements.txt` and resolved into the
+- **pyshacl / rdflib** — pinned in `requirements.txt` and resolved into the
   hash-locked `requirements.lock` (regenerate both together with
   `uv pip compile --universal --generate-hashes`); bump them in a reviewed change.
-  `ckanext-dcat` is pinned to `2.4.4`, the upstream base of the GDI fork the userportal
-  deploys (`gdi-userportal-ckanext-dcat`, with the harvester
-  `gdi-userportal-ckanext-fairdatapoint`, at the tags gdi-userportal-ckan-docker's
-  `ckan/Dockerfile` names). The profile the deployment's harvest sources name is
-  `fairdatapoint_dcat_ap`, supplied by the harvester as a subclass of the fork's
-  `euro_health_dcat_ap`, so the `ckanext-dcat` pin alone would not see a profile change.
-  That is why both profile files are watched below by content at the deployed tag, and the
-  fork's `pyproject.toml` version against this `2.4.4` pin. `check_ckanext.py` runs an
-  rdflib hand-mirror of the inherited `euro_health_dcat_ap` reads, because the real
-  `RDFParser` needs full CKAN and so never loads in this venv.
 - **Guards on all of the above.** Which gate reaches each one differs, and the difference
   matters, so it is stated per guard rather than claimed for the list. The offline
   integrity of these files is fully covered by `scripts/ci-local.sh all`; the two guards
@@ -220,21 +205,16 @@ You can also run a check by hand once a `union.ttl` exists:
     the dangerous direction, because weakening a vendored `sh:minCount` or deleting a
     `"required"` array from a Beacon schema makes everything downstream pass more easily.
   - `vendored.sh pins` (network, in the `pins` leg). Under `all`, both an unreachable
-    network and real drift warn and pass: drift here means the federation moved, not that
-    this tree broke, so it is reported rather than fatal. The weekly job, `release` and
-    `pins-strict` set `PINS_STRICT=1` and fail closed on drift. Two watches:
-    `USERPORTAL_PROFILE_PINS`, the deployed profile files by hash and the dcat fork's
-    upstream base against this `requirements.txt`, resolved at the tags the userportal's
-    own `ckan/Dockerfile` names, so a userportal release that moves a tag but neither fact
-    passes; and `EXTERNAL_PINS`, the latest GA4GH beacon-v2 release tag — the only watch on
-    a standard rather than on what the federation deploys. That one reads the releases API,
-    because a release is a tag and tags are in no file the repo contains: beacon-v2's own
-    CHANGELOG tops out at `2.0.0` while the repo is tagged `v2.2.0`, so a file-based watch
-    would be a dead guard. The same subcommand also runs `check_action_pins`, which is
-    about this repo rather than the federation: it re-resolves every
-    `uses: owner/repo@<sha> # <tag>` in the workflows and reports a SHA that no longer is
-    that tag. The `pins` leg also runs `vendored.sh drift gdi-metadata` (below), with the
-    same warn-or-fail split.
+    network and real drift warn and pass: drift here means upstream moved, not that this
+    tree broke, so it is reported rather than fatal. The weekly job, `release` and
+    `pins-strict` set `PINS_STRICT=1` and fail closed on drift. It watches `EXTERNAL_PINS`,
+    the latest GA4GH beacon-v2 release tag. That reads the releases API, because a release
+    is a tag and tags are in no file the repo contains: beacon-v2's own CHANGELOG tops out
+    at `2.0.0` while the repo is tagged `v2.2.0`, so a file-based watch would be a dead
+    guard. The same subcommand also runs `check_action_pins`, which is about this repo's own
+    pins: it re-resolves every `uses: owner/repo@<sha> # <tag>` in the workflows and reports
+    a SHA that no longer is that tag. The `pins` leg also runs
+    `vendored.sh drift gdi-metadata` (below), with the same warn-or-fail split.
   - `pip-audit` (in the `supply_chain` leg) — the advisory scan for the one corner
     `cargo deny` cannot see. It audits the `.lock` files, not the `.txt`: pip-audit resolves
     a requirements file, and the loose `.txt` can resolve a newer version than the lock pins
@@ -271,9 +251,9 @@ You can also run a check by hand once a `union.ttl` exists:
     when you touch a vendored input: `scripts/vendored.sh check` and
     `scripts/vendored.sh drift`, or a full `scripts/ci-local.sh release`.
 
-  One input has no automated watch: `shapes/fdp/` is hand-derived from the FDP v1.2
-  specification document, and no watch on a spec document would be meaningful. See its
-  `PROVENANCE.md`.
+  Two inputs have no automated watch: `shapes/fdp/`, hand-derived from the FDP v1.2
+  specification (see its `PROVENANCE.md`), and the userportal's harvest profile, which
+  `check_ckanext.py` mirrors by hand.
 
 ## Beacon wire-schema conformance
 
