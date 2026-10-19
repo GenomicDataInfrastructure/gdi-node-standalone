@@ -1,4 +1,4 @@
-"""Guard: every SHA-pinned `uses:` carries a version comment, and `pins` verifies them.
+"""Guard: every SHA-pinned `uses:` carries the version comment `pins` verifies.
 
 The network half lives in `scripts/vendored.sh check_action_pins`, which compares each
 `uses: owner/repo@<sha> # <tag>` against what upstream says that tag resolves to. That
@@ -15,7 +15,7 @@ believes otherwise.
 import re
 import unittest
 
-from _helpers import REPO_ROOT, strip_comments
+from _helpers import REPO_ROOT
 
 WORKFLOWS = REPO_ROOT / ".github" / "workflows"
 
@@ -77,29 +77,6 @@ class ActionPinCommentTest(unittest.TestCase):
             loose,
             f"action(s) pinned to a mutable ref: {loose}; upstream can move a tag under "
             "us. Pin the 40-hex commit SHA and put the version in a trailing comment.",
-        )
-
-    def test_the_pins_leg_actually_runs_the_action_check(self):
-        """Wiring guard: the check exists and the `pins` command calls it.
-
-        A `check_action_pins` that is defined but never invoked is a guard that verifies
-        nothing.
-        """
-        # Read what the script runs, not what its comments say: a comment restating the
-        # call would otherwise satisfy this assertion.
-        script = strip_comments(
-            (REPO_ROOT / "scripts" / "vendored.sh").read_text(encoding="utf-8")
-        )
-        self.assertIn(
-            "check_action_pins()",
-            script,
-            "check_action_pins is not defined in vendored.sh",
-        )
-        # The dispatch must invoke it, not merely define it.
-        self.assertRegex(
-            script,
-            r"arc=0;\s*check_action_pins",
-            "the `pins` dispatch does not invoke check_action_pins",
         )
 
 

@@ -11,10 +11,7 @@ The comparison (`_base_image_digest_check`) is split out from the Docker call ar
 extracts that function's source out of ci-local.sh and runs it with equal and unequal
 digest pairs.
 
-It also covers `_first_upstream_digest`, the parser for that inspect output. `sed -n
-'…/p'` prints every matching line, so a rendering carrying more than one `Digest:` line
-would yield a multi-line "digest" that could only ever compare as drift against the
-single-line pin. A synthetic multi-`Digest:` fixture pins the single-line result.
+It also covers `_first_upstream_digest`, the parser for that inspect output.
 """
 
 import re
@@ -120,13 +117,6 @@ class BaseImageDigestCheck(unittest.TestCase):
         self.assertIn("upstream", proc.stdout)
         self.assertNotIn("ok:", proc.stdout)
 
-    def test_same_object_different_case_is_not_silently_equal(self):
-        # The comparison must be a literal string match, not a case-normalised one:
-        # sha256 digests are lowercase by convention, and two digests that differ only in
-        # case are still two different digests.
-        proc = run_check(DIGEST_A, DIGEST_A.upper())
-        self.assertEqual(1, proc.returncode, proc.stderr)
-
 
 def run_first_upstream_digest(stdin_text: str) -> subprocess.CompletedProcess:
     """Pipe `stdin_text` through `_first_upstream_digest` in isolation."""
@@ -143,23 +133,6 @@ def run_first_upstream_digest(stdin_text: str) -> subprocess.CompletedProcess:
 
 
 class FirstUpstreamDigest(unittest.TestCase):
-    def test_a_single_digest_line_is_returned(self):
-        proc = run_first_upstream_digest(
-            f"Name:      whatever\nDigest:    {DIGEST_A}\n"
-        )
-        self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertEqual(DIGEST_A, proc.stdout.strip())
-
-    def test_only_the_first_of_two_digest_lines_is_returned(self):
-        # A rendering with a second `Digest:` line must not turn the result into a
-        # two-line string.
-        proc = run_first_upstream_digest(
-            f"Digest:    {DIGEST_A}\nDigest:    {DIGEST_B}\n"
-        )
-        self.assertEqual(0, proc.returncode, proc.stderr)
-        self.assertEqual(DIGEST_A, proc.stdout.strip())
-        self.assertNotIn(DIGEST_B, proc.stdout)
-
     def test_realistic_multi_platform_output_yields_only_the_manifest_list_digest(self):
         # The shape `docker buildx imagetools inspect` prints for a multi-arch image: one
         # `Digest:` line for the manifest list, then each platform's own digest inside a

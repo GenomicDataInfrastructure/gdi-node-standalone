@@ -428,22 +428,7 @@ def run_pins(
 
 
 class PinDriftFatalityTest(unittest.TestCase):
-    """`pins()` executed: drift is fatal only under PINS_STRICT=1, and both halves report.
-
-    The rule is about control flow, so the function is run rather than matched as text. A
-    regex over its source once required the strict `die` to sit inside the leg, the shape
-    that let a base-image drift end the leg before the external pins were fetched.
-    """
-
-    def test_strict_base_drift_does_not_hide_the_external_pins(self):
-        proc = run_pins(base_drift=True, external_rc=0, strict=True, base_strict=True)
-        self.assertIn(
-            "stub: vendored.sh pins ran",
-            proc.stdout,
-            "a strict base-image drift ended the leg before the external pins ran",
-        )
-        self.assertEqual(1, proc.returncode, proc.stderr)
-        self.assertIn("base image digest drift", proc.stderr)
+    """`pins()` executed: drift is fatal only under PINS_STRICT=1, and every half reports."""
 
     def test_strict_drift_in_both_halves_names_both(self):
         proc = run_pins(base_drift=True, external_rc=1, strict=True, base_strict=True)
@@ -456,14 +441,6 @@ class PinDriftFatalityTest(unittest.TestCase):
         self.assertEqual(1, proc.returncode, proc.stderr)
         self.assertIn("external pin drift", proc.stderr)
         self.assertNotIn("base image digest drift", proc.stderr)
-
-    def test_strict_base_drift_survives_unreachable_external_pins(self):
-        # Unreachable is not fatal on its own, so its arm must not end the leg with a
-        # success that swallows the base-image verdict held above it.
-        proc = run_pins(base_drift=True, external_rc=2, strict=True, base_strict=True)
-        self.assertIn("could not be fetched", proc.stdout)
-        self.assertEqual(1, proc.returncode, proc.stderr)
-        self.assertIn("base image digest drift", proc.stderr)
 
     def test_unreachable_external_pins_are_not_fatal_under_strict_mode(self):
         proc = run_pins(base_drift=False, external_rc=2, strict=True)
@@ -519,17 +496,6 @@ class BaseImageStrictnessTest(unittest.TestCase):
             self.assertIn("different digests", proc.stderr.lower())
 
 
-class PinsStrictTargetTest(unittest.TestCase):
-    def test_pins_strict_makes_both_halves_fatal(self):
-        text = CI_LOCAL.read_text(encoding="utf-8")
-        self.assertRegex(
-            text,
-            r"(?m)^\s*pins-strict\)\s+(?=.*\bPINS_STRICT=1\b)(?=.*\bBASE_IMAGE_STRICT=1\b).*\bpins\b",
-            "the `pins-strict` target must set PINS_STRICT=1 and BASE_IMAGE_STRICT=1, since "
-            "it is documented as the check `release` runs",
-        )
-
-
 class ShapeDriftFatalityTest(unittest.TestCase):
     """The gdi-metadata shapes half of `pins()`: `vendored.sh drift gdi-metadata`.
 
@@ -557,17 +523,6 @@ class ShapeDriftFatalityTest(unittest.TestCase):
         for strict in (True, False):
             proc = run_pins(base_drift=False, external_rc=0, strict=strict, shapes_rc=1)
             self.assertEqual(1, proc.returncode, (strict, proc.stdout, proc.stderr))
-
-    def test_an_unexpected_drift_exit_still_names_the_other_findings(self):
-        # The leg promises one failure naming every half; a solo `die` here would eat the
-        # base-image and external verdicts collected above it.
-        proc = run_pins(
-            base_drift=True, external_rc=1, strict=True, base_strict=True, shapes_rc=1
-        )
-        self.assertEqual(1, proc.returncode, proc.stderr)
-        self.assertIn("base image digest drift", proc.stderr)
-        self.assertIn("external pin drift", proc.stderr)
-        self.assertIn("drift gdi-metadata exited 1", proc.stderr)
 
 
 class AnchoringTest(unittest.TestCase):

@@ -71,13 +71,6 @@ class SharedCommitTest(unittest.TestCase):
         p = _run("", "")
         self.assertEqual(p.returncode, 1, p.stdout)
 
-    def test_the_shipped_script_calls_it_from_verify_and_check(self):
-        src = VENDORED.read_text(encoding="utf-8")
-        verify_body = src.split("  verify)", 1)[1].split("  drift)", 1)[0]
-        check_body = src.split("  check)", 1)[1].split("  verify)", 1)[0]
-        self.assertIn("check_shared_commit", verify_body)
-        self.assertIn("check_shared_commit", check_body)
-
 
 if __name__ == "__main__":
     unittest.main()

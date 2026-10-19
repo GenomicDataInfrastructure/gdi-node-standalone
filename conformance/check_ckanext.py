@@ -2,9 +2,8 @@
 """Consumer-compatibility check: does the node's FDP graph survive the reads the
 userportal's DCAT consumer performs?
 
-This is the nice-to-have conformance check, complementing ``check_fdp.py`` (pySHACL, the
-must-have). pySHACL checks the shape; this checks what is actually read, catching
-namespace and predicate mismatches a passing SHACL shape would not.
+Complements ``check_fdp.py``: SHACL checks the shape, this checks what the harvester
+actually reads, which catches namespace and predicate mismatches a passing shape would not.
 
 The deployed profile is ``fairdatapoint_dcat_ap``
 (``ckanext.fairdatapoint.profiles.FAIRDataPointDCATAPProfile``), a subclass of
@@ -14,31 +13,16 @@ ignores the global ``ckanext.dcat.rdf.profiles`` in ``setup_scheming.sh``), and 
 the harvester repository (``gdi-userportal-ckanext-fairdatapoint``), not in
 ``ckanext-dcat``. It adds tag validation, ``tags_translated`` sanitising and label
 resolution on top of the parent's reads and overrides no predicate, so the parent's
-predicate set below is the deployed one. A harvester bump therefore changes this profile
-without touching the ``ckanext-dcat`` pin, which is why both forks' profile files are
-watched by content, at the tags the userportal deploys, by ``vendored.sh pins`` (see
-``conformance/README.md``).
+predicate set below is the deployed one.
 
-In practice the rdflib mirror (tier 2) is what runs: the real ``ckanext-dcat``
-``RDFParser`` needs full CKAN (``ckantoolkit`` imports ``ckan``), which the isolated
-conformance venv does not provide, so tier 1 does not load here. The hand-mirror is
-therefore the live check, pinned to the fork the userportal deploys, rather than a
-degraded stand-in. Tier 1 stays wired for a venv that does carry full CKAN.
+The real ``RDFParser`` needs a full CKAN install, so this check mirrors its predicate reads
+in plain rdflib. The list was last checked on 2026-10-19 against the forks the userportal
+then deployed (``gdi-userportal-ckanext-dcat`` v2.5.2,
+``gdi-userportal-ckanext-fairdatapoint`` v1.7.3). CI does not watch them, so if a harvest
+of this node loses a field, compare this list with the dcat fork's
+``profiles/euro_health_dcat_ap.py`` and ``profiles/euro_dcat_ap_base.py``.
 
-Two tiers, in order of fidelity:
-
-1. Real parser (preferred): round-trip the union through
-   ``ckanext.dcat.processors.RDFParser`` with the ``euro_health_dcat_ap`` profile. That
-   is the deployed profile's parent, and the closest this venv can get: the subclass
-   ships in ``ckanext-fairdatapoint``, which is not installed here (only ``ckanext-dcat``
-   is pinned in ``requirements.txt``), and the reads under test are the parent's.
-2. Best-effort fallback: when that import fails, parse the union directly with rdflib,
-   mirroring the deployed profile's exact predicate reads — those of
-   ``EuropeanHealthDCATAPProfile``, since the subclass adds none (DCAT-AP 3.0 core plus
-   the ``healthdcatap:`` / ``dpv:`` predicate set) — and assert the same fields survive.
-   It prints a ``[best-effort]`` note and the tier used.
-
-Either way the assertions are the same consumer-facing fields: a ``dcat:Catalog``; each
+The assertions are the consumer-facing fields: a ``dcat:Catalog``; each
 ``dcat:Dataset``'s ``dct:title``, ``dct:identifier`` and ``dct:language``; each
 ``dcat:Distribution``'s ``dcat:accessURL`` and ``dct:format``; and the healthdcatap fields
 the profile reads (``healthdcatap:numberOfRecords``, ``healthdcatap:healthCategory``,
@@ -46,9 +30,8 @@ the profile reads (``healthdcatap:numberOfRecords``, ``healthdcatap:healthCatego
 and ``dct:format`` — are mandated by no SHACL shape, so this check is their only
 per-record cover.
 
-Exit code: 0 on a successful parse or a clean skip, so a missing CKAN never hard-fails the
-build (pySHACL is the gate); non-zero only when a field that should have survived the
-parse is missing.
+Exits 0 when every dataset carries every field, 1 when one is missing, 2 on bad
+arguments.
 
 Usage::
 
@@ -78,12 +61,12 @@ def _require(condition: bool, message: str) -> None:
         raise CheckFailure(message)
 
 
-def _require_every(missing: dict[str, list[str]], total: int, tier: str) -> None:
+def _require_every(missing: dict[str, list[str]], total: int) -> None:
     """Fail if any dataset is missing a consumer-facing field.
 
     The quantifier matters. An existential check over the whole graph would let a single
     surviving dataset with a ``dct:title`` vouch for every dataset, which is wrong for a
-    consumer-compatibility check and worst exactly where this tier is the only cover:
+    consumer-compatibility check and worst exactly where this check is the only cover:
     ``healthdcatap:hdab`` and ``healthdcatap:numberOfRecords`` are mandated by no SHACL
     shape, so nothing else in the suite looks at them. An existential check stays green
     until the field is stripped from every dataset at once.
@@ -94,106 +77,14 @@ def _require_every(missing: dict[str, list[str]], total: int, tier: str) -> None
         f"{field}: missing from {len(ids)} of {total} dataset(s) (e.g. {min(ids)})"
         for field, ids in sorted(missing.items())
     )
-    raise CheckFailure(
-        f"[{tier}] consumer-facing field(s) absent per-dataset — {detail}"
-    )
+    raise CheckFailure(f"consumer-facing field(s) absent per-dataset — {detail}")
 
 
-def try_real_parser(union_path: Path) -> bool:
-    """Attempt the real ``ckanext-dcat`` ``RDFParser`` + health profile.
-
-    Returns True if it ran (and the assertions passed); False if ``ckanext-dcat``
-    cannot be wired up standalone (missing CKAN) so the caller should fall back.
-    Raises :class:`CheckFailure` if it ran but an expected field was dropped.
-    """
-    try:
-        from ckanext.dcat.processors import RDFParser
-    # BLE001: the blind catch is deliberate. This probe must degrade to the best-effort
-    # rdflib parse on any failure to wire up ckanext-dcat standalone: ImportError without
-    # CKAN, but also the AttributeError/RuntimeError its plugin loader raises part-way in.
-    # Narrowing it would turn a tier downgrade into a conformance-leg crash.
-    except Exception as exc:  # noqa: BLE001  # pragma: no cover - depends on env
-        print(
-            f"[best-effort] real ckanext-dcat RDFParser unavailable ({type(exc).__name__}: {exc}); "
-            "falling back to a direct rdflib consumer-parse."
-        )
-        return False
-
-    # The deployed profile's PARENT: `fairdatapoint_dcat_ap` subclasses this one and
-    # ships in `ckanext-fairdatapoint`, which this venv does not install (see the module
-    # docstring). The predicate reads asserted below are the parent's either way.
-    parser = RDFParser(profiles=["euro_health_dcat_ap"])
-    parser.parse(union_path.read_text(encoding="utf-8"), _format="turtle")
-    datasets = list(parser.datasets())
-    _require(bool(datasets), "ckanext-dcat parsed zero datasets from the FDP graph")
-
-    # Per-dataset, and each healthdcatap field separately: accepting `health_category OR
-    # number_of_records OR hdab` as one flag would make this tier weaker than the rdflib
-    # fallback below, which requires all three, so coverage would silently drop the day a
-    # venv did carry full CKAN. Keep the two tiers asserting the same thing.
-    missing: dict[str, list[str]] = {}
-
-    def note(field: str, ident: str) -> None:
-        missing.setdefault(field, []).append(ident)
-
-    for ds in datasets:
-        ident = str(ds.get("identifier") or ds.get("name") or ds.get("title") or "?")
-        if not ds.get("title"):
-            note("title", ident)
-        if not ds.get("identifier"):
-            note("identifier", ident)
-        resources = ds.get("resources", [])
-        if not resources or not all(
-            r.get("access_url") or r.get("url") for r in resources
-        ):
-            note("accessURL", ident)
-        # The CKAN-dict twins of the two predicates tier 2 checks below. Key names read
-        # off the INSTALLED `ckanext/dcat/profiles/euro_dcat_ap_base.py`: the distribution
-        # loop sets `resource_dict["format"]` from `_distribution_format`, and the dataset
-        # list loop maps `dct:language` to `language`.
-        # Weaker than tier 2's `dct:format` check: `_distribution_format` also populates
-        # `format` from a `dcat:mediaType` fallback, so this passes on a distribution
-        # carrying only mediaType. It is inert while tier 1 does not run; tighten it
-        # against the installed profile's keys once a full-CKAN venv exists.
-        if not resources or not all(r.get("format") for r in resources):
-            note("format", ident)
-        for key in ("language", "health_category", "number_of_records", "hdab"):
-            if not ds.get(key):
-                note(key, ident)
-
-    _require_every(missing, len(datasets), "real parser")
-    print(
-        f"[real parser] ckanext-dcat euro_health_dcat_ap parsed {len(datasets)} dataset(s); "
-        "title / identifier / accessURL / format / language / healthdcatap fields survived "
-        "on every one."
-    )
-    return True
-
-
-def fallback_direct_parse(g: Graph) -> None:
+def direct_parse(g: Graph) -> None:
     """Direct rdflib parse mirroring the deployed profile's predicate reads.
 
-    Asserts the same consumer-facing fields survive, using the exact predicates
-    ``EuropeanHealthDCATAPProfile.parse_dataset`` reads (verified against the
-    installed ``ckanext/dcat/profiles/euro_health_dcat_ap.py`` and ``euro_dcat_ap_3``).
-
-    Pins: the deployed profile is ``fairdatapoint_dcat_ap`` from
-    ``gdi-userportal-ckanext-fairdatapoint``, a subclass that adds tag sanitising and label
-    resolution and overrides no predicate read, so this hand-mirror tracks its parent in the
-    GDI fork ``gdi-userportal-ckanext-dcat`` (what the userportal deploys;
-    ``requirements.txt`` pins the fork's upstream base ``ckanext-dcat==2.4.4`` for the
-    optional real-parser tier). ``vendored.sh pins`` watches both profile files by hash at
-    the tags the userportal's ``ckan/Dockerfile`` names, because a harvester bump can change
-    the profile with the ``ckanext-dcat`` pin standing still.
-
-    The parent ``euro_health_dcat_ap`` profile reads
-    ``healthdcatap:{numberOfRecords,healthCategory,hdab}`` (namespace
-    ``http://healthdataportal.eu/ns/health#``) and ``dpv:hasLegalBasis``
-    (``https://w3id.org/dpv#``), plus the DCAT-AP core ``dct:title``, ``dct:identifier``
-    and ``dcat:accessURL`` — the subset asserted below, checked against the fork's
-    ``profiles/euro_health_dcat_ap.py`` at the hash ``USERPORTAL_PROFILE_PINS`` pins.
-    Re-check this list when that hash drifts, so the best-effort tier cannot drift from the
-    deployed profile.
+    Asserts that every dataset carries the fields the module docstring lists.
+    ``dpv:hasLegalBasis`` is optional, so it is only counted.
     """
     catalogs = list(g.subjects(RDF.type, DCAT.Catalog))
     _require(
@@ -246,21 +137,17 @@ def fallback_direct_parse(g: Graph) -> None:
             if next(g.objects(ds, pred), None) is None:
                 note(label, ds)
 
-    _require_every(missing, len(datasets), "best-effort")
+    _require_every(missing, len(datasets))
 
     # dpv:hasLegalBasis is read as dpv namespace, never healthdcatap.
     # It is optional per-dataset, so we only note its presence, not require it.
     legal = list(g.objects(predicate=DPV.hasLegalBasis))
     print(
-        f"[best-effort] direct rdflib consumer-parse of {len(datasets)} dataset(s), "
+        f"rdflib consumer-parse of {len(datasets)} dataset(s), "
         f"{len(catalogs)} catalog(s): title / identifier / accessURL / format / language / "
         "healthdcatap:{numberOfRecords,healthCategory,hdab} present on every dataset"
         + (f"; dpv:hasLegalBasis seen {len(legal)}x" if legal else "")
         + "."
-    )
-    print(
-        "[best-effort] note: the standalone conformance venv has no full CKAN, so the actual "
-        "ckanext-dcat RDFParser could not run; this mirrors its exact predicate reads instead."
     )
 
 
@@ -274,13 +161,10 @@ def main(argv: list[str]) -> int:
         return 2
 
     try:
-        if try_real_parser(union_path):
-            print("\nckanext-dcat consumer-compatibility: OK (real parser).")
-            return 0
         g = Graph()
         g.parse(union_path, format="turtle")
-        fallback_direct_parse(g)
-        print("\nckanext-dcat consumer-compatibility: OK (best-effort fallback).")
+        direct_parse(g)
+        print("\nckanext-dcat consumer-compatibility: OK.")
         return 0
     except CheckFailure as exc:
         print(f"\nckanext-dcat consumer-compatibility FAILED: {exc}", file=sys.stderr)

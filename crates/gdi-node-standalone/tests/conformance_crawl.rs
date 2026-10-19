@@ -12,7 +12,7 @@
 //! It then invokes the Python conformance checks (`conformance/check_fdp.py`,
 //! `conformance/check_ckanext.py`) over that union via the conformance venv,
 //! asserting that pySHACL conforms on both shape sets, with only the `dct:hasPart` minCount-0
-//! relaxation, and that the consumer parser round-trips the graph.
+//! relaxation, and that every dataset carries the fields the harvest profile reads.
 //!
 //! The test is `#[ignore]` because it needs the Python venv. Run it with `--ignored` and
 //! `GDI_FDP_VENV` or `GDI_FDP_PYTHON` pointing at the venv. See `conformance/README.md`.
@@ -780,13 +780,13 @@ async fn fdp_union_conforms_to_shapes_and_consumer() {
         "negative SHACL meta-validation failed (the shapes did not reject a malformed graph):\n{neg_out}"
     );
 
-    // ckanext-dcat is optional: it degrades gracefully, exiting 0 with a skip note if the
-    // standalone wiring fails. A success here means it either round-tripped or skipped.
+    // Also required: every dataset carries each field the harvest profile reads; several
+    // have no SHACL cover.
     let (ckan_ok, ckan_out) = run_check(&py, "check_ckanext.py", &union_path);
     println!("{ckan_out}");
     assert!(
         ckan_ok,
-        "ckanext-dcat check returned a hard failure (it should degrade gracefully):\n{ckan_out}"
+        "harvest-profile consumer check failed:\n{ckan_out}"
     );
 }
 

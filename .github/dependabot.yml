@@ -106,7 +106,7 @@ updates:
           - patch
 
   # Python conformance + crypt4gh-interop tooling (conformance/requirements*.txt).
-  # CI-only (pyshacl/rdflib/ckanext-dcat for the FDP conformance job; crypt4gh for
+  # CI-only (pyshacl/rdflib for the FDP conformance job; crypt4gh for
   # the interop oracle) and never shipped, but still fetched-and-executed on the
   # runner — so it gets security updates like every other dependency input. The
   # top-level pins are exact; regenerate the lock with a security PR (see the header),
