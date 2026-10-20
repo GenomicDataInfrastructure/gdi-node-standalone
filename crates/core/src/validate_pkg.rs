@@ -83,7 +83,7 @@ pub const MAX_KEYWORDS_COUNT: usize = 50;
 /// `creator name` cap.
 pub const MAX_CREATOR_NAME_LEN: usize = 255;
 /// `creator` count cap.
-const MAX_CREATORS_COUNT: usize = 64;
+pub const MAX_CREATORS_COUNT: usize = 64;
 /// `contactPoint fn` cap.
 pub const MAX_CONTACT_FN_LEN: usize = 255;
 /// `email` cap (RFC 5321).
@@ -96,7 +96,7 @@ pub const MAILTO_EMAIL_PATTERN: &str =
 /// URL cap (`hasURL`, `afSourceReference`, ...).
 const MAX_URL_LEN: usize = 2048;
 /// IRI cap (every IRI metadata field).
-const MAX_IRI_LEN: usize = 2048;
+pub const MAX_IRI_LEN: usize = 2048;
 /// `otherIdentifier.notation` cap.
 const MAX_NOTATION_LEN: usize = 255;
 /// `otherIdentifier.schemaAgency` cap.
@@ -113,7 +113,7 @@ const MAX_OTHER_IDS_COUNT: usize = 50;
 /// oversized manifest is re-serialised on every request. 64 is far above any real value (a
 /// dataset cites a handful of EU legislation IRIs) and far below the size at which
 /// re-serialising the list becomes one.
-const MAX_IRI_LIST_COUNT: usize = 64;
+pub const MAX_IRI_LIST_COUNT: usize = 64;
 /// `file category` / `reference` / `preciseReference` cap.
 const MAX_FILE_CATEGORY_LEN: usize = 32;
 /// File groups count cap.
@@ -300,6 +300,20 @@ pub(crate) fn conforms_to_schema(_: &mut schemars::SchemaGenerator) -> schemars:
 #[cfg(feature = "schema")]
 pub(crate) fn dataset_type_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
     closed_list_schema(DATASET_TYPES, 1, true)
+}
+
+/// `accessRights` in the manifest schema: one [`ACCESS_RIGHTS`] IRI.
+#[cfg(feature = "schema")]
+pub(crate) fn access_rights_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({"type": "string", "enum": ACCESS_RIGHTS})
+}
+
+/// `accessRights` in the overlay schema, where it may be left out.
+#[cfg(feature = "schema")]
+pub(crate) fn optional_access_rights_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    let mut allowed: Vec<serde_json::Value> = ACCESS_RIGHTS.iter().map(|&iri| iri.into()).collect();
+    allowed.push(serde_json::Value::Null);
+    schemars::json_schema!({"type": ["string", "null"], "enum": allowed})
 }
 
 /// `conformsTo` IRIs: the closed set gdi-metadata's `DatasetShape` enumerates

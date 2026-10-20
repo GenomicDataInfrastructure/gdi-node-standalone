@@ -48,7 +48,9 @@
       "properties": {
         "name": {
           "description": "`foaf:name`.",
-          "type": "string"
+          "type": "string",
+          "maxLength": 255,
+          "minLength": 1
         }
       },
       "required": [
@@ -501,14 +503,22 @@
       "properties": {
         "accessRights": {
           "description": "Access rights authority IRI (`PUBLIC` / `RESTRICTED` / `NON_PUBLIC`).",
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "http://publications.europa.eu/resource/authority/access-right/PUBLIC",
+            "http://publications.europa.eu/resource/authority/access-right/RESTRICTED",
+            "http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC"
+          ]
         },
         "applicableLegislation": {
           "description": "Legislation mandating the dataset (EU ELI IRIs, >= 1).",
           "type": "array",
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "maxLength": 2048
+          },
+          "maxItems": 64,
+          "minItems": 1
         },
         "catalog": {
           "description": "Catalog name; must match a catalog defined in the service config.",
@@ -565,7 +575,9 @@
           "type": "array",
           "items": {
             "$ref": "#/$defs/Agent"
-          }
+          },
+          "maxItems": 64,
+          "minItems": 1
         },
         "datasetId": {
           "description": "Generated dataset ID (replaces `prefix`/`org`).",
@@ -649,8 +661,10 @@
             "null"
           ],
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "maxLength": 2048
+          },
+          "maxItems": 64
         },
         "keywords": {
           "description": "Tags for discovery (recommended).",
@@ -669,12 +683,16 @@
             "null"
           ],
           "items": {
-            "type": "string"
-          }
+            "type": "string",
+            "maxLength": 2048
+          },
+          "maxItems": 64
         },
         "license": {
           "description": "Reuse license for this dataset (IRI).",
-          "type": "string"
+          "type": "string",
+          "maxLength": 2048,
+          "minLength": 1
         },
         "maxTypicalAge": {
           "description": "Typical age of the oldest people in the dataset, in years.",

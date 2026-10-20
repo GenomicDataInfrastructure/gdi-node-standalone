@@ -24,16 +24,35 @@ pub struct MetadataOverlay {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<LocalizedText>,
     /// Access rights authority IRI (`PUBLIC` / `RESTRICTED` / `NON_PUBLIC`).
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::validate_pkg::optional_access_rights_schema")
+    )]
     pub access_rights: Option<String>,
     /// Legislation mandating the dataset (EU ELI IRIs, >= 1).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            length(min = 1, max = crate::validate_pkg::MAX_IRI_LIST_COUNT),
+            inner(length(max = crate::validate_pkg::MAX_IRI_LEN))
+        )
+    )]
     pub applicable_legislation: Option<Vec<String>>,
     /// Reuse license for this dataset (IRI).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(length(min = 1, max = crate::validate_pkg::MAX_IRI_LEN))
+    )]
     pub license: Option<String>,
     /// Creating agents (>= 1).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(length(min = 1, max = crate::validate_pkg::MAX_CREATORS_COUNT))
+    )]
     pub creator: Option<Vec<Agent>>,
     /// GDI health category IRIs (>= 1).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,9 +83,23 @@ pub struct MetadataOverlay {
     pub type_: Option<Vec<String>>,
     /// DPV legal basis IRIs (for real personal data).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            length(max = crate::validate_pkg::MAX_IRI_LIST_COUNT),
+            inner(length(max = crate::validate_pkg::MAX_IRI_LEN))
+        )
+    )]
     pub legal_basis: Option<Vec<String>>,
     /// Publication DOI IRIs.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            length(max = crate::validate_pkg::MAX_IRI_LIST_COUNT),
+            inner(length(max = crate::validate_pkg::MAX_IRI_LEN))
+        )
+    )]
     pub is_referenced_by: Option<Vec<String>>,
     /// Secondary identifiers.
     #[serde(skip_serializing_if = "Option::is_none")]

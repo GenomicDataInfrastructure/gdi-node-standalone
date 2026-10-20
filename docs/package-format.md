@@ -122,10 +122,10 @@ The package's first member. Serialized `camelCase`. Top level:
 | `catalog` | string | yes | Must match a catalog the node accepts. |
 | `title` | string \| lang-map | yes | Plain string or a `{lang: text}` map. |
 | `description` | string \| lang-map | yes | Ingest rejects a manifest without it; `manifest.schema.json` lists it under `required`. |
-| `accessRights` | IRI string | yes | Access-right authority IRI. |
+| `accessRights` | IRI string | yes | Access-right authority IRI, a closed set: `PUBLIC`, `RESTRICTED` and `NON_PUBLIC` under `http://publications.europa.eu/resource/authority/access-right/`. Any other value is rejected. |
 | `applicableLegislation` | IRI array (≥ 1) | yes | EU ELI IRIs. Omitting the EHDS ELI (`http://data.europa.eu/eli/reg/2025/327/oj`) is a warning, not a rejection. |
 | `license` | IRI string | yes | Reuse license IRI. |
-| `creator` | `[{name}]` (≥ 1) | yes | Creating agents. |
+| `creator` | `[{name}]` (≥ 1) | yes | Creating agents, each with a non-empty name. |
 | `healthCategory` | IRI array (≥ 1) | yes | GDI health-category IRIs, a closed set (`manifest.schema.json` lists it). Any other value is rejected. |
 | `contactPoint` | `{fn, hasEmail, hasURL?}` | yes | Who to write to about the dataset: a name and a `mailto:` e-mail, and optionally a web page. |
 | `keywords` | string array | no | Discovery tags. |

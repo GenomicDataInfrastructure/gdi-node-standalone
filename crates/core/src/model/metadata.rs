@@ -48,6 +48,10 @@ pub enum LocalizedText {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Agent {
     /// `foaf:name`.
+    #[cfg_attr(
+        feature = "schema",
+        schemars(length(min = 1, max = crate::validate_pkg::MAX_CREATOR_NAME_LEN))
+    )]
     pub name: String,
 }
 

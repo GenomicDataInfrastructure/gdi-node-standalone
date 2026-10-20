@@ -8,7 +8,8 @@
 
 use gdi_node_standalone_core::model::{Manifest, MetadataOverlay};
 use gdi_node_standalone_core::validate_pkg::{
-    CONFORMS_TO, DATASET_TYPES, HEALTH_CATEGORIES, MAX_CONTACT_FN_LEN, MAX_PROVENANCE_LEN,
+    ACCESS_RIGHTS, CONFORMS_TO, DATASET_TYPES, EHDS_ELI, HEALTH_CATEGORIES, MAX_CONTACT_FN_LEN,
+    MAX_CREATOR_NAME_LEN, MAX_CREATORS_COUNT, MAX_IRI_LEN, MAX_IRI_LIST_COUNT, MAX_PROVENANCE_LEN,
     MAX_TYPICAL_AGE, validate_overlay_result, validate_patch,
 };
 use serde_json::{Value, json};
@@ -51,11 +52,22 @@ fn long(n: usize) -> String {
     "a".repeat(n)
 }
 
+/// A valid IRI exactly `len` characters long.
+fn iri(len: usize) -> String {
+    let base = "https://example.org/";
+    format!("{base}{}", long(len - base.len()))
+}
+
 /// Field values the node refuses, each with a value at the limit that it accepts.
+#[expect(
+    clippy::too_many_lines,
+    reason = "a data table, one row per rule; both tests loop over the same rows"
+)]
 fn cases() -> Vec<(&'static str, &'static str, Value, Value)> {
     let contact = |fn_: Value, email: Value| json!({"fn": fn_, "hasEmail": email});
     let email = json!("mailto:data@example.org");
-    vec![
+    let creators = |n: usize| json!(vec![json!({"name": "C"}); n]);
+    let mut cases = vec![
         (
             "contact point without a name or e-mail",
             "contactPoint",
@@ -141,7 +153,61 @@ fn cases() -> Vec<(&'static str, &'static str, Value, Value)> {
             json!(["https://example.org/REAL_DATA"]),
             json!([DATASET_TYPES[0]]),
         ),
-    ]
+        (
+            "access rights outside the vocabulary",
+            "accessRights",
+            json!("https://example.org/OPEN"),
+            json!(ACCESS_RIGHTS[0]),
+        ),
+        (
+            "no legislation",
+            "applicableLegislation",
+            json!([]),
+            json!([EHDS_ELI]),
+        ),
+        ("no creator", "creator", json!([]), json!([{"name": "C"}])),
+        (
+            "creator without a name",
+            "creator",
+            json!([{"name": ""}]),
+            json!([{"name": "C"}]),
+        ),
+        (
+            "too many creators",
+            "creator",
+            creators(MAX_CREATORS_COUNT + 1),
+            creators(MAX_CREATORS_COUNT),
+        ),
+        (
+            "creator name too long",
+            "creator",
+            json!([{"name": long(MAX_CREATOR_NAME_LEN + 1)}]),
+            json!([{"name": long(MAX_CREATOR_NAME_LEN)}]),
+        ),
+        ("empty licence", "license", json!(""), json!(iri(40))),
+        (
+            "licence too long",
+            "license",
+            json!(iri(MAX_IRI_LEN + 1)),
+            json!(iri(MAX_IRI_LEN)),
+        ),
+    ];
+    // One validator rule covers all three IRI lists.
+    for field in ["applicableLegislation", "legalBasis", "isReferencedBy"] {
+        cases.push((
+            "too many IRIs",
+            field,
+            json!(vec![iri(40); MAX_IRI_LIST_COUNT + 1]),
+            json!(vec![iri(40); MAX_IRI_LIST_COUNT]),
+        ));
+        cases.push((
+            "IRI too long",
+            field,
+            json!([iri(MAX_IRI_LEN + 1)]),
+            json!([iri(MAX_IRI_LEN)]),
+        ));
+    }
+    cases
 }
 
 #[test]
@@ -155,18 +221,21 @@ fn the_manifest_schema_refuses_what_the_node_refuses() {
         let bad = manifest_with(field, refused);
         assert!(
             !node_accepts_manifest(&bad),
-            "{case}: the node must refuse it"
+            "{case} ({field}): the node must refuse it"
         );
-        assert!(!schema.is_valid(&bad), "{case}: the schema must refuse it");
+        assert!(
+            !schema.is_valid(&bad),
+            "{case} ({field}): the schema must refuse it"
+        );
 
         let good = manifest_with(field, accepted);
         assert!(
             node_accepts_manifest(&good),
-            "{case}: the node accepts the limit"
+            "{case} ({field}): the node accepts the limit"
         );
         assert!(
             schema.is_valid(&good),
-            "{case}: the schema accepts the limit"
+            "{case} ({field}): the schema accepts the limit"
         );
     }
 }
@@ -178,18 +247,21 @@ fn the_overlay_schema_refuses_what_the_node_refuses() {
         let bad = json!({ field: refused });
         assert!(
             !node_accepts_overlay(&bad),
-            "{case}: the node must refuse it"
+            "{case} ({field}): the node must refuse it"
         );
-        assert!(!schema.is_valid(&bad), "{case}: the schema must refuse it");
+        assert!(
+            !schema.is_valid(&bad),
+            "{case} ({field}): the schema must refuse it"
+        );
 
         let good = json!({ field: accepted });
         assert!(
             node_accepts_overlay(&good),
-            "{case}: the node accepts the limit"
+            "{case} ({field}): the node accepts the limit"
         );
         assert!(
             schema.is_valid(&good),
-            "{case}: the schema accepts the limit"
+            "{case} ({field}): the schema accepts the limit"
         );
     }
 }
