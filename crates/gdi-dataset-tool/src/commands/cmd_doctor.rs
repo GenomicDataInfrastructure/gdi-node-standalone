@@ -5,7 +5,7 @@
 //! It validates the active profile loads, the **provider identity** loads (without
 //! generating it) and its recipient derives, and the resolved **node recipient**
 //! (an explicit `--recipient` overrides in either mode; otherwise
-//! `node_recipient_url` online or `node_recipient_file` offline) is a usable
+//! `node_recipient_url` online, or offline the local copy `pack` would use) is a usable
 //! crypt4gh recipient. **Online** it additionally checks the FDP root
 //! responds, the catalog list is fetchable, and the S3 bucket is writable (a probe
 //! PUT/DELETE on a reserved key). It does not probe `/health/ready`, which is on the
@@ -144,7 +144,7 @@ pub fn run(
     } else if online {
         "node_recipient_url"
     } else {
-        "node_recipient_file"
+        "the local recipient file"
     };
     crate::output::note(&format!("checking node recipient via {recipient_src}"));
     checks.push(check_node_recipient(&active, args, online, config_path));
@@ -323,8 +323,20 @@ fn check_node_recipient(
                 "no node_recipient_url and no service_url".to_owned(),
             )),
         }
+    } else if recipient::node_recipient_url(active).is_some() {
+        // Offline with a node URL: the local pin `pack` falls back to when the fetch fails.
+        let configured = active.node_recipient_path(config_path);
+        let default_pin = recipient::recipient_pin_path_for_read(active, config_path);
+        match recipient::offline_pin_fallback(configured.as_deref(), default_pin.as_deref()) {
+            Some(found) => found.map(|(pk, _)| pk),
+            None => Err(ToolError::user(
+                "no local node recipient: set node_recipient_file, or pin the node's key \
+                 with `keys pin-recipient`"
+                    .to_owned(),
+            )),
+        }
     } else {
-        // Offline: the local recipient file is required.
+        // No node URL: the local recipient file is required, as it is for `pack`.
         match active.node_recipient_path(config_path) {
             Some(file) => recipient::read_node_recipient_file(&file),
             None => Err(ToolError::user(

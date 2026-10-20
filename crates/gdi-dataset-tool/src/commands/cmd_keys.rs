@@ -406,10 +406,10 @@ fn recipient_oneline(pk: &PublicKey) -> String {
         .join("")
 }
 
-/// Resolve the active profile's node recipient the way `pack`/`doctor` do:
-/// `node_recipient_url` (online primary, defaulting to
-/// `{service_url}/.well-known/c4gh-recipient`) if configured, else the offline
-/// `node_recipient_file`. Returns an error (rendered by [`show`] as an
+/// Resolve the active profile's node recipient: `node_recipient_url` (online primary,
+/// defaulting to `{service_url}/.well-known/c4gh-recipient`) if configured, else the
+/// offline `node_recipient_file`. Unlike `pack`, a failed fetch does not fall back to the
+/// local pin. Returns an error (rendered by [`show`] as an
 /// unconditional `node recipient: <unavailable: …>` stdout line) when neither is
 /// configured or the online fetch fails.
 fn resolve_node_recipient(
