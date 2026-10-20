@@ -156,6 +156,46 @@ fn offline_broken_recipient_fails() {
     );
 }
 
+/// Offline, `doctor` finds the pin `keys pin-recipient` writes when the profile names no
+/// `node_recipient_file`, as `pack` does when the fetch fails.
+#[test]
+#[serial(env)]
+fn offline_finds_the_url_keyed_pin() {
+    let tmp = tempfile::tempdir().unwrap();
+    let _config_dir = make_provider_identity(tmp.path());
+    let recipient = make_node_recipient(tmp.path());
+    let cfg = tmp.path().join("tool.toml");
+    fs::write(
+        &cfg,
+        "[profiles.default]\nservice_url = \"http://127.0.0.1:1\"\n",
+    )
+    .unwrap();
+    let cli = gdi_dataset_tool::cli::Cli::try_parse_from([
+        "gdi-dataset-tool",
+        "--config",
+        cfg.to_str().unwrap(),
+        "keys",
+        "pin-recipient",
+        "--file",
+        recipient.to_str().unwrap(),
+    ])
+    .unwrap();
+    gdi_dataset_tool::run(cli).expect("keys pin-recipient --file");
+    let pins = fs::read_dir(tmp.path().join("recipients")).unwrap().count();
+    assert_eq!(
+        pins, 1,
+        "the pin must exist for the check below to mean anything"
+    );
+
+    let args = DoctorArgs {
+        offline: true,
+        recipient: None,
+        format: gdi_dataset_tool::cli::OutputFormat::Text,
+    };
+    gdi_dataset_tool::commands::cmd_doctor::run(&args, None, Some(&cfg))
+        .expect("doctor --offline finds the pinned recipient");
+}
+
 #[test]
 #[serial(env)]
 fn online_unreachable_node_fails() {

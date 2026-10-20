@@ -299,12 +299,11 @@ pub fn resolve_recipients_readonly(
     Ok(vec![node, provider])
 }
 
-/// Resolve the node recipient with the spec precedence (mirrored from
+/// Resolve the node recipient with the spec precedence (mirrored by
 /// `cmd_doctor::check_node_recipient`): explicit `--recipient <file>`
 /// wins; else the active profile's `node_recipient_url` (online primary, defaulting
-/// to `{service_url}/.well-known/c4gh-recipient`) is fetched; else the offline
-/// `node_recipient_file`. An online-fetch failure when a URL is configured is a hard error
-/// — never a silent fall-through to a possibly-stale local file.
+/// to `{service_url}/.well-known/c4gh-recipient`) is fetched, and when the fetch fails
+/// the local pin is used with a warning; else the offline `node_recipient_file`.
 ///
 /// `--recipient` short-circuits before the profile is loaded, so it works with no
 /// profile configured.

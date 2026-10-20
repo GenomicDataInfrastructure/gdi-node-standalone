@@ -2214,8 +2214,9 @@ world-readable key fails the check, because file permissions are the only protec
 unencrypted key has; fix it with `chmod 600`. Online it also checks that the FDP root
 responds, that the catalog list is fetchable, and, if an S3 block is set, that the bucket
 is writable, via a probe PUT and DELETE on a reserved key. It does not probe the
-management plane's `/health/ready`. Offline it checks the local recipient file and the
-`catalogs` allow-list. A failure exits non-zero.
+management plane's `/health/ready`. Offline it checks the local copy of the node's key
+(`node_recipient_file`, or else the pin `keys pin-recipient` or the first `pack` wrote)
+and the `catalogs` allow-list. A failure exits non-zero.
 
 `--recipient <file>` is independent of `--offline`: passed on its own it points the
 node-recipient check at that local file while still running the online FDP, catalog and S3
