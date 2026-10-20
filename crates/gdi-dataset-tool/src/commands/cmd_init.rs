@@ -2,10 +2,10 @@
 //!
 //! The generated template has the four sections (`metadata`, `files`, `internal`,
 //! `config`). Required fields are `REPLACE:`-prefixed placeholders the provider must fill
-//! in **except** `applicableLegislation`, which is pre-filled with the EHDS ELI (the one
-//! required field with a sensible default — removable, at the cost of a `build` warning
-//! that `--strict` fails on, and extendable with the GDPR or a national act), and
-//! `license`, which is a `REPLACE:` placeholder so the provider chooses explicit terms.
+//! in **except** `applicableLegislation`, pre-filled with the EHDS ELI (removable, at the
+//! cost of a `build` warning that `--strict` fails on, and extendable with the GDPR or a
+//! national act), and `catalog` when the active profile allows a single one. `license`
+//! stays a placeholder so the provider chooses explicit terms.
 //! Recommended fields (`keywords`, `numberOfUniqueIndividuals`) sit under their own
 //! header; optional fields are shown commented out with example values.
 //!
@@ -64,13 +64,10 @@ fn conforms_to_comment() -> String {
 /// The scaffolded `package.yaml` template.
 ///
 /// Required fields are `REPLACE:` placeholders except `applicableLegislation`
-/// (the EHDS ELI) and `license` (a `REPLACE:` placeholder). Recommended fields
+/// (the EHDS ELI) and, with a single allowed catalog, `catalog`. Recommended fields
 /// are under their own header; optional fields are commented with examples.
 ///
-/// `catalog_line` is the rendered `metadata.catalog` line (with any trailing
-/// allow-list comment): either the static `REPLACE:` placeholder or, when the
-/// active profile has a `catalogs` allow-list, the available catalog name(s)
-/// (see [`scaffold_catalog_line`]).
+/// `catalog_line` is the rendered `metadata.catalog` line (see [`scaffold_catalog_line`]).
 #[expect(
     clippy::too_many_lines,
     reason = "all but a handful of these lines are ONE string literal — the scaffold document \
@@ -262,20 +259,16 @@ pub fn run(
     Ok(())
 }
 
-/// Render the `metadata.catalog` line from the profile's allow-list names: the
-/// first name becomes the value, any others are listed in a trailing comment. An
-/// empty list yields the static `REPLACE:` placeholder.
+/// Render the `metadata.catalog` line from the profile's allow-list names: one name is
+/// filled in, several go into the `REPLACE:` placeholder for the provider to pick from
+/// (a pre-filled guess would pass `build` unnoticed), and none gives the static
+/// placeholder.
 fn scaffold_catalog_line<'a>(names: impl Iterator<Item = &'a str>) -> String {
     let names: Vec<&str> = names.collect();
-    match names.split_first() {
-        None => CATALOG_PLACEHOLDER.to_owned(),
-        Some((first, [])) => format!(r#"catalog: "{first}""#),
-        Some((first, rest)) => {
-            format!(
-                r#"catalog: "{first}"   # other allowed catalogs: {}"#,
-                rest.join(", ")
-            )
-        }
+    match names.as_slice() {
+        [] => CATALOG_PLACEHOLDER.to_owned(),
+        [only] => format!(r#"catalog: "{only}""#),
+        several => format!(r#"catalog: "REPLACE: one of {}""#, several.join(", ")),
     }
 }
 
@@ -368,9 +361,10 @@ mod tests {
             scaffold_catalog_line(["gdi-aggregated"].into_iter()),
             r#"catalog: "gdi-aggregated""#
         );
-        // Several names -> first is the value, the rest are listed in a comment.
-        let line = scaffold_catalog_line(["a", "b", "c"].into_iter());
-        assert!(line.starts_with(r#"catalog: "a""#), "got: {line}");
-        assert!(line.contains("other allowed catalogs: b, c"), "got: {line}");
+        // Several names -> a placeholder listing them; the provider picks.
+        assert_eq!(
+            scaffold_catalog_line(["a", "b", "c"].into_iter()),
+            r#"catalog: "REPLACE: one of a, b, c""#
+        );
     }
 }
