@@ -1268,7 +1268,7 @@ fn preflight_vcf_headers(sources: &[PathBuf]) -> Result<(), ToolError> {
     let mut af_populations: BTreeSet<String> = BTreeSet::new();
     for source in sources {
         let pops = read_header_populations(source)
-            .map_err(|e| with_source(source, ToolError::from(&e)))?;
+            .map_err(|e| with_source(source, ToolError::from_vcf_stage(&e)))?;
         af_populations.extend(pops);
         if af_populations.len() > MAX_POPULATIONS {
             return Err(ToolError::user(format!(

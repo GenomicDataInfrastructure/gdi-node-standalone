@@ -674,8 +674,8 @@ fn build_args_for(pkg: &Path, out: &Path) -> BuildArgs {
     }
 }
 
-/// The header preflight rejects a VCF with no `AF` INFO field before conversion, with
-/// the source path prefixed onto the error.
+/// The header preflight rejects a VCF with no `AF` INFO field before conversion, as an
+/// `invalid VCF` error prefixed with the source path.
 #[test]
 #[serial(env)]
 fn build_missing_af_field_is_rejected() {
@@ -694,7 +694,8 @@ fn build_missing_af_field_is_rejected() {
         "no AF field",
     );
     assert!(
-        err.message.contains("No AF INFO fields found") && err.message.contains("noaf.vcf"),
+        err.message.contains("invalid VCF: No AF INFO fields found")
+            && err.message.contains("noaf.vcf"),
         "expected a path-prefixed no-AF error, got: {}",
         err.message
     );
