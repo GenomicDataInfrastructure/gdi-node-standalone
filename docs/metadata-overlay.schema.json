@@ -9,6 +9,12 @@
       "type": [
         "string",
         "null"
+      ],
+      "enum": [
+        "http://publications.europa.eu/resource/authority/access-right/PUBLIC",
+        "http://publications.europa.eu/resource/authority/access-right/RESTRICTED",
+        "http://publications.europa.eu/resource/authority/access-right/NON_PUBLIC",
+        null
       ]
     },
     "applicableLegislation": {
@@ -18,8 +24,11 @@
         "null"
       ],
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "maxLength": 2048
+      },
+      "maxItems": 64,
+      "minItems": 1
     },
     "conformsTo": {
       "description": "Standards-compliance IRIs.",
@@ -57,7 +66,9 @@
       ],
       "items": {
         "$ref": "#/$defs/Agent"
-      }
+      },
+      "maxItems": 64,
+      "minItems": 1
     },
     "description": {
       "description": "Free-text description (plain string or language map).",
@@ -129,8 +140,10 @@
         "null"
       ],
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "maxLength": 2048
+      },
+      "maxItems": 64
     },
     "keywords": {
       "description": "Tags for discovery (recommended).",
@@ -149,15 +162,19 @@
         "null"
       ],
       "items": {
-        "type": "string"
-      }
+        "type": "string",
+        "maxLength": 2048
+      },
+      "maxItems": 64
     },
     "license": {
       "description": "Reuse license for this dataset (IRI).",
       "type": [
         "string",
         "null"
-      ]
+      ],
+      "maxLength": 2048,
+      "minLength": 1
     },
     "maxTypicalAge": {
       "description": "Typical age of the oldest people in the dataset, in years.",
@@ -245,7 +262,9 @@
       "properties": {
         "name": {
           "description": "`foaf:name`.",
-          "type": "string"
+          "type": "string",
+          "maxLength": 255,
+          "minLength": 1
         }
       },
       "required": [

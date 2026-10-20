@@ -138,12 +138,31 @@ pub struct ManifestMetadata {
     #[cfg_attr(feature = "schema", schemars(required))]
     pub description: Option<LocalizedText>,
     /// Access rights authority IRI (`PUBLIC` / `RESTRICTED` / `NON_PUBLIC`).
+    #[cfg_attr(
+        feature = "schema",
+        schemars(schema_with = "crate::validate_pkg::access_rights_schema")
+    )]
     pub access_rights: String,
     /// Legislation mandating the dataset (EU ELI IRIs, >= 1).
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            length(min = 1, max = crate::validate_pkg::MAX_IRI_LIST_COUNT),
+            inner(length(max = crate::validate_pkg::MAX_IRI_LEN))
+        )
+    )]
     pub applicable_legislation: Vec<String>,
     /// Reuse license for this dataset (IRI).
+    #[cfg_attr(
+        feature = "schema",
+        schemars(length(min = 1, max = crate::validate_pkg::MAX_IRI_LEN))
+    )]
     pub license: String,
     /// Creating agents (>= 1).
+    #[cfg_attr(
+        feature = "schema",
+        schemars(length(min = 1, max = crate::validate_pkg::MAX_CREATORS_COUNT))
+    )]
     pub creator: Vec<Agent>,
     /// GDI health category IRIs (>= 1).
     #[cfg_attr(
@@ -173,9 +192,23 @@ pub struct ManifestMetadata {
     pub type_: Option<Vec<String>>,
     /// DPV legal basis IRIs (for real personal data).
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            length(max = crate::validate_pkg::MAX_IRI_LIST_COUNT),
+            inner(length(max = crate::validate_pkg::MAX_IRI_LEN))
+        )
+    )]
     pub legal_basis: Option<Vec<String>>,
     /// Publication DOI IRIs.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "schema",
+        schemars(
+            length(max = crate::validate_pkg::MAX_IRI_LIST_COUNT),
+            inner(length(max = crate::validate_pkg::MAX_IRI_LEN))
+        )
+    )]
     pub is_referenced_by: Option<Vec<String>>,
     /// Secondary identifiers.
     #[serde(skip_serializing_if = "Option::is_none")]
