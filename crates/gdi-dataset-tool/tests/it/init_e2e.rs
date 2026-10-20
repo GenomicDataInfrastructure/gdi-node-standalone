@@ -120,9 +120,8 @@ fn init_refuses_existing_without_force() {
 #[test]
 #[serial(env)]
 fn init_scaffolds_catalog_names_from_profile_allow_list() {
-    // The profile `catalogs` allow-list scaffolds `init`'s
-    // `metadata.catalog`, offline. The first name becomes the value; others are
-    // listed in a trailing comment.
+    // `init` reads the profile's catalog allow-list offline. With several names the
+    // provider must choose, so the placeholder lists them.
     let tmp = tempfile::tempdir().unwrap();
     let _config_dir = test_util::EnvGuard::set("GDI_CONFIG_DIR", tmp.path().join("cfg"));
     let cfg = tmp.path().join("tool.toml");
@@ -148,24 +147,10 @@ fn init_scaffolds_catalog_names_from_profile_allow_list() {
     gdi_dataset_tool::run(cli).expect("init --profile default succeeds");
 
     let body = fs::read_to_string(&out).unwrap();
-    // The first allow-listed name (BTreeMap-sorted) is the value, not a REPLACE.
     assert!(
-        body.contains(r#"catalog: "gdi-aggregated""#),
-        "the catalog value must be scaffolded from the allow-list; body:\n{body}"
+        body.contains(r#"catalog: "REPLACE: one of gdi-aggregated, synthetic-data""#),
+        "the placeholder must name every allowed catalog; body:\n{body}"
     );
-    assert!(
-        !body.contains("REPLACE: catalog name"),
-        "the static catalog placeholder must be replaced; body:\n{body}"
-    );
-    // The other catalog is offered in a comment.
-    assert!(
-        body.contains("other allowed catalogs: synthetic-data"),
-        "remaining catalogs must be listed in a comment; body:\n{body}"
-    );
-
-    // The scaffolded YAML still parses (the catalog comment is valid YAML).
-    let parsed: PackageYaml = serde_saphyr::from_str(&body.replace("REPLACE:", "filled-")).unwrap();
-    assert_eq!(parsed.metadata.catalog, "gdi-aggregated");
 }
 
 #[test]

@@ -1338,9 +1338,10 @@ gdi-dataset-tool init [-o <PATH>] [--force]
 The template carries all four sections with `REPLACE:`-prefixed placeholders for the
 required fields. The exception is `applicableLegislation`, pre-filled with the EHDS ELI:
 it is removable at the cost of a `build` warning that `--strict` fails on, and extendable
-with the GDPR ELI or a national act. Recommended fields sit under their own header, and
-optional fields are shown commented out. `init` mints no dataset ID and needs no profile
-or country code.
+with the GDPR ELI or a national act. `catalog` is filled in when the active profile allows
+a single catalog; with several, its placeholder lists them. Recommended fields sit under
+their own header, and optional fields are shown commented out. `init` mints no dataset ID
+and needs no profile or country code.
 
 ```bash
 gdi-dataset-tool init -o my-dataset.yaml
