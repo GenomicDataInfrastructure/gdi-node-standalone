@@ -498,13 +498,14 @@ the sidecars and the status writeback. The full HTTP contract is in
 ## Contributing
 
 ```bash
-scripts/dev-setup.sh                 # checks the toolchain and installs the pre-commit hook (--check: report only)
+scripts/dev-setup.sh                 # checks the toolchain and offers to install the pre-commit hook (--check: report only)
 cargo nextest run --workspace        # or: cargo test --workspace -- --test-threads=1 (tests mutate the process env)
 ./scripts/ci-local.sh all            # the gate; run it before you push
 ```
 
-Conventional Commits, lowercase and imperative. Build profiles, the test tiers, the MSRV
-policy, adding a config field and cutting a release: [CONTRIBUTING.md](CONTRIBUTING.md).
+Conventional Commits, lowercase and imperative. Build profiles, the gate, the MSRV policy,
+adding a config field and cutting a release: [CONTRIBUTING.md](CONTRIBUTING.md); the test
+suite and its tiers: [docs/testing.md](docs/testing.md).
 
 ## License
 

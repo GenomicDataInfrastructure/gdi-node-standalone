@@ -622,8 +622,9 @@ fn k8s_deployment_declares_the_startup_probe_the_runbook_prescribes() {
 /// developer-local material. Keep this list tiny and justified: every entry is a hole in the
 /// guard below.
 ///
-/// * `.cargo/config.toml`: the gitignored `mold` opt-in `scripts/dev-setup.sh` offers to
-///   write. `CONTRIBUTING.md` tells you to create it, so a clean checkout lacks it.
+/// * `.cargo/config.toml`: a gitignored per-checkout cargo config. `CONTRIBUTING.md` names it
+///   as where the `mold` opt-in must *not* live (user level instead), so a clean checkout
+///   lacks it.
 /// * `compose/keys/`: dev crypt4gh key material minted by hand (`.gitignore` keeps only the
 ///   `.gitkeep`). `scripts/dev-reset.sh --keys` deletes it again.
 /// * `target/`: build output. `target/.gate-ok` exists only after a green gate run, so

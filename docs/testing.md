@@ -438,7 +438,7 @@ one, which is what bounds the per-site cost; the converter never reads them.
 ## Running the suite
 
 The runner and its targets are documented in
-[`CONTRIBUTING.md` § Local validation pipeline](../CONTRIBUTING.md#local-validation-pipeline):
+[`CONTRIBUTING.md` § Checking a change](../CONTRIBUTING.md#checking-a-change):
 which target to run when (`quick`, `all`, `release`), which of them the GitHub workflows
 share, and why `ci-local.sh` is the gate rather than a mirror of one. This section covers
 only what is specific to the test suite.

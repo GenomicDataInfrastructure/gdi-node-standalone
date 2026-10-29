@@ -4,7 +4,7 @@
 `Cargo.toml` is the single source of the floor, and `scripts/ci-local.sh` derives the
 `msrv` leg from it. The number is nevertheless restated in prose, in `CONTRIBUTING.md`,
 `README.md` and `docs/deployment.md`, and once more as the script's unreachable fallback
-literal. Restatements drift: a bump touches around twenty sites, and one left behind is
+literal. Restatements drift: a bump touches around a dozen sites, and one left behind is
 easy to miss. Raises are rare, which makes a stale restatement more likely to survive,
 not less.
 
@@ -25,11 +25,7 @@ FLOOR_SITES: tuple[tuple[str, str], ...] = (
     ("README.md", r"MSRV \*\*(\d+\.\d+)\*\*"),
     ("docs/deployment.md", r"MSRV \*\*(\d+\.\d+)\*\*"),
     ("CONTRIBUTING.md", r"MSRV `(\d+\.\d+)`"),
-    ("CONTRIBUTING.md", r"Minimum Supported Rust Version is `(\d+\.\d+)`"),
     ("CONTRIBUTING.md", r'rust-version = "(\d+\.\d+)"'),
-    ("CONTRIBUTING.md", r"\(\*\*(\d+\.\d+)\*\* → `\d+\.\d+\.\d+`\)"),
-    ("CONTRIBUTING.md", r'\("(\d+\.\d+) or newer works"\)'),
-    ("CONTRIBUTING.md", r"the literal `(\d+\.\d+)` beside it"),
     ("scripts/ci-local.sh", r'^MSRV="\$\{MSRV:-(\d+\.\d+)\}"'),
     # ruff.toml explains the Python floor by analogy to the Rust one and quotes it, so
     # that quoted number needs binding like any other restatement.
@@ -45,9 +41,6 @@ FLOOR_SITES: tuple[tuple[str, str], ...] = (
 #: Sites that quote the leg's earliest-patch toolchain, which must be `<floor>.0`.
 PATCH_SITES: tuple[tuple[str, str], ...] = (
     ("CONTRIBUTING.md", r"cargo \+(\d+\.\d+\.\d+) check"),
-    ("CONTRIBUTING.md", r"rustup toolchain install (\d+\.\d+\.\d+)"),
-    ("CONTRIBUTING.md", r"earliest patch \(`(\d+\.\d+\.\d+)`\)"),
-    ("CONTRIBUTING.md", r"\(\*\*\d+\.\d+\*\* → `(\d+\.\d+\.\d+)`\)"),
 )
 
 
@@ -96,8 +89,8 @@ class MsrvProseIsBoundToCargoToml(unittest.TestCase):
     def test_every_watched_site_still_states_the_floor(self) -> None:
         """A prose rewrite that drops the number must fail here, not un-guard the site.
 
-        Checked per (file, pattern) rather than per file: CONTRIBUTING.md carries six
-        patterns, and a per-file check would let five go silent while the sixth kept the
+        Checked per (file, pattern) rather than per file: CONTRIBUTING.md carries three
+        patterns, and a per-file check would let two go silent while the third kept the
         file watched.
         """
         silent = [

@@ -82,7 +82,7 @@ A Cargo workspace (edition 2024): four library crates, two binaries, and a dev-o
 | `test-util` (`crates/test-util`) | dev-only library | The one place `unsafe` is allowed: the `std::env` mutator wrappers Rust 2024 requires. Never shipped. |
 
 Build profiles (`lite` by default, `s3`, `full`) gate the networked dependencies at compile
-time; see [`CONTRIBUTING.md`](../CONTRIBUTING.md#build-profiles-the-litefull-feature-matrix).
+time; see [`CONTRIBUTING.md`](../CONTRIBUTING.md#build-profiles).
 
 ## Data flow: ingest → overlay → query
 

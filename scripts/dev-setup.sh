@@ -275,4 +275,4 @@ printf '\n%sReady.%s Next:\n' "$OK" "$OFF"
 printf '  cargo test -p <crate>            %sthe fast inner loop%s\n' "$DIM" "$OFF"
 printf '  scripts/ci-local.sh quick        %sfmt + clippy, seconds%s\n' "$DIM" "$OFF"
 printf '  scripts/ci-local.sh all          %sthe full gate; one run per machine at a time, a second queues%s\n' "$DIM" "$OFF"
-printf '  See CONTRIBUTING.md for the test taxonomy and build profiles.\n'
+printf '  See CONTRIBUTING.md for the build profiles and the gate, docs/testing.md for the test suite.\n'
