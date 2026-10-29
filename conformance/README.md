@@ -91,9 +91,8 @@ into `target/conformance/union.ttl`. It then runs:
   skip. A value constraint is reported and skipped, for one of two reasons the output
   distinguishes:
 
-  - the property is optional and the corpus does not populate it (`dct:type`,
-    `Distribution`'s `adms:status`). Closable by extending the corpus, at the cost of a
-    fixture less like a real node.
+  - the property is optional and the corpus does not populate it (`dct:type`). Closable
+    by extending the corpus, at the cost of a fixture less like a real node.
   - the site is structurally unexercisable. Every remaining `sh:uniqueLang` skip is this:
     the node emits those paths as plain literals because the model behind them is a string,
     not a language map (`Agent.name` and `OtherIdentifier.name` for `foaf:name`, the

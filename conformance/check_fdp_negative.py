@@ -866,9 +866,9 @@ def main(argv: list[str]) -> int:
         return 1
     # Value-constraint skips are reported, not fatal: unlike the mandatory predicates above,
     # an `sh:in`/`sh:pattern` site can legitimately target an optional property the corpus
-    # does not populate (`adms:status`, `dct:type` on a non-synthetic dataset). Making these
-    # fatal would force the corpus to carry every optional field, giving a fixture less like
-    # the real node the crawl is meant to represent.
+    # does not populate (`dct:type` on a non-synthetic dataset). Making these fatal would
+    # force the corpus to carry every optional field, giving a fixture less like the real
+    # node the crawl is meant to represent.
     if value_skipped:
         print(
             f"\nnote: {len(value_skipped)} value-constraint site(s) not exercised by this "
@@ -876,9 +876,9 @@ def main(argv: list[str]) -> int:
             "is a corpus gap:"
         )
         print(
-            "  (a) optional property the corpus does not populate — `dct:type` (set only on "
-            "synthetic datasets) and `Distribution`'s `adms:status`. Closable by extending "
-            "the fixture corpus, at the cost of a corpus less like a real node."
+            "  (a) optional property the corpus does not populate — `dct:type`, set only on "
+            "synthetic datasets. Closable by extending the fixture corpus, at the cost of a "
+            "corpus less like a real node."
         )
         print(
             "  (b) structurally unexercisable — every remaining `sh:uniqueLang` site. The "

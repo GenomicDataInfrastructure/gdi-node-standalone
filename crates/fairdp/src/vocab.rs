@@ -215,6 +215,12 @@ pub(crate) const FDP_SPEC_V1_2: &str = "https://specs.fairdatapoint.org/v1.2/fdp
 pub(crate) const DATASET_STATUS_COMPLETED: &str =
     "http://publications.europa.eu/resource/authority/dataset-status/COMPLETED";
 
+/// `adms:status` constant on a distribution: the EU distribution-status `COMPLETED`
+/// value. Distributions have their own status table, the only one gdi-metadata's
+/// `DistributionShape` accepts.
+pub(crate) const DISTRIBUTION_STATUS_COMPLETED: &str =
+    "http://publications.europa.eu/resource/authority/distribution-status/COMPLETED";
+
 // --- XSD datatype IRIs ---
 
 /// `xsd:string`.
