@@ -338,7 +338,7 @@ pub(crate) fn add_agent(
 /// `dcatap:applicableLegislation` and `dct:license` are inherited from the parent
 /// dataset. Its title and `dcat:accessURL` (where a user asks for access) come from
 /// `[fairdp.distribution]`; the inline `dcat:accessService` `dcat:DataService` is the
-/// aggregated Beacon.
+/// aggregated Beacon. Its `adms:status` is constant, as on the dataset.
 #[must_use]
 pub fn distribution_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
     let mut b = GraphBuilder::new();
@@ -373,6 +373,12 @@ pub fn distribution_graph(entry: &DatasetEntry, ctx: &FdpContext) -> Graph {
         b.add_iri(subj.clone(), vocab::DCATAP_APPLICABLE_LEGISLATION, iri);
     }
     b.add_iri(subj.clone(), vocab::DCT_LICENSE, &entry.metadata.license);
+
+    b.add_iri(
+        subj.clone(),
+        vocab::ADMS_STATUS,
+        vocab::DISTRIBUTION_STATUS_COMPLETED,
+    );
 
     // Inline DataService blank node under dcat:accessService.
     let service_subj =
