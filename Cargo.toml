@@ -212,8 +212,8 @@ rustls = { version = "=0.23.46", default-features = false, features = ["ring", "
 # trust store, via reqwest's `tls_certs_merge` and object_store's `with_root_certificate`,
 # so a self-contained binary verifies public TLS on any host — distroless, bare-metal
 # glibc, or a musl/scratch/HPC node with no system CA bundle. Centralized in `core::tls`.
-webpki-root-certs = "=1.0.9"
-tokio = { version = "=1.53.2", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "signal", "net"] }
+webpki-root-certs = "=1.0.10"
+tokio = { version = "=1.53.3", features = ["rt-multi-thread", "macros", "fs", "sync", "time", "signal", "net"] }
 notify = "=8.2.0"
 tracing = "=0.1.44"
 # `json` for the service's structured single-line stderr logs.

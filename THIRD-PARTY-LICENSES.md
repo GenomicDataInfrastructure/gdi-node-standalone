@@ -490,7 +490,7 @@ Used by:
 - arrow-schema 60.0.0
 - arrow-select 60.0.0
 - cmov 0.5.4
-- ctutils 0.4.3
+- ctutils 0.4.4
 - encode_unicode 1.0.0
 - encoding_rs 0.8.42
 - multiversion_no_op 1.0.0
@@ -8125,9 +8125,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
-- zstd-safe 8.0.0
-- zstd-sys 2.1.0+zstd.1.5.7
-- zstd 0.14.0
+- zstd-safe 8.2.0
+- zstd-sys 2.1.2+zstd.1.5.7
+- zstd 0.14.3
 
 ```
 BSD 3-Clause License
@@ -8164,7 +8164,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
-- zstd-sys 2.1.0+zstd.1.5.7
+- zstd-sys 2.1.2+zstd.1.5.7
 
 ```
 BSD License
@@ -8352,7 +8352,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ### BSD 3-Clause "New" or "Revised" License (BSD-3-Clause)
 
 Used by:
-- zstd-sys 2.1.0+zstd.1.5.7
+- zstd-sys 2.1.2+zstd.1.5.7
 
 ```
 The auto-generated bindings are under the 3-clause BSD license:
@@ -8442,7 +8442,7 @@ For these and/or other purposes and motivations, and without any expectation of 
 ### Community Data License Agreement Permissive 2.0 (CDLA-Permissive-2.0)
 
 Used by:
-- webpki-root-certs 1.0.9
+- webpki-root-certs 1.0.10
 
 ```
 # Community Data License Agreement - Permissive - Version 2.0
@@ -9113,7 +9113,7 @@ CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ### ISC License (ISC)
 
 Used by:
-- rustls-webpki 0.103.15
+- rustls-webpki 0.103.16
 
 ```
 Except as otherwise noted, this project is licensed under the following
@@ -9928,7 +9928,7 @@ USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Used by:
 - tokio-util 0.7.19
-- tokio 1.53.2
+- tokio 1.53.3
 
 ```
 MIT License
