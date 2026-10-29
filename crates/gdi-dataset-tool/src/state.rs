@@ -593,7 +593,7 @@ pub fn require_inbox(inbox: &Path) -> Result<(), ToolError> {
             "inbox {} does not exist. The node creates its inbox at startup, so an absent \
              one means this is not that node's inbox path. Check the profile's `inbox` \
              or `--inbox` against the node's `[service].inbox`. If you are staging a drop \
-             before the node's first start, create it first: mkdir -p {}",
+             before the node's first start, create it first: mkdir -p -m 0700 {}",
             inbox.display(),
             inbox.display()
         ))),

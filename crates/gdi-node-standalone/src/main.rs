@@ -1171,14 +1171,9 @@ async fn run(cli: Cli) -> Result<()> {
 
     // Inbox watcher + periodic rescan, if an inbox is configured.
     if let Some(inbox) = state.config.service.inbox.clone() {
-        // The inbox is an operator-provisioned ingress a provider drops into, so it keeps
-        // its configured permissions. Unlike the rest of the data path, it is not forced
-        // 0o700.
-        #[expect(
-            clippy::disallowed_methods,
-            reason = "the inbox is an operator-provisioned ingress that keeps its configured permissions"
-        )]
-        std::fs::create_dir_all(&inbox)
+        // A pre-existing inbox, such as a mounted volume or one the operator made, keeps its
+        // mode. One the node creates is owner-only, like the rest of the data path.
+        gdi_node_standalone_core::util::create_private_dir(&inbox)
             .with_context(|| format!("creating inbox {}", inbox.display()))?;
         // An inbox writable by more than its owner is a multi-tenant plaintext inbox, an
         // unsupported topology: a co-tenant can swap a just-validated staging file for a

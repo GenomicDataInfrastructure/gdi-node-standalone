@@ -1830,8 +1830,8 @@ asynchronously: a successful `deploy` only drops the artifact into the inbox, so
 > wrong, and `deploy`, `publish`, `unpublish` and `delete` all refuse rather than create
 > it. A created-on-demand inbox would turn the one signal a mistyped path gives, `ENOENT`,
 > into a phantom inbox that accepts every drop while the node reads the real one and sees
-> nothing. If you are staging a drop before the node's first start, `mkdir -p <inbox>`
-> first; the error message names that command.
+> nothing. If you are staging a drop before the node's first start, run
+> `mkdir -p -m 0700 <inbox>` first; the error message names that command.
 
 ```bash
 gdi-dataset-tool deploy GDI-EE-EXAMPLE-20260409143052837.tar.c4gh --inbox /var/inbox
