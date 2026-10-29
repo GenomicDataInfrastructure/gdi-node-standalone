@@ -191,7 +191,7 @@ A keyless node reading a local inbox, serving the bundled single-variant COVID
 allele-frequency sample. Nothing to author, no keys, no Docker. First the node:
 
 ```bash
-mkdir -p ~/gdi-demo/inbox ~/gdi-demo/datasets
+mkdir -p -m 0700 ~/gdi-demo/inbox ~/gdi-demo/datasets   # keep the inbox owner-only, or the node warns
 cat > ~/gdi-demo/node.toml <<EOF
 [service]
 base_url = "http://localhost:8080"
