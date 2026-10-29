@@ -36,12 +36,10 @@ spec:
           protocol: TCP
     # Management plane: the monitoring namespace's scraper only.
     #
-    # `namespaceSelector` and `podSelector` sit in the same `from` element: one
-    # element ANDs its selectors, whereas two elements OR them — which would widen this
-    # rule to every pod in the cluster carrying the label, the exact opposite of the
-    # intent. A bare `namespaceSelector` would admit every pod in `monitoring` (Grafana,
-    # Alertmanager, any sidecar, anything that later lands there) to the unauthenticated
-    # dataset-state oracle, so it is worth the extra selector.
+    # `namespaceSelector` and `podSelector` sit in the same `from` element, so both
+    # must match. Split into two elements, either would do, and every pod in
+    # `monitoring` (Grafana, Alertmanager, anything that later lands there) would
+    # reach the unauthenticated dataset-state oracle.
     #
     # Adjust the pod label to match your scraper — `app.kubernetes.io/name: prometheus` is
     # the prometheus-operator convention, not a universal one. Getting it wrong blocks the
