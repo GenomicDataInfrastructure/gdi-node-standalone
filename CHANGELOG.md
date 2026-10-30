@@ -28,21 +28,11 @@ Record only real entries here. See CONTRIBUTING.md#cutting-a-release for rolling
 section into `## [X.Y.Z] - YYYY-MM-DD` at release time. Move only the real entries; leave
 this comment under `## [Unreleased]`. The release workflow fails if no versioned section
 exists.
-
-The `## [1.0.0]` date below is the intended release date, not a tagged fact: no tag has
-been cut. Correct it to the actual date if the tag slips, before pushing `v1.0.0`.
-
-No `v1.0.0` tag exists yet, so `[Unreleased]` at the bottom points at the commit log rather
-than a compare range. Change it to `compare/v1.0.0...HEAD` once `v1.0.0` is tagged, which
-is also when `[1.0.0]` starts resolving.
 -->
 
-## [1.0.0] - 2026-09-11
+## [1.0.0] - 2026-10-30
 
-*Not released yet — release candidates draw their notes from this section. The date above
-is the intended one. Correct it and delete this note when `v1.0.0` is tagged.*
-
-Initial public release. There is no earlier public version, so this section records the
+Initial public release. There is no earlier stable version, so this section records the
 baseline rather than a set of changes: it names the contracts this release establishes, so
 that every later entry has something concrete to be breaking *against*.
 
@@ -73,5 +63,5 @@ listed only so a packager knows what the source needs.
 The FAIR Data Point graph shape follows the FDP specification and DCAT-AP; it is pinned by
 snapshot tests rather than by a version number of its own.
 
-[Unreleased]: https://github.com/GenomicDataInfrastructure/gdi-node-standalone/commits/main
+[Unreleased]: https://github.com/GenomicDataInfrastructure/gdi-node-standalone/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/GenomicDataInfrastructure/gdi-node-standalone/releases/tag/v1.0.0
