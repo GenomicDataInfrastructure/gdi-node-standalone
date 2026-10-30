@@ -33,9 +33,6 @@ FLOOR_SITES: tuple[tuple[str, str], ...] = (
     # The provider guide tells a data provider what to install before building the tool.
     # The sentence wraps between "Rust" and "version", so the pattern spans whitespace.
     ("docs/gdi-dataset-tool.md", r"minimum supported Rust\s+version is (\d+\.\d+)"),
-    # The changelog's contract table. It is a released-section fact and will freeze once
-    # `v1.0.0` ships, but until then a ratchet must move it like every other restatement.
-    ("CHANGELOG.md", r"Minimum supported Rust version \| `(\d+\.\d+)`"),
 )
 
 #: Sites that quote the leg's earliest-patch toolchain, which must be `<floor>.0`.

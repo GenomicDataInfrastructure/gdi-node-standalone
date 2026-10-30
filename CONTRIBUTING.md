@@ -489,7 +489,9 @@ coverage, licence and e2e legs (`help` lists them); it needs Docker, `cross`, `t
    comment and move the entries under it, leaving `## [Unreleased]` and its comment in
    place; renaming that heading would carry the comment (HTML, so GitHub never renders it)
    into the versioned section. The release workflow fails if the `## [X.Y.Z]` section is
-   missing, so an un-rolled changelog blocks the release rather than being dropped.
+   missing, so an un-rolled changelog blocks the release rather than being dropped. At the
+   bottom, start the `[Unreleased]` compare link at the new tag and add a `[X.Y.Z]` link to
+   its release.
 4. **Update the version in prose.** `README.md` and several docs name the current release,
    with and without the `v`, and nothing checks them;
    `git grep -nF "$old" -- ':!*Cargo.lock' ':!THIRD-PARTY-LICENSES.md'` finds every site.
